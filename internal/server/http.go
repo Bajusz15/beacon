@@ -1,8 +1,10 @@
 package server
 
 import (
+	"beacon/internal/config"
 	"beacon/internal/state"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 )
@@ -12,7 +14,7 @@ type statusResponse struct {
 	LastDeployed string `json:"last_deployed"`
 }
 
-func StartHTTPServer(status *state.Status) {
+func StartHTTPServer(cfg *config.Config, status *state.Status) {
 	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		tag, deployed := status.Get()
 		resp := statusResponse{
@@ -22,6 +24,6 @@ func StartHTTPServer(status *state.Status) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	})
-	log.Println("[Beacon] Status server listening on :8080")
-	http.ListenAndServe(":8080", nil)
+	log.Printf("[Beacon] Status server listening on :%s\n", cfg.Port)
+	http.ListenAndServe(fmt.Sprintf(":%s", cfg.Port), nil)
 }

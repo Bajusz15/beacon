@@ -6,17 +6,13 @@ import (
 	"os/exec"
 	"time"
 
+	"beacon/internal/config"
 	"beacon/internal/state"
 	"beacon/internal/util"
 )
 
-const (
-	repoURL   = "https://github.com/yourusername/yourrepo.git" // Replace with actual repo
-	localPath = "/opt/beacon/project"
-)
-
-func CheckForNewTag(status *state.Status) {
-	cmd := exec.Command("git", "ls-remote", "--tags", repoURL)
+func CheckForNewTag(cfg *config.Config, status *state.Status) {
+	cmd := exec.Command("git", "ls-remote", "--tags", cfg.RepoURL)
 	output, err := cmd.Output()
 	if err != nil {
 		log.Println("[Beacon] Error checking tags:", err)
@@ -30,14 +26,14 @@ func CheckForNewTag(status *state.Status) {
 	}
 
 	log.Printf("[Beacon] New tag found: %s (prev: %s)\n", latestTag, lastTag)
-	Deploy(latestTag, status)
+	Deploy(cfg, latestTag, status)
 }
 
-func Deploy(tag string, status *state.Status) {
+func Deploy(cfg *config.Config, tag string, status *state.Status) {
 	log.Printf("[Beacon] Deploying tag %s...\n", tag)
 
-	os.RemoveAll(localPath)
-	exec.Command("git", "clone", "--branch", tag, repoURL, localPath).Run()
+	os.RemoveAll(cfg.LocalPath)
+	exec.Command("git", "clone", "--branch", tag, cfg.RepoURL, cfg.LocalPath).Run()
 
 	// You can add shell commands, Docker run, etc. here
 	status.Set(tag, time.Now())

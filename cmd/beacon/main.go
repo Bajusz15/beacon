@@ -1,6 +1,7 @@
 package main
 
 import (
+	"beacon/internal/config"
 	"beacon/internal/deploy"
 	"beacon/internal/server"
 	"beacon/internal/state"
@@ -8,19 +9,18 @@ import (
 	"time"
 )
 
-const pollInterval = 60 * time.Second
-
 func main() {
 	log.Println("[Beacon] Agent starting...")
 
+	cfg := config.Load()
 	status := &state.Status{}
 
 	// Start HTTP status/metrics endpoint
-	go server.StartHTTPServer(status)
+	go server.StartHTTPServer(cfg, status)
 
 	// Main polling loop
 	for {
-		deploy.CheckForNewTag(status)
-		time.Sleep(pollInterval)
+		deploy.CheckForNewTag(cfg, status)
+		time.Sleep(cfg.PollInterval)
 	}
 }

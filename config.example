@@ -1,0 +1,15 @@
+# Beacon Configuration
+# Set these environment variables or copy to .env file
+
+# Repository URL (supports both HTTPS and SSH)
+BEACON_REPO_URL=https://github.com/yourusername/yourrepo.git
+# For SSH: BEACON_REPO_URL=git@github.com:yourusername/yourrepo.git
+
+# Local deployment path
+BEACON_LOCAL_PATH=/opt/beacon/project
+
+# Polling interval (supports: 30s, 1m, 5m, etc.)
+BEACON_POLL_INTERVAL=60s
+
+# HTTP server port
+BEACON_PORT=8080 
