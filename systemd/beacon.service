@@ -1,0 +1,18 @@
+[Unit]
+Description=Beacon Agent - Lightweight deployment and reporting for IoT
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/beacon
+WorkingDirectory=/opt/beacon
+Restart=always
+RestartSec=5
+User=pi
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
