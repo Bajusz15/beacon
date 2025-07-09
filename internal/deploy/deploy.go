@@ -12,7 +12,18 @@ import (
 )
 
 func CheckForNewTag(cfg *config.Config, status *state.Status) {
-	cmd := exec.Command("git", "ls-remote", "--tags", cfg.RepoURL)
+	// Set up SSH key if provided
+	if cfg.SSHKeyPath != "" {
+		os.Setenv("GIT_SSH_COMMAND", "ssh -i "+cfg.SSHKeyPath+" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no")
+	}
+
+	repoURL := cfg.RepoURL
+	// Inject token for HTTPS if provided
+	if cfg.GitToken != "" && len(repoURL) > 8 && repoURL[:8] == "https://" {
+		repoURL = "https://" + cfg.GitToken + "@" + repoURL[8:]
+	}
+
+	cmd := exec.Command("git", "ls-remote", "--tags", repoURL)
 	output, err := cmd.Output()
 	if err != nil {
 		log.Println("[Beacon] Error checking tags:", err)
@@ -33,7 +44,13 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) {
 	log.Printf("[Beacon] Deploying tag %s...\n", tag)
 
 	os.RemoveAll(cfg.LocalPath)
-	exec.Command("git", "clone", "--branch", tag, cfg.RepoURL, cfg.LocalPath).Run()
+
+	repoURL := cfg.RepoURL
+	if cfg.GitToken != "" && len(repoURL) > 8 && repoURL[:8] == "https://" {
+		repoURL = "https://" + cfg.GitToken + "@" + repoURL[8:]
+	}
+
+	exec.Command("git", "clone", "--branch", tag, repoURL, cfg.LocalPath).Run()
 
 	// You can add shell commands, Docker run, etc. here
 	status.Set(tag, time.Now())

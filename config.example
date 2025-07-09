@@ -1,15 +1,21 @@
-# Beacon Configuration
-# Set these environment variables or copy to .env file
+# Example Beacon project environment file
+# Copy this to /etc/beacon/projects/<projectname>/env and edit as needed
 
 # Repository URL (supports both HTTPS and SSH)
-BEACON_REPO_URL=https://github.com/yourusername/yourrepo.git
-# For SSH: BEACON_REPO_URL=git@github.com:yourusername/yourrepo.git
+BEACON_REPO_URL=git@github.com:yourusername/yourrepo.git
+# For HTTPS: BEACON_REPO_URL=https://github.com/yourusername/yourrepo.git
+
+# Path to SSH private key (optional, for SSH URLs)
+BEACON_SSH_KEY_PATH=/etc/beacon/id_ed25519
+
+# Personal access token (optional, for HTTPS URLs)
+BEACON_GIT_TOKEN=
 
 # Local deployment path
 BEACON_LOCAL_PATH=/opt/beacon/project
 
-# Polling interval (supports: 30s, 1m, 5m, etc.)
+# Polling interval (e.g., 30s, 1m, 5m)
 BEACON_POLL_INTERVAL=60s
 
 # HTTP server port
-BEACON_PORT=8080 
+BEACON_PORT=8080

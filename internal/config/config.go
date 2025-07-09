@@ -10,6 +10,8 @@ type Config struct {
 	LocalPath    string
 	PollInterval time.Duration
 	Port         string
+	SSHKeyPath   string
+	GitToken     string
 }
 
 func Load() *Config {
@@ -18,6 +20,8 @@ func Load() *Config {
 		LocalPath:    getEnv("BEACON_LOCAL_PATH", "/opt/beacon/project"),
 		PollInterval: getDurationEnv("BEACON_POLL_INTERVAL", 60*time.Second),
 		Port:         getEnv("BEACON_PORT", "8080"),
+		SSHKeyPath:   getEnv("BEACON_SSH_KEY_PATH", ""),
+		GitToken:     getEnv("BEACON_GIT_TOKEN", ""),
 	}
 }
 
