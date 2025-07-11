@@ -91,4 +91,25 @@ WantedBy=multi-user.target
 
 ---
 
-Would you like a sample `install.sh` script to automate these steps for the user?
+<pre lang="markdown">
+
+### 🧪 Example Run on Raspberry Pi
+
+```bash
+pi@raspberrypi:/media/pi/HIKSEMI/applications/beacon-tests/beacon $ beacon
+2025/07/11 17:40:54 [Beacon] Agent starting...
+Enter the Git repo URL [https://github.com/yourusername/yourrepo.git]: https://github.com/Bajusz15/beacon.git
+Enter the local path for the project [/opt/beacon/project]: /media/pi/HIKSEMI/applications/beacon-tests/test
+Enter the port to run on [8080]: 8080
+Enter the SSH key path (optional): 
+Enter the Git token (optional): ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+2025/07/11 17:41:22 [Beacon] Status server listening on :8080
+2025/07/11 17:42:24 [Beacon] New tag found: v0.0.1 (prev: )
+2025/07/11 17:42:24 [Beacon] Deploying tag v0.0.1...
+2025/07/11 17:42:25 [Beacon] Deployment of tag v0.0.1 complete.
+```
+</pre>
+
+---
+[☕ Buy me a coffee](coff.ee/matebajusz)  
+If you find Beacon helpful, consider supporting my work!

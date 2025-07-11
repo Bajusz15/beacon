@@ -32,6 +32,26 @@ func CheckForNewTag(cfg *config.Config, status *state.Status) {
 
 	latestTag := parseLatestTag(string(output))
 	lastTag, _ := status.Get()
+
+	shouldDeploy := false
+	if stat, err := os.Stat(cfg.LocalPath); os.IsNotExist(err) {
+		log.Println("[Beacon] Local path does not exist. Cloning repository...")
+		shouldDeploy = true
+	} else if err == nil && stat.IsDir() {
+		entries, _ := os.ReadDir(cfg.LocalPath)
+		if len(entries) == 0 {
+			log.Println("[Beacon] Local path is empty. Cloning repository...")
+			shouldDeploy = true
+		}
+	}
+
+	// Deploy if first run or new tag
+	if shouldDeploy {
+		Deploy(cfg, latestTag, status)
+		log.Printf("[Beacon] Repository cloned to %s at tag %s.\n", cfg.LocalPath, latestTag)
+		return
+	}
+
 	if latestTag == "" || latestTag == lastTag {
 		return
 	}
