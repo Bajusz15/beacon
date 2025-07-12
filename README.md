@@ -1,5 +1,5 @@
-# beacon
-Lightweight deployment and reporting agent for self-hosted IoT devices such as Raspberry Pi.
+# Beacon
+Lightweight deployment and reporting agent for self-hosted IoT devices such as Raspberry Pi. It polls a Git repository for new tags and deploys code when a new tag appears.
 
 ---
 
@@ -100,7 +100,6 @@ WantedBy=multi-user.target
 > ```
 ```
 
----
 
 ## 🚀 Installation
 
@@ -127,22 +126,19 @@ WantedBy=multi-user.target
    sudo systemctl start beacon@myproject
    ```
 
----
 
-## **How to Use**
+## ⚙️ Alternative: Run in Background (without systemd)
 
-1. **Create a project env file:**  
-   Copy the example to `/etc/beacon/projects/<projectname>/env` and edit as needed.
+If you prefer not to use systemd, you can run `beacon` in the background and log output to a file:
 
-2. **Create the deployment directory:**  
-   `sudo mkdir -p /opt/beacon/<projectname>`
+```bash
+nohup beacon > beacon.log 2>&1 &
+```
 
-3. **Enable and start the service:**  
-   ```bash
-   sudo systemctl enable --now beacon@projectname
-   ```
-
----
+To stop it later:
+```bash
+kill $(pgrep beacon)
+```
 
 <pre lang="markdown">
 
@@ -167,74 +163,6 @@ Enter the Git token (optional): ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 [☕ Buy me a coffee](coff.ee/matebajusz)  
 If you find Beacon helpful, consider supporting my work!
-
-
-# Beacon
-
-Beacon is a lightweight deployment and update agent for self-hosted and IoT devices. It polls a Git repository for new tags and deploys code when a new tag appears.
-
-## ✨ Features
-
-- Polls a Git repo for new tags
-- Automatically deploys latest tagged version
-- Executes custom deploy commands (Docker, scripts, etc.)
-- Runs an HTTP status server
-- Systemd compatible
-- Minimal setup
-
-## 🚀 Installation
-
-1. Build the binary:
-   ```bash
-   GOOS=linux GOARCH=arm GOARM=7 go build -o beacon ./cmd/beacon
-   ```
-   For arm64:
-   ```bash
-   GOOS=linux GOARCH=arm64 go build -o beacon ./cmd/beacon
-   ```
-
-2. Copy to your system:
-   ```bash
-   chmod +x beacon
-   sudo cp beacon /usr/local/bin/beacon
-   ```
-
-3. (Optional) Set up systemd:
-   ```bash
-   sudo cp systemd/beacon@.service /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable beacon@myproject
-   sudo systemctl start beacon@myproject
-   ```
-
-## 🧪 Example Run on Raspberry Pi
-
-```bash
-pi@raspberrypi:/media/pi/HIKSEMI/applications/beacon-tests/beacon $ beacon
-2025/07/11 17:40:54 [Beacon] Agent starting...
-Enter the Git repo URL [https://github.com/yourusername/yourrepo.git]: https://github.com/Bajusz15/beacon.git
-Enter the local path for the project [/opt/beacon/project]: /media/pi/HIKSEMI/applications/beacon-tests/test
-Enter the port to run on [8080]: 8080
-Enter the SSH key path (optional): 
-Enter the Git token (optional): ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-2025/07/11 17:41:22 [Beacon] Status server listening on :8080
-2025/07/11 17:42:24 [Beacon] New tag found: v0.0.1 (prev: )
-2025/07/11 17:42:24 [Beacon] Deploying tag v0.0.1...
-2025/07/11 17:42:25 [Beacon] Deployment of tag v0.0.1 complete.
-```
-
-## ⚙️ Alternative: Run in Background (without systemd)
-
-If you prefer not to use systemd, you can run `beacon` in the background and log output to a file:
-
-```bash
-nohup beacon > beacon.log 2>&1 &
-```
-
-To stop it later:
-```bash
-kill $(pgrep beacon)
-```
 
 ## 📄 License
 
