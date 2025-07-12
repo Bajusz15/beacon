@@ -98,7 +98,7 @@ WantedBy=multi-user.target
 > ```bash
 > journalctl -u beacon@myproject -f
 > ```
-```
+
 
 ---
 
