@@ -53,7 +53,7 @@ BEACON_LOCAL_PATH=/opt/beacon/project
 
 # Deploy command to run after update (optional)
 # Example: "docker compose up --build -d" or "./install.sh"
-BEACON_DEPLOY_COMMAND=docker compose up --build -d
+BEACON_DEPLOY_CMD=docker compose up --build -d
 
 # Polling interval (e.g., 30s, 1m, 5m)
 BEACON_POLL_INTERVAL=60s
@@ -63,8 +63,8 @@ BEACON_PORT=8080
 ```
 
 > **Note:**
-> - Use `BEACON_DEPLOY_COMMAND` to specify a shell command to run after each deployment. This can be a Docker Compose command, a shell script, or any command your project needs.
-> - For more complex setups, place an `install.sh` or similar script in your repository and set `BEACON_DEPLOY_COMMAND=./install.sh`.
+> - Use `BEACON_DEPLOY_CMD` to specify a shell command to run after each deployment. This can be a Docker Compose command, a shell script, or any command your project needs.
+> - For more complex setups, place an `install.sh` or similar script in your repository and set `BEACON_DEPLOY_CMD=./install.sh`.
 > - Beacon will log whether the deploy command succeeded or failed.
 
 ---
@@ -81,7 +81,7 @@ After=network.target
 EnvironmentFile=/etc/beacon/projects/%i/env
 Type=simple
 ExecStart=/usr/local/bin/beacon
-WorkingDirectory=/opt/beacon/%i
+WorkingDirectory=/opt/beacon/project
 Restart=always
 RestartSec=5
 User=pi
@@ -96,10 +96,11 @@ WantedBy=multi-user.target
 
 > **Note:** With systemd, logs are stored in the systemd journal. View them with:
 > ```bash
-> journalctl -u beacon@myapp -f
+> journalctl -u beacon@myproject -f
 > ```
 ```
 
+---
 
 ## 🚀 Installation
 
@@ -167,3 +168,44 @@ If you find Beacon helpful, consider supporting my work!
 ## 📄 License
 
 Apache 2.0
+
+---
+
+## 🛠 Troubleshooting
+
+### Permission denied when running `beacon`
+Make sure the binary is executable:
+```bash
+chmod +x beacon
+```
+
+### How do I test deployment manually?
+Run `beacon` in interactive mode:
+```bash
+./beacon
+```
+
+### Where are logs stored?
+If you're using systemd, check logs with:
+```bash
+journalctl -u beacon@myproject -f
+```
+
+If running manually, redirect logs:
+```bash
+nohup beacon > beacon.log 2>&1 &
+tail -f beacon.log
+```
+
+### Deployment command is not executing?
+Ensure your command is valid and executable. For scripts:
+```bash
+chmod +x install.sh
+```
+And use:
+```env
+BEACON_DEPLOY_CMD=./install.sh
+```
+
+If the command fails, Beacon will log the error and exit code.
+
