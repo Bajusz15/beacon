@@ -11,12 +11,13 @@ import (
 )
 
 type Config struct {
-	RepoURL      string
-	LocalPath    string
-	PollInterval time.Duration
-	Port         string
-	SSHKeyPath   string
-	GitToken     string
+	RepoURL       string
+	LocalPath     string
+	PollInterval  time.Duration
+	Port          string
+	SSHKeyPath    string
+	GitToken      string
+	DeployCommand string
 }
 
 func Load() *Config {
@@ -24,12 +25,13 @@ func Load() *Config {
 	// projectName := getEnvOrPrompt("BEACON_PROJECT_NAME", "Enter your project name")
 
 	cfg := &Config{
-		RepoURL:      getEnvOrPrompt("BEACON_REPO_URL", "Enter the Git repo URL", "https://github.com/yourusername/yourrepo.git"),
-		LocalPath:    getEnvOrPrompt("BEACON_LOCAL_PATH", "Enter the local path for the project", "/opt/beacon/project"),
-		PollInterval: getDurationEnv("BEACON_POLL_INTERVAL", 60*time.Second),
-		Port:         getEnvOrPrompt("BEACON_PORT", "Enter the port to run on", "8080"),
-		SSHKeyPath:   getEnvOrPrompt("BEACON_SSH_KEY_PATH", "Enter the SSH key path (optional)", ""),
-		GitToken:     getEnvOrPrompt("BEACON_GIT_TOKEN", "Enter the Git token (optional)", ""),
+		RepoURL:       getEnvOrPrompt("BEACON_REPO_URL", "Enter the Git repo URL", "https://github.com/yourusername/yourrepo.git"),
+		LocalPath:     getEnvOrPrompt("BEACON_LOCAL_PATH", "Enter the local path for the project", "/opt/beacon/project"),
+		PollInterval:  getDurationEnv("BEACON_POLL_INTERVAL", 60*time.Second),
+		Port:          getEnvOrPrompt("BEACON_PORT", "Enter the port to run on", "8080"),
+		SSHKeyPath:    getEnvOrPrompt("BEACON_SSH_KEY_PATH", "Enter the SSH key path (optional)", ""),
+		GitToken:      getEnvOrPrompt("BEACON_GIT_TOKEN", "Enter the Git token (optional)", ""),
+		DeployCommand: getEnvOrPrompt("BEACON_DEPLOY_COMMAND", "Enter the deploy command to run after update (optional)", ""),
 	}
 
 	ensureDir(cfg.LocalPath)

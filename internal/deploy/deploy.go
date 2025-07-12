@@ -4,11 +4,11 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"beacon/internal/config"
 	"beacon/internal/state"
-	"beacon/internal/util"
 )
 
 func CheckForNewTag(cfg *config.Config, status *state.Status) {
@@ -17,22 +17,9 @@ func CheckForNewTag(cfg *config.Config, status *state.Status) {
 		os.Setenv("GIT_SSH_COMMAND", "ssh -i "+cfg.SSHKeyPath+" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no")
 	}
 
-	repoURL := cfg.RepoURL
-	// Inject token for HTTPS if provided
-	if cfg.GitToken != "" && len(repoURL) > 8 && repoURL[:8] == "https://" {
-		repoURL = "https://" + cfg.GitToken + "@" + repoURL[8:]
-	}
-
-	cmd := exec.Command("git", "ls-remote", "--tags", repoURL)
-	output, err := cmd.Output()
-	if err != nil {
-		log.Println("[Beacon] Error checking tags:", err)
-		return
-	}
-
-	latestTag := parseLatestTag(string(output))
 	lastTag, _ := status.Get()
 
+	// Check if we need to do initial deployment
 	shouldDeploy := false
 	if stat, err := os.Stat(cfg.LocalPath); os.IsNotExist(err) {
 		log.Println("[Beacon] Local path does not exist. Cloning repository...")
@@ -45,13 +32,15 @@ func CheckForNewTag(cfg *config.Config, status *state.Status) {
 		}
 	}
 
-	// Deploy if first run or new tag
 	if shouldDeploy {
-		Deploy(cfg, latestTag, status)
-		log.Printf("[Beacon] Repository cloned to %s at tag %s.\n", cfg.LocalPath, latestTag)
+		// Clone default branch for initial deployment
+		Deploy(cfg, "", status)
+		log.Printf("[Beacon] Repository cloned to %s.\n", cfg.LocalPath)
 		return
 	}
 
+	// For existing repos, fetch latest tags and check for updates
+	latestTag := getLatestTagFromRepo(cfg)
 	if latestTag == "" || latestTag == lastTag {
 		return
 	}
@@ -61,7 +50,11 @@ func CheckForNewTag(cfg *config.Config, status *state.Status) {
 }
 
 func Deploy(cfg *config.Config, tag string, status *state.Status) {
-	log.Printf("[Beacon] Deploying tag %s...\n", tag)
+	if tag == "" {
+		log.Printf("[Beacon] Deploying default branch...\n")
+	} else {
+		log.Printf("[Beacon] Deploying tag %s...\n", tag)
+	}
 
 	os.RemoveAll(cfg.LocalPath)
 
@@ -70,27 +63,77 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) {
 		repoURL = "https://" + cfg.GitToken + "@" + repoURL[8:]
 	}
 
-	exec.Command("git", "clone", "--branch", tag, repoURL, cfg.LocalPath).Run()
+	// Clone the repository
+	var cloneCmd *exec.Cmd
+	if tag == "" {
+		// Clone default branch
+		cloneCmd = exec.Command("git", "clone", repoURL, cfg.LocalPath)
+	} else {
+		// Clone specific tag
+		cloneCmd = exec.Command("git", "clone", "--branch", tag, repoURL, cfg.LocalPath)
+	}
 
-	// You can add shell commands, Docker run, etc. here
-	status.Set(tag, time.Now())
-	log.Printf("[Beacon] Deployment of tag %s complete.\n", tag)
+	if err := cloneCmd.Run(); err != nil {
+		log.Printf("[Beacon] Error cloning repository: %v\n", err)
+		return
+	}
+
+	// Execute deploy command if specified
+	if cfg.DeployCommand != "" {
+		log.Printf("[Beacon] Executing deploy command: %s\n", cfg.DeployCommand)
+
+		// Change to the project directory
+		originalDir, _ := os.Getwd()
+		os.Chdir(cfg.LocalPath)
+		defer os.Chdir(originalDir)
+
+		// Execute the command
+		cmd := exec.Command("sh", "-c", cfg.DeployCommand)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			log.Printf("[Beacon] Deploy command failed: %v\n", err)
+			return
+		}
+
+		log.Printf("[Beacon] Deploy command completed successfully\n")
+	}
+
+	// Store the tag (or "default" for default branch)
+	tagToStore := tag
+	if tag == "" {
+		tagToStore = "default"
+	}
+	status.Set(tagToStore, time.Now())
+
+	if tag == "" {
+		log.Printf("[Beacon] Deployment of default branch complete.\n")
+	} else {
+		log.Printf("[Beacon] Deployment of tag %s complete.\n", tag)
+	}
 }
 
-func parseLatestTag(output string) string {
-	lines := util.SplitLines(output)
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := lines[i]
-		if line == "" {
-			continue
-		}
-		parts := util.SplitFields(line)
-		if len(parts) == 2 {
-			ref := parts[1]
-			if len(ref) > 10 && ref[:10] == "refs/tags/" {
-				return ref[10:]
-			}
-		}
+func getLatestTagFromRepo(cfg *config.Config) string {
+	// Change to the project directory
+	originalDir, _ := os.Getwd()
+	os.Chdir(cfg.LocalPath)
+	defer os.Chdir(originalDir)
+
+	// Fetch latest tags
+	fetchCmd := exec.Command("git", "fetch", "--tags")
+	if err := fetchCmd.Run(); err != nil {
+		log.Printf("[Beacon] Error fetching tags: %v\n", err)
+		return ""
 	}
-	return ""
+
+	// Get the latest tag
+	describeCmd := exec.Command("git", "describe", "--tags", "--abbrev=0")
+	output, err := describeCmd.Output()
+	if err != nil {
+		log.Printf("[Beacon] Error getting latest tag: %v\n", err)
+		return ""
+	}
+
+	return strings.TrimSpace(string(output))
 }

@@ -8,6 +8,8 @@ release/
 *.dll
 *.so
 *.dylib
+# Beacon binary
+beacon
 
 # Test binary, built with `go test -c`
 *.test
