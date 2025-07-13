@@ -23,7 +23,7 @@ Lightweight deployment and reporting agent for self-hosted IoT devices such as R
       env
     anotherapp/
       env
-/opt/beacon/
+/home/pi/
   myapp/
   anotherapp/
 systemd/
@@ -49,7 +49,7 @@ BEACON_SSH_KEY_PATH=/etc/beacon/id_ed25519
 BEACON_GIT_TOKEN=
 
 # Local deployment path
-BEACON_LOCAL_PATH=/opt/beacon/project
+BEACON_LOCAL_PATH=$HOME/beacon/project
 
 # Deploy command to run after update (optional)
 # Example: "docker compose up --build -d" or "./install.sh"
@@ -61,6 +61,14 @@ BEACON_POLL_INTERVAL=60s
 # HTTP server port
 BEACON_PORT=8080
 ```
+
+> **Directory Permissions:**
+> - The user running Beacon must have write permissions to the deployment directory specified by `BEACON_LOCAL_PATH` (e.g., `/opt/beacon/project`).
+> - If you use a system directory like `/opt/beacon/project`, you can grant access with:
+>   ```bash
+>   sudo chown -R $(whoami) /opt/beacon/project
+>   ```
+> - Alternatively, set `BEACON_LOCAL_PATH` to a directory in your home folder (e.g., `/home/pi/beacon/project`), which avoids permission issues.
 
 > **Note:**
 > - Use `BEACON_DEPLOY_CMD` to specify a shell command to run after each deployment. This can be a Docker Compose command, a shell script, or any command your project needs.
@@ -166,7 +174,7 @@ kill $(pgrep beacon)
 pi@raspberrypi:/media/pi/HIKSEMI/applications/beacon-tests/beacon $ beacon
 2025/07/11 17:40:54 [Beacon] Agent starting...
 Enter the Git repo URL [https://github.com/yourusername/yourrepo.git]: https://github.com/Bajusz15/beacon.git
-Enter the local path for the project [/opt/beacon/project]: /media/pi/HIKSEMI/applications/beacon-tests/test
+Enter the local path for the project [$HOME/beacon/project]: /media/pi/HIKSEMI/applications/beacon-tests/test
 Enter the port to run on [8080]: 8080
 Enter the SSH key path (optional): 
 Enter the Git token (optional): ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

@@ -26,7 +26,7 @@ func Load() *Config {
 
 	cfg := &Config{
 		RepoURL:       getEnvOrPrompt("BEACON_REPO_URL", "Enter the Git repo URL", "https://github.com/yourusername/yourrepo.git"),
-		LocalPath:     getEnvOrPrompt("BEACON_LOCAL_PATH", "Enter the local path for the project", "/opt/beacon/project"),
+		LocalPath:     getEnvOrPrompt("BEACON_LOCAL_PATH", "Enter the local path for the project", "$HOME/beacon/project"),
 		PollInterval:  getDurationEnv("BEACON_POLL_INTERVAL", 60*time.Second),
 		Port:          getEnvOrPrompt("BEACON_PORT", "Enter the port to run on", "8080"),
 		SSHKeyPath:    getEnvOrPrompt("BEACON_SSH_KEY_PATH", "Enter the SSH key path (optional)", ""),

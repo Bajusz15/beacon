@@ -144,7 +144,7 @@ After=network.target
 EnvironmentFile=/etc/beacon/projects/%i/env
 Type=simple
 ExecStart=/usr/local/bin/beacon
-WorkingDirectory=/opt/beacon/%i
+WorkingDirectory=$HOME/beacon/%i
 Restart=always
 RestartSec=5
 User=pi
@@ -164,7 +164,7 @@ fi
 # Create directories
 echo -e "${YELLOW}Creating directories...${NC}"
 sudo mkdir -p /etc/beacon/projects
-sudo mkdir -p /opt/beacon
+sudo mkdir -p $HOME/beacon
 
 echo -e "${GREEN}=== Beacon installation complete! ===${NC}"
 echo
@@ -175,7 +175,7 @@ echo "   sudo cp beacon.env.example /etc/beacon/projects/myapp/env"
 echo "   sudo nano /etc/beacon/projects/myapp/env"
 echo
 echo "2. Create deployment directory:"
-echo "   sudo mkdir -p /opt/beacon/myapp"
+echo "   sudo mkdir -p $HOME/beacon/myapp"
 echo
 echo "3. Start the service:"
 echo "   sudo systemctl enable --now beacon@myapp"
