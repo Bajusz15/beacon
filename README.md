@@ -187,7 +187,7 @@ Enter the Git token (optional): ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 ---
 
-[☕ Buy me a coffee](coff.ee/matebajusz)  
+[☕ Buy me a coffee](https://coff.ee/matebajusz)  
 If you find Beacon helpful, consider supporting my work!
 
 ## 📄 License
