@@ -7,3 +7,5 @@ release:
 	GOOS=darwin GOARCH=arm64 go build -o release/beacon-darwin_arm64 ./cmd/beacon
 clean:
 	rm -rf release
+checksum:
+	cd release && sha256sum * > SHA256SUMS.txt	
