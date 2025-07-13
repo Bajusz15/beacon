@@ -104,6 +104,25 @@ WantedBy=multi-user.target
 
 ## 🚀 Installation
 
+### Quick Install (Recommended)
+
+For most users, simply run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Bajusz15/beacon/main/scripts/install.sh | bash
+```
+
+This will:
+- Detect your system architecture (ARM, ARM64, AMD64)
+- Download the latest release from GitHub
+- Install to `/usr/local/bin/beacon`
+- Set up systemd service template
+- Create necessary directories
+
+### Manual Installation
+
+If you prefer to build from source:
+
 1. Build the binary:
    ```bash
    GOOS=linux GOARCH=arm GOARM=7 go build -o beacon ./cmd/beacon
@@ -119,12 +138,10 @@ WantedBy=multi-user.target
    sudo cp beacon /usr/local/bin/beacon
    ```
 
-3. (Optional) Set up systemd:
+3. Set up systemd:
    ```bash
    sudo cp systemd/beacon@.service /etc/systemd/system/
    sudo systemctl daemon-reload
-   sudo systemctl enable beacon@myproject
-   sudo systemctl start beacon@myproject
    ```
 
 

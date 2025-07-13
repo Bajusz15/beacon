@@ -2,68 +2,181 @@
 
 set -e
 
-echo "=== Beacon Agent Installer ==="
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-# Prompt for project name
-read -rp "Enter project name (e.g. myapp): " PROJECT
-if [[ -z "$PROJECT" ]]; then
-  echo "Project name cannot be empty."
-  exit 1
+# Beacon repository details
+GITHUB_API="https://api.github.com/repos/Bajusz15/beacon"
+
+echo -e "${BLUE}=== Beacon Agent Installer ===${NC}"
+
+# Function to detect system architecture
+detect_architecture() {
+    local arch
+    local os
+    
+    # Detect OS
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        os="linux"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        os="darwin"
+    else
+        echo -e "${RED}Unsupported OS: $OSTYPE${NC}"
+        exit 1
+    fi
+    
+    # Detect architecture
+    case "$(uname -m)" in
+        x86_64)
+            arch="amd64"
+            ;;
+        aarch64|arm64)
+            arch="arm64"
+            ;;
+        armv7l|armv6l)
+            arch="arm"
+            ;;
+        *)
+            echo -e "${RED}Unsupported architecture: $(uname -m)${NC}"
+            exit 1
+            ;;
+    esac
+    
+    echo "${os}_${arch}"
+}
+
+# Function to get latest release version
+get_latest_version() {
+    local version
+    version=$(curl -s "$GITHUB_API/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    
+    if [[ -z "$version" ]]; then
+        echo -e "${RED}Failed to get latest version from GitHub${NC}"
+        exit 1
+    fi
+    
+    echo "$version"
+}
+
+# Function to download binary
+download_binary() {
+    local version="$1"
+    local arch="$2"
+    local download_url="https://github.com/Bajusz15/beacon/releases/download/$version/beacon-$arch"
+    
+    echo -e "${YELLOW}Downloading Beacon $version for $arch...${NC}"
+    
+    # Create temporary directory
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+    
+    # Download binary
+    if ! curl -L -o beacon "$download_url"; then
+        echo -e "${RED}Failed to download binary from $download_url${NC}"
+        exit 1
+    fi
+    
+    # Make executable
+    chmod +x beacon
+    
+    # Copy to system
+    echo -e "${YELLOW}Installing to /usr/local/bin/beacon...${NC}"
+    sudo cp beacon /usr/local/bin/beacon
+    
+    # Cleanup
+    cd - > /dev/null
+    rm -rf "$temp_dir"
+    
+    echo -e "${GREEN}Binary installed successfully!${NC}"
+}
+
+# Check if running as root
+if [[ $EUID -eq 0 ]]; then
+    echo -e "${RED}Please do not run this script as root${NC}"
+    exit 1
 fi
 
-# Prompt for repo URL
-read -rp "Enter Git repository URL: " REPO_URL
+# Check dependencies
+if ! command -v curl &> /dev/null; then
+    echo -e "${RED}curl is required but not installed. Please install curl first.${NC}"
+    exit 1
+fi
 
-# Prompt for SSH key path (optional)
-read -rp "Enter SSH private key path (leave blank if not using SSH): " SSH_KEY_PATH
+# Detect architecture
+echo -e "${BLUE}Detecting system architecture...${NC}"
+ARCH=$(detect_architecture)
+echo -e "${GREEN}Detected: $ARCH${NC}"
 
-# Prompt for Git token (optional)
-read -rp "Enter Git personal access token (leave blank if not using HTTPS): " GIT_TOKEN
+# Get latest version
+echo -e "${BLUE}Getting latest version...${NC}"
+VERSION=$(get_latest_version)
+echo -e "${GREEN}Latest version: $VERSION${NC}"
 
-# Prompt for deployment path
-read -rp "Enter local deployment path [/opt/beacon/$PROJECT]: " LOCAL_PATH
-LOCAL_PATH=${LOCAL_PATH:-/opt/beacon/$PROJECT}
+# Check if binary already exists
+if [[ -f /usr/local/bin/beacon ]]; then
+    echo -e "${YELLOW}Beacon binary already exists at /usr/local/bin/beacon${NC}"
+    read -rp "Do you want to overwrite it? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}Installation cancelled${NC}"
+        exit 0
+    fi
+fi
 
-# Prompt for poll interval
-read -rp "Enter poll interval [60s]: " POLL_INTERVAL
-POLL_INTERVAL=${POLL_INTERVAL:-60s}
+# Download and install binary
+download_binary "$VERSION" "$ARCH"
 
-# Prompt for HTTP port
-read -rp "Enter HTTP server port [8080]: " PORT
-PORT=${PORT:-8080}
+# Create systemd service template if it doesn't exist
+if [[ ! -f /etc/systemd/system/beacon@.service ]]; then
+    echo -e "${YELLOW}Installing systemd service template...${NC}"
+    
+    # Create the service file
+    sudo tee /etc/systemd/system/beacon@.service > /dev/null <<EOF
+[Unit]
+Description=Beacon Agent for %i - Lightweight deployment and reporting for IoT
+After=network.target
 
-# Create env file directory
-sudo mkdir -p /etc/beacon/projects/$PROJECT
-sudo mkdir -p "$LOCAL_PATH"
+[Service]
+EnvironmentFile=/etc/beacon/projects/%i/env
+Type=simple
+ExecStart=/usr/local/bin/beacon
+WorkingDirectory=/opt/beacon/%i
+Restart=always
+RestartSec=5
+User=pi
 
-# Write env file
-sudo tee /etc/beacon/projects/$PROJECT/env > /dev/null <<EOF
-BEACON_REPO_URL=$REPO_URL
-BEACON_SSH_KEY_PATH=$SSH_KEY_PATH
-BEACON_GIT_TOKEN=$GIT_TOKEN
-BEACON_LOCAL_PATH=$LOCAL_PATH
-BEACON_POLL_INTERVAL=$POLL_INTERVAL
-BEACON_PORT=$PORT
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
 EOF
 
-# Copy binary
-if [[ ! -f /usr/local/bin/beacon ]]; then
-  echo "Copying beacon binary to /usr/local/bin..."
-  sudo cp ./beacon /usr/local/bin/beacon
-  sudo chmod +x /usr/local/bin/beacon
+    sudo systemctl daemon-reload
+    echo -e "${GREEN}Systemd service template installed${NC}"
 fi
 
-# Copy systemd template if not present
-if [[ ! -f /etc/systemd/system/beacon@.service ]]; then
-  echo "Copying systemd template..."
-  sudo cp ./systemd/beacon@.service /etc/systemd/system/beacon@.service
-fi
+# Create directories
+echo -e "${YELLOW}Creating directories...${NC}"
+sudo mkdir -p /etc/beacon/projects
+sudo mkdir -p /opt/beacon
 
-# Reload systemd
-sudo systemctl daemon-reload
-
-# Enable and start the service
-sudo systemctl enable --now beacon@"$PROJECT"
-
-echo "=== Beacon Agent installed and started for project: $PROJECT ==="
-echo "Edit /etc/beacon/projects/$PROJECT/env to change configuration."
+echo -e "${GREEN}=== Beacon installation complete! ===${NC}"
+echo
+echo -e "${BLUE}Next steps:${NC}"
+echo "1. Create a project configuration:"
+echo "   sudo cp beacon.env.example /etc/beacon/projects/myapp/env"
+echo "   sudo nano /etc/beacon/projects/myapp/env"
+echo
+echo "2. Create deployment directory:"
+echo "   sudo mkdir -p /opt/beacon/myapp"
+echo
+echo "3. Start the service:"
+echo "   sudo systemctl enable --now beacon@myapp"
+echo
+echo -e "${BLUE}For more information, see the README.md file.${NC}"
