@@ -73,7 +73,6 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 	// Clone the repository
 	var cloneCmd *exec.Cmd
 	var stderr strings.Builder
-	cloneCmd.Stderr = &stderr
 	if tag == "" {
 		// Clone default branch
 		cloneCmd = exec.Command("git", "clone", repoURL, cfg.LocalPath)
@@ -81,6 +80,7 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 		// Clone specific tag
 		cloneCmd = exec.Command("git", "clone", "--branch", tag, repoURL, cfg.LocalPath)
 	}
+	cloneCmd.Stderr = &stderr
 
 	if err := cloneCmd.Run(); err != nil {
 		log.Printf("[Beacon] Error cloning repository: %v\n", err)
@@ -122,6 +122,7 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 	} else {
 		log.Printf("[Beacon] Deployment of tag %s complete.\n", tag)
 	}
+	return nil
 }
 
 func getLatestTagFromRepo(cfg *config.Config) string {
