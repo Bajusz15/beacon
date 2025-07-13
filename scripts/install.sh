@@ -119,12 +119,12 @@ echo -e "${GREEN}Latest version: $VERSION${NC}"
 # Check if binary already exists
 if [[ -f /usr/local/bin/beacon ]]; then
     echo -e "${YELLOW}Beacon binary already exists at /usr/local/bin/beacon${NC}"
-    read -rp "Do you want to overwrite it? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    read -p "Do you want to overwrite it? (y/N): " REPLY
+    if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
         echo -e "${YELLOW}Installation cancelled${NC}"
         exit 0
     fi
+    sudo rm -f /usr/local/bin/beacon
 fi
 
 # Download and install binary
@@ -170,6 +170,7 @@ echo -e "${GREEN}=== Beacon installation complete! ===${NC}"
 echo
 echo -e "${BLUE}Next steps:${NC}"
 echo "1. Create a project configuration:"
+echo "   sudo mkdir -p /etc/beacon/projects/myapp"
 echo "   sudo cp beacon.env.example /etc/beacon/projects/myapp/env"
 echo "   sudo nano /etc/beacon/projects/myapp/env"
 echo

@@ -34,7 +34,11 @@ func CheckForNewTag(cfg *config.Config, status *state.Status) {
 
 	if shouldDeploy {
 		// Clone default branch for initial deployment
-		Deploy(cfg, "", status)
+		err := Deploy(cfg, "", status)
+		if err != nil {
+			log.Printf("[Beacon] Error during initial deployment: %v\n", err)
+			return
+		}
 		log.Printf("[Beacon] Repository cloned to %s.\n", cfg.LocalPath)
 		return
 	}
@@ -49,14 +53,17 @@ func CheckForNewTag(cfg *config.Config, status *state.Status) {
 	Deploy(cfg, latestTag, status)
 }
 
-func Deploy(cfg *config.Config, tag string, status *state.Status) {
+func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 	if tag == "" {
 		log.Printf("[Beacon] Deploying default branch...\n")
 	} else {
 		log.Printf("[Beacon] Deploying tag %s...\n", tag)
 	}
 
-	os.RemoveAll(cfg.LocalPath)
+	if err := os.RemoveAll(cfg.LocalPath); err != nil {
+		log.Printf("[Beacon] Error removing local path %s: %v\n", cfg.LocalPath, err)
+		return err
+	}
 
 	repoURL := cfg.RepoURL
 	if cfg.GitToken != "" && len(repoURL) > 8 && repoURL[:8] == "https://" {
@@ -65,6 +72,8 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) {
 
 	// Clone the repository
 	var cloneCmd *exec.Cmd
+	var stderr strings.Builder
+	cloneCmd.Stderr = &stderr
 	if tag == "" {
 		// Clone default branch
 		cloneCmd = exec.Command("git", "clone", repoURL, cfg.LocalPath)
@@ -75,7 +84,8 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) {
 
 	if err := cloneCmd.Run(); err != nil {
 		log.Printf("[Beacon] Error cloning repository: %v\n", err)
-		return
+		log.Printf("[Beacon] Git error output: %s\n", stderr.String())
+		return err
 	}
 
 	// Execute deploy command if specified
@@ -94,7 +104,7 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) {
 
 		if err := cmd.Run(); err != nil {
 			log.Printf("[Beacon] Deploy command failed: %v\n", err)
-			return
+			return err
 		}
 
 		log.Printf("[Beacon] Deploy command completed successfully\n")

@@ -9,7 +9,11 @@ release/
 *.so
 *.dylib
 # Beacon binary
-beacon
+beacon-linux_amd64
+beacon-linux_arm64
+beacon-linux_arm
+beacon-darwin_amd64
+beacon-darwin_arm64
 
 # Test binary, built with `go test -c`
 *.test
