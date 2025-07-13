@@ -5,10 +5,11 @@ import (
 	"beacon/internal/deploy"
 	"beacon/internal/server"
 	"beacon/internal/state"
+	"os"
+	"path/filepath"
 
 	"context"
 	"log"
-	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -22,7 +23,10 @@ func main() {
 	defer stop()
 
 	cfg := config.Load()
-	status := &state.Status{}
+
+	// Create data directory for persistence
+	statusStorage := filepath.Join(os.Getenv("HOME"), ".beacon", cfg.ProjectDir)
+	status := state.NewStatus(statusStorage)
 
 	// Start HTTP status/metrics endpoint
 	go server.StartHTTPServer(cfg, status)

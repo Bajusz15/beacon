@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,11 +19,10 @@ type Config struct {
 	SSHKeyPath    string
 	GitToken      string
 	DeployCommand string
+	ProjectDir    string
 }
 
 func Load() *Config {
-	// apiKey := getEnvOrPrompt("BEACON_API_KEY", "Enter your Beacon API key")
-	// projectName := getEnvOrPrompt("BEACON_PROJECT_NAME", "Enter your project name")
 
 	cfg := &Config{
 		RepoURL:       getEnvOrPrompt("BEACON_REPO_URL", "Enter the Git repo URL", "https://github.com/yourusername/yourrepo.git"),
@@ -33,6 +33,7 @@ func Load() *Config {
 		GitToken:      getEnvOrPrompt("BEACON_GIT_TOKEN", "Enter the Git token (optional)", ""),
 		DeployCommand: getEnvOrPrompt("BEACON_DEPLOY_COMMAND", "Enter the deploy command to run after update (optional)", ""),
 	}
+	cfg.ProjectDir = filepath.Base(cfg.LocalPath)
 
 	ensureDir(cfg.LocalPath)
 

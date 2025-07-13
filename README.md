@@ -89,7 +89,9 @@ After=network.target
 EnvironmentFile=/etc/beacon/projects/%i/env
 Type=simple
 ExecStart=/usr/local/bin/beacon
-WorkingDirectory=/opt/beacon/project
+# %h/beacon/%i = $HOME/beacon/{myapp}
+# or alternativelty use /opt/beacon/project
+WorkingDirectory=%h/beacon/%i
 Restart=always
 RestartSec=5
 User=pi
