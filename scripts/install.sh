@@ -87,6 +87,12 @@ download_binary() {
     echo -e "${YELLOW}Installing to /usr/local/bin/beacon...${NC}"
     sudo cp beacon /usr/local/bin/beacon
     
+    # After copying the binary, ensure it is executable
+    if [[ ! -x /usr/local/bin/beacon ]]; then
+        sudo chmod +x /usr/local/bin/beacon
+        echo -e "${YELLOW}Set executable permission on /usr/local/bin/beacon${NC}"
+    fi
+    
     # Cleanup
     cd - > /dev/null
     rm -rf "$temp_dir"
@@ -181,3 +187,4 @@ echo "3. Start the service:"
 echo "   sudo systemctl enable --now beacon@myapp"
 echo
 echo -e "${BLUE}For more information, see the README.md file.${NC}"
+echo -e "${YELLOW}Note: The Beacon binary must be executable. If you encounter permission issues, run: sudo chmod +x /usr/local/bin/beacon${NC}"

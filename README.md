@@ -154,6 +154,10 @@ If you prefer to build from source:
    sudo systemctl daemon-reload
    ```
 
+> **Note:** The Beacon binary must be executable. If you encounter permission issues, run:
+> ```bash
+> sudo chmod +x /usr/local/bin/beacon
+> ```
 
 ## ⚙️ Alternative: Run in Background (without systemd)
 

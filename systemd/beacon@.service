@@ -6,6 +6,10 @@ After=network.target
 EnvironmentFile=/etc/beacon/projects/%i/env
 Type=simple
 ExecStart=/usr/local/bin/beacon
+# WorkingDirectory should be set to the root of your project directory.
+# This directory must exist before the service starts.
+# You can set this to an environment variable if desired, e.g.:
+# WorkingDirectory=%h/beacon/%i or same as ${BEACON_LOCAL_PATH}
 WorkingDirectory=%h/beacon/%i
 Restart=always
 RestartSec=5
