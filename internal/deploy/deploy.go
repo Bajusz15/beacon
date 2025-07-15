@@ -146,8 +146,10 @@ func getLatestTagFromRepo(cfg *config.Config) string {
 	}
 
 	// Get the latest tag
-	describeCmd := exec.Command("git", "describe", "--tags", "--abbrev=0")
-	output, err := describeCmd.Output()
+	// describeCmd := exec.Command("git", "describe", "--tags", "--abbrev=0")
+	// output, err := describeCmd.Output()
+	forEachCmd := exec.Command("sh", "-c", "git for-each-ref --sort=-creatordate --format='%(refname:short)' refs/tags | head -n 1")
+	output, err := forEachCmd.Output()
 	if err != nil {
 		log.Printf("[Beacon] Error getting latest tag: %v\n", err)
 		return ""
