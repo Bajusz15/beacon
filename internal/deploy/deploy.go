@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -62,6 +63,12 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 
 	if err := os.RemoveAll(cfg.LocalPath); err != nil {
 		log.Printf("[Beacon] Error removing local path %s: %v\n", cfg.LocalPath, err)
+		return err
+	}
+
+	parentDir := filepath.Dir(cfg.LocalPath)
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		log.Printf("[Beacon] Error creating parent directory %s: %v\n", parentDir, err)
 		return err
 	}
 
