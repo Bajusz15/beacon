@@ -140,7 +140,7 @@ download_binary "$VERSION" "$ARCH"
 if [[ ! -f /etc/systemd/system/beacon@.service ]]; then
     echo -e "${YELLOW}Installing systemd service template...${NC}"
     
-    # Create the service file
+    # Create the service file with dynamic user and working directory
     sudo tee /etc/systemd/system/beacon@.service > /dev/null <<EOF
 [Unit]
 Description=Beacon Agent for %i - Lightweight deployment and reporting for IoT
@@ -149,11 +149,11 @@ After=network.target
 [Service]
 EnvironmentFile=/etc/beacon/projects/%i/env
 Type=simple
-ExecStart=/usr/local/bin/beacon
-WorkingDirectory=$HOME/beacon/%i
+ExecStart=/usr/local/bin/beacon deploy
+WorkingDirectory=%h/beacon/%i
 Restart=always
 RestartSec=5
-User=pi
+User=%i
 
 # Logging
 StandardOutput=journal
@@ -169,22 +169,27 @@ fi
 
 # Create directories
 echo -e "${YELLOW}Creating directories...${NC}"
-sudo mkdir -p /etc/beacon/projects
-sudo mkdir -p $HOME/beacon
+mkdir -p $HOME/.beacon/config/projects
+mkdir -p $HOME/beacon
 
 echo -e "${GREEN}=== Beacon installation complete! ===${NC}"
 echo
 echo -e "${BLUE}Next steps:${NC}"
-echo "1. Create a project configuration:"
-echo "   sudo mkdir -p /etc/beacon/projects/myapp"
-echo "   sudo cp beacon.env.example /etc/beacon/projects/myapp/env"
-echo "   sudo nano /etc/beacon/projects/myapp/env"
+echo "1. Bootstrap your first project:"
+echo "   beacon bootstrap myapp"
+echo "   # This will guide you through the setup process"
 echo
-echo "2. Create deployment directory:"
-echo "   sudo mkdir -p $HOME/beacon/myapp"
+echo "2. Or bootstrap with specific options:"
+echo "   beacon bootstrap myapp --force --skip-systemd"
 echo
-echo "3. Start the service:"
-echo "   sudo systemctl enable --now beacon@myapp"
+echo "3. View available commands:"
+echo "   beacon --help"
+echo
+echo -e "${BLUE}The bootstrap command will:${NC}"
+echo "  • Create project configuration files in ~/.beacon/config/projects/"
+echo "  • Set up working directories"
+echo "  • Optionally create user systemd services (~/.config/systemd/user/)"
+echo "  • Handle permissions automatically (no sudo required)"
 echo
 echo -e "${BLUE}For more information, see the README.md file.${NC}"
 echo -e "${YELLOW}Note: The Beacon binary must be executable. If you encounter permission issues, run: sudo chmod +x /usr/local/bin/beacon${NC}"
