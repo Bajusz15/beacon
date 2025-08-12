@@ -1,0 +1,23 @@
+checks:
+  - name: "Homepage"
+    type: http
+    url: https://example.com/health
+    interval: 30s
+    expect_status: 200
+
+  - name: "Postgres"
+    type: port
+    host: 127.0.0.1
+    port: 5432
+    interval: 10s
+
+  - name: "Nginx running"
+    type: command
+    cmd: "pgrep nginx"
+    interval: 60s
+
+report:
+  send_to: https://beaconinfra.dev/api/monitor
+  token: YOUR_API_TOKEN
+  prometheus_metrics: true   # if true, expose /metrics endpoint
+  prometheus_port: 9100      # port for /metrics

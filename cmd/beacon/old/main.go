@@ -13,35 +13,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"beacon/internal/bootstrap"
-	"beacon/internal/monitor"
-
-	"github.com/spf13/cobra"
 )
-
-var rootCmd = &cobra.Command{
-	Use:   "beacon",
-	Short: "Beacon - IoT deployment and monitoring agent",
-}
-
-var bootstrapCmd = &cobra.Command{
-	Use:   "bootstrap",
-	Short: "Bootstrap a project with systemd integration",
-	Run: func(cmd *cobra.Command, args []string) {
-		// TODO: Call bootstrap logic
-		bootstrap.Run(cmd, args)
-	},
-}
-
-var monitorCmd = &cobra.Command{
-	Use:   "monitor",
-	Short: "Run health checks and report results",
-	Run: func(cmd *cobra.Command, args []string) {
-		// TODO: Call monitor logic
-		monitor.Run(cmd, args)
-	},
-}
 
 func main() {
 	log.Println("[Beacon] Agent starting...")
