@@ -147,13 +147,12 @@ Description=Beacon Agent for %i - Lightweight deployment and reporting for IoT
 After=network.target
 
 [Service]
-EnvironmentFile=/etc/beacon/projects/%i/env
+EnvironmentFile=%h/.beacon/config/projects/%i/env
 Type=simple
 ExecStart=/usr/local/bin/beacon deploy
 WorkingDirectory=%h/beacon/%i
 Restart=always
 RestartSec=5
-User=%i
 
 # Logging
 StandardOutput=journal
