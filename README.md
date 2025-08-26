@@ -5,12 +5,12 @@ Lightweight deployment and reporting agent for self-hosted IoT devices such as R
 
 ## ✨ Features
 
-- Polls a Git repo for new tags
-- Automatically deploys latest tagged version
-- Executes custom deploy commands (Docker, scripts, etc.)
-- Runs an HTTP status server
-- Systemd compatible
-- Minimal setup
+- **Deployment**: Polls a Git repo for new tags and automatically deploys latest versions
+- **Monitoring**: Comprehensive health checking for HTTP endpoints, ports, and custom commands
+- **Flexible Commands**: Executes custom deploy commands (Docker, scripts, etc.)
+- **Status Server**: Runs an HTTP status server with Prometheus metrics support
+- **Systemd Compatible**: Easy integration with systemd services
+- **Minimal Setup**: Lightweight and easy to configure
 
 ---
 
@@ -109,10 +109,134 @@ WantedBy=multi-user.target
 > journalctl -u beacon@myproject -f
 > ```
 
+---
+
+## 📊 Monitoring & Health Checks
+
+Beacon includes a powerful monitoring system that can check the health of your services and infrastructure.
+
+### Monitor Command
+
+Start the monitoring system:
+
+```bash
+beacon monitor [config-file]
+```
+
+If no config file is specified, Beacon will look for `beacon.monitor.yml` in the current directory.
+
+### Configuration
+
+Create a monitoring configuration file (`beacon.monitor.yml`):
+
+```yaml
+checks:
+  - name: "Homepage"
+    type: http
+    url: https://example.com/health
+    interval: 30s
+    expect_status: 200
+
+  - name: "Database"
+    type: port
+    host: 127.0.0.1
+    port: 5432
+    interval: 10s
+
+  - name: "Disk Usage"
+    type: command
+    cmd: "df -h | grep -w '/'"
+    interval: 60s
+
+  - name: "Nginx Process"
+    type: command
+    cmd: "pgrep nginx"
+    interval: 30s
+
+report:
+  send_to: https://beaconinfra.dev/api/monitor
+  token: YOUR_API_TOKEN
+  prometheus_metrics: true
+  prometheus_port: 9100
+```
+
+### Check Types
+
+#### HTTP Checks
+- **Type**: `http`
+- **Checks**: HTTP endpoints for availability and expected status codes
+- **Metrics**: Response time, status code, duration
+
+#### Port Checks
+- **Type**: `port`
+- **Checks**: TCP port availability on specified hosts
+- **Metrics**: Connection success/failure, duration
+
+#### Command Checks
+- **Type**: `command`
+- **Checks**: Custom shell commands (supports pipes, redirects, etc.)
+- **Metrics**: Command success/failure, output capture, duration
+
+### Monitoring Output
+
+The monitor provides real-time health check results:
+
+```
+2025/08/26 10:24:51 [Beacon] Starting monitoring system...
+2025/08/26 10:24:51 [Beacon] Check (command) Disk usage: (0.01s) - Output: /dev/disk3s1s1 460Gi 10Gi 357Gi 3% 426k 3.7G 0% /, Error: 
+2025/08/26 10:24:51 [Beacon] Check (http) Homepage: up (0.20s)
+2025/08/26 10:25:21 [Beacon] Check (http) Homepage: up (0.17s)
+2025/08/26 10:25:51 [Beacon] Check (http) Homepage: up (0.16s)
+```
+
+### Prometheus Metrics
+
+When `prometheus_metrics: true` is enabled, Beacon exposes metrics at `/metrics`:
+
+```prometheus
+# Check status (1 = up, 0 = down/error)
+beacon_check_status{name="Homepage",type="http"} 1
+
+# Duration in seconds
+beacon_check_duration_seconds{name="Homepage",type="http"} 0.234
+
+# Response time for HTTP checks
+beacon_check_response_time_seconds{name="Homepage",type="http"} 0.123
+
+# Last check timestamp
+beacon_check_last_check_timestamp{name="Homepage",type="http"} 1703123456
+```
+
+### External Reporting
+
+Configure Beacon to send check results to external monitoring systems:
+
+```yaml
+report:
+  send_to: https://your-monitoring-api.com/checks
+  token: YOUR_API_TOKEN
+```
+
+Beacon will POST JSON results to the specified endpoint with authentication.
+
+### Example Use Cases
+
+- **Web Application**: Monitor homepage, API endpoints, database connectivity
+- **Infrastructure**: Check disk usage, process status, service availability
+- **IoT Devices**: Monitor sensor readings, network connectivity, system resources
+- **Microservices**: Health checks across multiple services and dependencies
+
 
 ---
 
 ## 🚀 Installation
+
+### Available Commands
+
+Beacon provides two main commands:
+
+- **`beacon`** - Deployment agent (polls Git repos and deploys code)
+- **`beacon monitor`** - Health monitoring system (checks services and infrastructure)
 
 ### Quick Install (Recommended)
 
@@ -159,6 +283,19 @@ If you prefer to build from source:
 > sudo chmod +x /usr/local/bin/beacon
 > ```
 
+### Configuration Files
+
+Beacon uses two types of configuration files:
+
+1. **`beacon.env`** - Environment variables for deployment (see example above)
+2. **`beacon.monitor.yml`** - YAML configuration for monitoring (see `beacon.monitor.example.yml`)
+
+Copy the example files and customize them for your environment:
+```bash
+cp beacon.env.example beacon.env
+cp beacon.monitor.example.yml beacon.monitor.yml
+```
+
 ## ⚙️ Alternative: Run in Background (without systemd)
 
 If you prefer not to use systemd, you can run `beacon` in the background and log output to a file:
@@ -188,6 +325,17 @@ Enter the Git token (optional): ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 2025/07/11 17:42:24 [Beacon] New tag found: v0.0.1 (prev: )
 2025/07/11 17:42:24 [Beacon] Deploying tag v0.0.1...
 2025/07/11 17:42:25 [Beacon] Deployment of tag v0.0.1 complete.
+```
+
+### 🧪 Example Monitoring Run
+
+```bash
+pi@raspberrypi:~ $ beacon monitor
+2025/08/26 10:24:51 [Beacon] Starting monitoring system...
+2025/08/26 10:24:51 [Beacon] Check (command) Disk usage: (0.01s) - Output: /dev/disk3s1s1 460Gi 10Gi 357Gi 3% 426k 3.7G 0% /, Error: 
+2025/08/26 10:24:51 [Beacon] Check (http) Homepage: up (0.20s)
+2025/08/26 10:25:21 [Beacon] Check (http) Homepage: up (0.17s)
+2025/08/26 10:25:51 [Beacon] Check (http) Homepage: up (0.16s)
 ```
 </pre>
 
@@ -239,4 +387,20 @@ BEACON_DEPLOY_CMD=./install.sh
 ```
 
 If the command fails, Beacon will log the error and exit code.
+
+### Monitoring checks are failing?
+- **HTTP checks**: Verify the URL is accessible and returns expected status codes
+- **Port checks**: Ensure the service is running and the port is open
+- **Command checks**: Test commands manually first, ensure they work in your shell
+- **Shell commands**: Use `sh -c "your command"` for complex commands with pipes/redirects
+
+### Prometheus metrics not showing?
+- Check that `prometheus_metrics: true` is set in your config
+- Verify the port specified in `prometheus_port` is not blocked by firewall
+- Access metrics at `http://your-host:port/metrics`
+
+### Command output is truncated?
+- Output is limited to 200 characters by default to keep logs readable
+- Full output is still captured in the `CheckResult` and sent to external APIs
+- Adjust `maxOutputLength` constant in the code if you need longer logs
 

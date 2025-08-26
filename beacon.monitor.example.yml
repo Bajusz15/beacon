@@ -16,6 +16,11 @@ checks:
     cmd: "pgrep nginx"
     interval: 60s
 
+  - name: "Disk usage"
+    type: command
+    cmd: "df -h | grep -w '/'"
+    interval: 300s  
+
 report:
   send_to: https://beaconinfra.dev/api/monitor
   token: YOUR_API_TOKEN

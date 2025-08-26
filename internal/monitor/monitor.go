@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,6 +19,8 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
+
+const maxOutputLength = 200 // Truncate output longer than 200 chars
 
 type Config struct {
 	Checks []CheckConfig `yaml:"checks"`
@@ -51,6 +54,8 @@ type CheckResult struct {
 	Error          string        `json:"error,omitempty"`
 	HTTPStatusCode int           `json:"http_status_code,omitempty"`
 	ResponseTime   time.Duration `json:"response_time,omitempty"`
+	CommandOutput  string        `json:"command_output,omitempty"`
+	CommandError   string        `json:"command_error,omitempty"`
 }
 
 type Monitor struct {
@@ -71,13 +76,12 @@ func LoadConfig(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
-	return nil
+	return &cfg, nil
 }
 
-func NewMonitor(configPath string) (*Monitor, error) {
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+func NewMonitor(cfg *Config) (*Monitor, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is nil")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -170,7 +174,33 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 	m.resultsMux.Unlock()
 
 	// Log result
-	log.Printf("[Beacon] Check %s: %s (%.2fs)", check.Name, result.Status, result.Duration.Seconds())
+	switch check.Type {
+	case "http":
+		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)", check.Type, check.Name, result.Status, result.Duration.Seconds())
+	case "port":
+		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)", check.Type, check.Name, result.Status, result.Duration.Seconds())
+	case "command":
+		// Format output with truncation and whitespace normalization
+		output := strings.Join(strings.Fields(result.CommandOutput), " ")
+		if len(output) > maxOutputLength {
+			output = output[:maxOutputLength] + "..."
+		}
+
+		// Format error with truncation and whitespace normalization
+		errorMsg := strings.Join(strings.Fields(result.CommandError), " ")
+		if len(errorMsg) > maxOutputLength {
+			errorMsg = errorMsg[:maxOutputLength] + "..."
+		}
+
+		log.Printf(
+			"[Beacon] Check (%s) %s: (%.2fs) - Output: %s, Error: %s",
+			check.Type,
+			check.Name,
+			result.Duration.Seconds(),
+			output,
+			errorMsg,
+		)
+	}
 
 	// Report to external API if configured
 	if m.config.Report.SendTo != "" {
@@ -245,16 +275,18 @@ func (m *Monitor) executeCommandCheck(check CheckConfig) CheckResult {
 		Timestamp: time.Now(),
 	}
 
-	// Split command into command and arguments
-	parts := strings.Fields(check.Cmd)
-	if len(parts) == 0 {
-		result.Status = "error"
-		result.Error = "empty command"
-		return result
-	}
+	cmd := exec.CommandContext(m.ctx, "sh", "-c", check.Cmd)
 
-	cmd := exec.CommandContext(m.ctx, parts[0], parts[1:]...)
+	// Capture stdout and stderr
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
 	err := cmd.Run()
+
+	// Always capture output, regardless of success/failure
+	result.CommandOutput = strings.TrimSpace(stdout.String())
+	result.CommandError = strings.TrimSpace(stderr.String())
 
 	if err != nil {
 		result.Status = "down"
@@ -362,8 +394,14 @@ func Run(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		cmd.Printf("failed to load config: %w", err)
+		os.Exit(1)
+	}
+
 	// Create and start monitor
-	monitor, err := NewMonitor(configPath)
+	monitor, err := NewMonitor(cfg)
 	if err != nil {
 		cmd.Printf("Error: %v\n", err)
 		os.Exit(1)
