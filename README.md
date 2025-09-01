@@ -12,6 +12,22 @@ Lightweight deployment and reporting agent for self-hosted IoT devices such as R
 - **Systemd Compatible**: Easy integration with systemd services
 - **Minimal Setup**: Lightweight and easy to configure
 
+## 🚀 Quick Start
+
+```bash
+# Setup a new project
+beacon bootstrap myapp
+
+# Run deployment agent
+beacon deploy
+
+# Run monitoring
+beacon monitor
+
+# Get help
+beacon --help
+```
+
 ---
 
 ## **Project Structure for Multi-Repo Support**
@@ -86,15 +102,12 @@ Description=Beacon Agent for %i - Lightweight deployment and reporting for IoT
 After=network.target
 
 [Service]
-EnvironmentFile=/etc/beacon/projects/%i/env
+EnvironmentFile=%h/.beacon/config/projects/%i/env
 Type=simple
-ExecStart=/usr/local/bin/beacon
-# %h/beacon/%i = $HOME/beacon/{myapp}
-# or alternativelty use /opt/beacon/project
+ExecStart=/usr/local/bin/beacon deploy
 WorkingDirectory=%h/beacon/%i
 Restart=always
 RestartSec=5
-User=pi
 
 # Logging
 StandardOutput=journal
@@ -111,19 +124,32 @@ WantedBy=multi-user.target
 
 ---
 
-## 📊 Monitoring & Health Checks
+## 🚀 Project Setup & Bootstrap
 
-Beacon includes a powerful monitoring system that can check the health of your services and infrastructure.
+Beacon provides a bootstrap command to easily set up new projects with systemd integration.
 
-### Monitor Command
+### Bootstrap Command
 
-Start the monitoring system:
+Set up a new Beacon project:
 
 ```bash
-beacon monitor [config-file]
+beacon bootstrap [project-name]
 ```
 
-If no config file is specified, Beacon will look for `beacon.monitor.yml` in the current directory.
+If no project name is provided, Beacon will prompt you for one.
+
+**Options:**
+- `--force, -f` - Force overwrite of existing components
+- `--skip-systemd, -s` - Skip systemd service setup
+
+
+The bootstrap command will:
+- Create project directory structure
+- Generate configuration files
+- Set up systemd service (unless skipped)
+- Configure environment variables
+
+---
 
 ### Configuration
 
@@ -233,9 +259,10 @@ Beacon will POST JSON results to the specified endpoint with authentication.
 
 ### Available Commands
 
-Beacon provides two main commands:
+Beacon provides three main commands:
 
-- **`beacon`** - Deployment agent (polls Git repos and deploys code)
+- **`beacon`** or **`beacon deploy`** - Deployment agent (polls Git repos and deploys code)
+- **`beacon bootstrap`** - Project setup and systemd service creation
 - **`beacon monitor`** - Health monitoring system (checks services and infrastructure)
 
 ### Quick Install (Recommended)
@@ -301,7 +328,7 @@ cp beacon.monitor.example.yml beacon.monitor.yml
 If you prefer not to use systemd, you can run `beacon` in the background and log output to a file:
 
 ```bash
-nohup beacon > beacon.log 2>&1 &
+nohup beacon monitor > beacon.log 2>&1 &
 ```
 
 To stop it later:
@@ -387,17 +414,6 @@ BEACON_DEPLOY_CMD=./install.sh
 ```
 
 If the command fails, Beacon will log the error and exit code.
-
-### Monitoring checks are failing?
-- **HTTP checks**: Verify the URL is accessible and returns expected status codes
-- **Port checks**: Ensure the service is running and the port is open
-- **Command checks**: Test commands manually first, ensure they work in your shell
-- **Shell commands**: Use `sh -c "your command"` for complex commands with pipes/redirects
-
-### Prometheus metrics not showing?
-- Check that `prometheus_metrics: true` is set in your config
-- Verify the port specified in `prometheus_port` is not blocked by firewall
-- Access metrics at `http://your-host:port/metrics`
 
 ### Command output is truncated?
 - Output is limited to 200 characters by default to keep logs readable
