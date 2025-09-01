@@ -396,7 +396,7 @@ func Run(cmd *cobra.Command, args []string) {
 
 	cfg, err := LoadConfig(configPath)
 	if err != nil {
-		cmd.Printf("failed to load config: %w", err)
+		cmd.Printf("failed to load config: %v", err)
 		os.Exit(1)
 	}
 
