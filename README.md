@@ -1,5 +1,6 @@
 # Beacon
 Lightweight deployment and reporting agent for self-hosted IoT devices such as Raspberry Pi. It polls a Git repository for new tags and deploys code when a new tag appears.
+Future proof your IoT or self-hosted deployments with automated monitoring and deployment.
 
 ---
 
