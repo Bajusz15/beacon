@@ -1,3 +1,10 @@
+# Device configuration
+device:
+  name: "My Raspberry Pi"
+  location: "Living Room"
+  tags: ["raspberry-pi", "homelab", "monitor"]
+  environment: "production"
+
 checks:
   - name: "Homepage"
     type: http
@@ -16,13 +23,29 @@ checks:
     cmd: "pgrep nginx"
     interval: 60s
 
+  # Custom checks (http, port, command only)
+
+  # Custom command check (legacy)
   - name: "Disk usage"
     type: command
     cmd: "df -h | grep -w '/'"
     interval: 300s  
+
+# System metrics configuration (separate from checks)
+system_metrics:
+  enabled: true              # Enable system metrics collection
+  interval: 1m               # Collection interval (default: 1m)
+  cpu: true                  # Collect CPU usage
+  memory: true               # Collect memory usage
+  disk: true                 # Collect disk usage
+  load_average: true         # Collect load average
+  disk_path: "/"             # Disk path to monitor (default: "/")
 
 report:
   send_to: https://beaconinfra.dev/api/monitor
   token: YOUR_API_TOKEN
   prometheus_metrics: true   # if true, expose /metrics endpoint
   prometheus_port: 9100      # port for /metrics
+  heartbeat:
+    enabled: true            # enable periodic heartbeat
+    interval: 30s            # heartbeat interval (default: 30s)

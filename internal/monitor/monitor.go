@@ -22,9 +22,18 @@ import (
 
 const maxOutputLength = 200 // Truncate output longer than 200 chars
 
+type DeviceConfig struct {
+	Name        string   `yaml:"name"`
+	Location    string   `yaml:"location,omitempty"`
+	Tags        []string `yaml:"tags,omitempty"`
+	Environment string   `yaml:"environment,omitempty"`
+}
+
 type Config struct {
-	Checks []CheckConfig `yaml:"checks"`
-	Report ReportConfig  `yaml:"report"`
+	Device        DeviceConfig        `yaml:"device"`
+	Checks        []CheckConfig       `yaml:"checks"`
+	SystemMetrics SystemMetricsConfig `yaml:"system_metrics,omitempty"`
+	Report        ReportConfig        `yaml:"report"`
 }
 
 type CheckConfig struct {
@@ -38,11 +47,27 @@ type CheckConfig struct {
 	ExpectStatus int           `yaml:"expect_status,omitempty"`
 }
 
+type SystemMetricsConfig struct {
+	Enabled     bool          `yaml:"enabled"`
+	Interval    time.Duration `yaml:"interval,omitempty"`
+	CPU         bool          `yaml:"cpu,omitempty"`
+	Memory      bool          `yaml:"memory,omitempty"`
+	Disk        bool          `yaml:"disk,omitempty"`
+	LoadAverage bool          `yaml:"load_average,omitempty"`
+	DiskPath    string        `yaml:"disk_path,omitempty"` // Default: "/"
+}
+
 type ReportConfig struct {
-	SendTo           string `yaml:"send_to"`
-	Token            string `yaml:"token"`
-	PrometheusEnable bool   `yaml:"prometheus_metrics"`
-	PrometheusPort   int    `yaml:"prometheus_port"`
+	SendTo           string          `yaml:"send_to"`
+	Token            string          `yaml:"token"`
+	PrometheusEnable bool            `yaml:"prometheus_metrics"`
+	PrometheusPort   int             `yaml:"prometheus_port"`
+	Heartbeat        HeartbeatConfig `yaml:"heartbeat,omitempty"`
+}
+
+type HeartbeatConfig struct {
+	Enabled  bool          `yaml:"enabled"`
+	Interval time.Duration `yaml:"interval,omitempty"`
 }
 
 type CheckResult struct {
@@ -56,15 +81,88 @@ type CheckResult struct {
 	ResponseTime   time.Duration `json:"response_time,omitempty"`
 	CommandOutput  string        `json:"command_output,omitempty"`
 	CommandError   string        `json:"command_error,omitempty"`
+	Device         DeviceConfig  `json:"device,omitempty"`
+	// Threshold fields for system metrics
+	ThresholdBreach bool    `json:"threshold_breach,omitempty"`
+	ThresholdValue  float64 `json:"threshold_value,omitempty"`
+	ActualValue     float64 `json:"actual_value,omitempty"`
+}
+
+// AgentMetrics represents system metrics for the /agent/metrics endpoint
+type AgentMetrics struct {
+	Hostname      string                  `json:"hostname"`
+	IPAddress     string                  `json:"ip_address"`
+	CPUUsage      float64                 `json:"cpu_usage"`
+	MemoryUsage   float64                 `json:"memory_usage"`
+	DiskUsage     float64                 `json:"disk_usage"`
+	UptimeSeconds int64                   `json:"uptime_seconds"`
+	LoadAverage   float64                 `json:"load_average"`
+	CustomMetrics map[string]*CheckResult `json:"custom_metrics"`
+	Timestamp     time.Time               `json:"timestamp"`
+}
+
+// AgentHeartbeatRequest represents a heartbeat for the /agent/heartbeat endpoint
+type AgentHeartbeatRequest struct {
+	Hostname     string            `json:"hostname"`
+	IPAddress    string            `json:"ip_address"`
+	Tags         []string          `json:"tags"`
+	AgentVersion string            `json:"agent_version"`
+	DeviceName   string            `json:"device_name"`
+	Metadata     map[string]string `json:"metadata"`
+}
+
+// SystemMetricsCollector interface for dependency injection
+type SystemMetricsCollector interface {
+	GetHostname() (string, error)
+	GetIPAddress() (string, error)
+	GetCPUUsage() (float64, error)
+	GetMemoryUsage() (float64, error)
+	GetDiskUsage(path string) (float64, error)
+	GetLoadAverage() (float64, error)
+	GetUptime() (int64, error)
 }
 
 type Monitor struct {
-	config     *Config
-	results    map[string]*CheckResult
-	resultsMux sync.RWMutex
-	httpClient *http.Client
-	ctx        context.Context
-	cancel     context.CancelFunc
+	config                    *Config
+	results                   map[string]*CheckResult
+	resultsMux                sync.RWMutex
+	httpClient                *http.Client
+	ctx                       context.Context
+	cancel                    context.CancelFunc
+	heartbeatTicker           *time.Ticker
+	reportSystemMetricsTicker *time.Ticker
+	metricsCollector          SystemMetricsCollector
+}
+
+// LinuxSystemMetricsCollector implements SystemMetricsCollector for Linux systems
+type LinuxSystemMetricsCollector struct{}
+
+func (c *LinuxSystemMetricsCollector) GetHostname() (string, error) {
+	return getHostname()
+}
+
+func (c *LinuxSystemMetricsCollector) GetIPAddress() (string, error) {
+	return getIPAddress()
+}
+
+func (c *LinuxSystemMetricsCollector) GetCPUUsage() (float64, error) {
+	return getCPUUsage()
+}
+
+func (c *LinuxSystemMetricsCollector) GetMemoryUsage() (float64, error) {
+	return getMemoryUsage()
+}
+
+func (c *LinuxSystemMetricsCollector) GetDiskUsage(path string) (float64, error) {
+	return getDiskUsage(path)
+}
+
+func (c *LinuxSystemMetricsCollector) GetLoadAverage() (float64, error) {
+	return getLoadAverage()
+}
+
+func (c *LinuxSystemMetricsCollector) GetUptime() (int64, error) {
+	return getUptime()
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -92,17 +190,38 @@ func NewMonitor(cfg *Config) (*Monitor, error) {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		ctx:    ctx,
-		cancel: cancel,
+		ctx:              ctx,
+		cancel:           cancel,
+		metricsCollector: &LinuxSystemMetricsCollector{},
 	}, nil
 }
 
 func (m *Monitor) Start() error {
-	log.Println("[Beacon] Starting monitoring system...")
+	log.Printf("[Beacon] Starting monitoring system for device: %s", m.config.Device.Name)
 
 	// Start Prometheus metrics server if enabled
 	if m.config.Report.PrometheusEnable {
 		go m.startPrometheusServer()
+	}
+
+	// Start heartbeat if enabled
+	if m.config.Report.Heartbeat.Enabled {
+		interval := m.config.Report.Heartbeat.Interval
+		if interval == 0 {
+			interval = 30 * time.Second // Default 30 seconds
+		}
+		m.heartbeatTicker = time.NewTicker(interval)
+		go m.runHeartbeatLoop()
+	}
+
+	// Start system metrics collection if enabled
+	if m.config.SystemMetrics.Enabled && m.config.Report.SendTo != "" && m.config.Report.Token != "" {
+		interval := m.config.SystemMetrics.Interval
+		if interval == 0 {
+			interval = 1 * time.Minute // Default 1 minute
+		}
+		m.reportSystemMetricsTicker = time.NewTicker(interval)
+		go m.reportSystemMetricsLoop()
 	}
 
 	// Start all health checks
@@ -125,6 +244,22 @@ func (m *Monitor) Start() error {
 	wg.Wait()
 
 	return nil
+}
+
+func (m *Monitor) runHeartbeatLoop() {
+	defer m.heartbeatTicker.Stop()
+
+	// Send initial heartbeat
+	m.sendHeartbeat()
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-m.heartbeatTicker.C:
+			m.sendHeartbeat()
+		}
+	}
 }
 
 func (m *Monitor) runCheckLoop(check CheckConfig) {
@@ -167,11 +302,7 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 
 	result.Duration = time.Since(start)
 	result.Timestamp = time.Now()
-
-	// Store result
-	m.resultsMux.Lock()
-	m.results[check.Name] = &result
-	m.resultsMux.Unlock()
+	result.Device = m.config.Device
 
 	// Log result
 	switch check.Type {
@@ -179,6 +310,19 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)", check.Type, check.Name, result.Status, result.Duration.Seconds())
 	case "port":
 		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)", check.Type, check.Name, result.Status, result.Duration.Seconds())
+	case "cpu", "memory", "disk", "load":
+		// System checks with threshold information
+		thresholdInfo := ""
+		if result.ThresholdBreach {
+			thresholdInfo = fmt.Sprintf(" [THRESHOLD BREACH: %.2f > %.2f]", result.ActualValue, result.ThresholdValue)
+		} else if result.ThresholdValue > 0 {
+			thresholdInfo = fmt.Sprintf(" [Threshold: %.2f, Current: %.2f]", result.ThresholdValue, result.ActualValue)
+		} else {
+			thresholdInfo = fmt.Sprintf(" [Current: %.2f]", result.ActualValue)
+		}
+
+		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)%s",
+			check.Type, check.Name, result.Status, result.Duration.Seconds(), thresholdInfo)
 	case "command":
 		// Format output with truncation and whitespace normalization
 		output := strings.Join(strings.Fields(result.CommandOutput), " ")
@@ -202,10 +346,10 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 		)
 	}
 
-	// Report to external API if configured
-	if m.config.Report.SendTo != "" {
-		go m.reportResult(result)
-	}
+	// Store result
+	m.resultsMux.Lock()
+	m.results[check.Name] = &result
+	m.resultsMux.Unlock()
 }
 
 func (m *Monitor) executeHTTPCheck(check CheckConfig) CheckResult {
@@ -255,7 +399,14 @@ func (m *Monitor) executePortCheck(check CheckConfig) CheckResult {
 		Timestamp: time.Now(),
 	}
 
-	address := fmt.Sprintf("%s:%d", check.Host, check.Port)
+	var address string
+	ip := net.ParseIP(check.Host)
+	if ip != nil && ip.To4() == nil {
+		// IPv6 address, wrap in brackets
+		address = fmt.Sprintf("[%s]:%d", check.Host, check.Port)
+	} else {
+		address = fmt.Sprintf("%s:%d", check.Host, check.Port)
+	}
 	conn, err := net.DialTimeout("tcp", address, 10*time.Second)
 	if err != nil {
 		result.Status = "down"
@@ -298,42 +449,152 @@ func (m *Monitor) executeCommandCheck(check CheckConfig) CheckResult {
 	return result
 }
 
-func (m *Monitor) reportResult(result CheckResult) {
+func (m *Monitor) reportSystemMetricsLoop() {
+	defer m.reportSystemMetricsTicker.Stop()
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-m.reportSystemMetricsTicker.C:
+			m.reportSystemMetrics()
+		}
+	}
+}
+
+func (m *Monitor) reportSystemMetrics() {
 	if m.config.Report.SendTo == "" || m.config.Report.Token == "" {
 		return
 	}
 
-	payload := map[string]interface{}{
-		"check": result,
-		"token": m.config.Report.Token,
-	}
-
-	jsonData, err := json.Marshal(payload)
+	hostname, err := m.metricsCollector.GetHostname()
 	if err != nil {
-		log.Printf("[Beacon] Failed to marshal result: %v", err)
+		log.Printf("[Beacon] Failed to get hostname: %v", err)
 		return
 	}
 
-	req, err := http.NewRequest("POST", m.config.Report.SendTo, strings.NewReader(string(jsonData)))
+	ipAddress, err := m.metricsCollector.GetIPAddress()
 	if err != nil {
-		log.Printf("[Beacon] Failed to create report request: %v", err)
+		log.Printf("[Beacon] Failed to get IP address: %v", err)
+		ipAddress = "unknown"
+	}
+
+	// Initialize metrics with basic info
+	metrics := AgentMetrics{
+		Hostname:      hostname,
+		IPAddress:     ipAddress,
+		Timestamp:     time.Now(),
+		CustomMetrics: make(map[string]*CheckResult),
+	}
+
+	// Collect only enabled system metrics
+	if m.config.SystemMetrics.CPU {
+		if cpuUsage, err := m.metricsCollector.GetCPUUsage(); err == nil {
+			metrics.CPUUsage = cpuUsage
+		}
+	}
+
+	if m.config.SystemMetrics.Memory {
+		if memoryUsage, err := m.metricsCollector.GetMemoryUsage(); err == nil {
+			metrics.MemoryUsage = memoryUsage
+		}
+	}
+
+	if m.config.SystemMetrics.Disk {
+		diskPath := m.config.SystemMetrics.DiskPath
+		if diskPath == "" {
+			diskPath = "/"
+		}
+		if diskUsage, err := m.metricsCollector.GetDiskUsage(diskPath); err == nil {
+			metrics.DiskUsage = diskUsage
+		}
+	}
+
+	if m.config.SystemMetrics.LoadAverage {
+		if loadAverage, err := m.metricsCollector.GetLoadAverage(); err == nil {
+			metrics.LoadAverage = loadAverage
+		}
+	}
+
+	// Always collect uptime
+	if uptime, err := m.metricsCollector.GetUptime(); err == nil {
+		metrics.UptimeSeconds = uptime
+	}
+
+	// Add custom check results
+	m.resultsMux.RLock()
+	for _, result := range m.results {
+		metrics.CustomMetrics[result.Name] = result
+	}
+	m.resultsMux.RUnlock()
+
+	// Send to /agent/metrics endpoint
+	metricsURL := strings.TrimSuffix(m.config.Report.SendTo, "/") + "/agent/metrics"
+	m.sendToAPI(metricsURL, metrics)
+}
+
+func (m *Monitor) sendHeartbeat() {
+	if !m.config.Report.Heartbeat.Enabled {
+		return
+	}
+
+	hostname, err := getHostname()
+	if err != nil {
+		log.Printf("[Beacon] Failed to get hostname for heartbeat: %v", err)
+		return
+	}
+
+	ipAddress, err := getIPAddress()
+	if err != nil {
+		log.Printf("[Beacon] Failed to get IP address for heartbeat: %v", err)
+		ipAddress = "unknown"
+	}
+
+	heartbeat := AgentHeartbeatRequest{
+		Hostname:     hostname,
+		IPAddress:    ipAddress,
+		Tags:         m.config.Device.Tags,
+		AgentVersion: "1.0.0", // TODO: Get from build info
+		DeviceName:   m.config.Device.Name,
+		Metadata: map[string]string{
+			"location":    m.config.Device.Location,
+			"environment": m.config.Device.Environment,
+			"status":      "alive",
+		},
+	}
+
+	// Send to /agent/heartbeat endpoint
+	heartbeatURL := strings.TrimSuffix(m.config.Report.SendTo, "/") + "/agent/heartbeat"
+	m.sendToAPI(heartbeatURL, heartbeat)
+}
+
+func (m *Monitor) sendToAPI(url string, payload interface{}) {
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[Beacon] Failed to marshal payload: %v", err)
+		return
+	}
+
+	req, err := http.NewRequest("POST", url, strings.NewReader(string(jsonData)))
+	if err != nil {
+		log.Printf("[Beacon] Failed to create API request: %v", err)
 		return
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+m.config.Report.Token)
+	req.Header.Set("X-API-Key", m.config.Report.Token)
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
-		log.Printf("[Beacon] Failed to send report: %v", err)
+		log.Printf("[Beacon] Failed to send to API: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		log.Printf("[Beacon] Successfully reported result for %s", result.Name)
+		log.Printf("[Beacon] Successfully sent data to %s", url)
 	} else {
-		log.Printf("[Beacon] Failed to report result for %s: HTTP %d", result.Name, resp.StatusCode)
+		log.Printf("[Beacon] API request failed: HTTP %d", resp.StatusCode)
 	}
 }
 
@@ -361,22 +622,33 @@ func (m *Monitor) prometheusHandler(w http.ResponseWriter, r *http.Request) {
 			status = 1
 		}
 
-		fmt.Fprintf(w, "beacon_check_status{name=\"%s\",type=\"%s\"} %d\n",
-			result.Name, result.Type, status)
+		// Build device labels for metrics
+		deviceLabels := fmt.Sprintf("name=\"%s\",type=\"%s\"", result.Name, result.Type)
+		if result.Device.Name != "" {
+			deviceLabels += fmt.Sprintf(",device=\"%s\"", result.Device.Name)
+		}
+		if result.Device.Location != "" {
+			deviceLabels += fmt.Sprintf(",location=\"%s\"", result.Device.Location)
+		}
+		if result.Device.Environment != "" {
+			deviceLabels += fmt.Sprintf(",environment=\"%s\"", result.Device.Environment)
+		}
+
+		fmt.Fprintf(w, "beacon_check_status{%s} %d\n", deviceLabels, status)
 
 		// Duration metric
-		fmt.Fprintf(w, "beacon_check_duration_seconds{name=\"%s\",type=\"%s\"} %.3f\n",
-			result.Name, result.Type, result.Duration.Seconds())
+		fmt.Fprintf(w, "beacon_check_duration_seconds{%s} %.3f\n",
+			deviceLabels, result.Duration.Seconds())
 
 		// Response time for HTTP checks
 		if result.Type == "http" && result.ResponseTime > 0 {
-			fmt.Fprintf(w, "beacon_check_response_time_seconds{name=\"%s\",type=\"%s\"} %.3f\n",
-				result.Name, result.Type, result.ResponseTime.Seconds())
+			fmt.Fprintf(w, "beacon_check_response_time_seconds{%s} %.3f\n",
+				deviceLabels, result.ResponseTime.Seconds())
 		}
 
 		// Last check timestamp
-		fmt.Fprintf(w, "beacon_check_last_check_timestamp{name=\"%s\",type=\"%s\"} %d\n",
-			result.Name, result.Type, result.Timestamp.Unix())
+		fmt.Fprintf(w, "beacon_check_last_check_timestamp{%s} %d\n",
+			deviceLabels, result.Timestamp.Unix())
 	}
 }
 
