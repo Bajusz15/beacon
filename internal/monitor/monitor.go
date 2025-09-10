@@ -33,6 +33,7 @@ type Config struct {
 	Device        DeviceConfig        `yaml:"device"`
 	Checks        []CheckConfig       `yaml:"checks"`
 	SystemMetrics SystemMetricsConfig `yaml:"system_metrics,omitempty"`
+	LogSources    []LogSource         `yaml:"log_sources,omitempty"`
 	Report        ReportConfig        `yaml:"report"`
 }
 
@@ -82,10 +83,6 @@ type CheckResult struct {
 	CommandOutput  string        `json:"command_output,omitempty"`
 	CommandError   string        `json:"command_error,omitempty"`
 	Device         DeviceConfig  `json:"device,omitempty"`
-	// Threshold fields for system metrics
-	ThresholdBreach bool    `json:"threshold_breach,omitempty"`
-	ThresholdValue  float64 `json:"threshold_value,omitempty"`
-	ActualValue     float64 `json:"actual_value,omitempty"`
 }
 
 // AgentMetrics represents system metrics for the /agent/metrics endpoint
@@ -126,6 +123,7 @@ type Monitor struct {
 	config                    *Config
 	results                   map[string]*CheckResult
 	resultsMux                sync.RWMutex
+	logManager                *LogManager
 	httpClient                *http.Client
 	ctx                       context.Context
 	cancel                    context.CancelFunc
@@ -184,12 +182,15 @@ func NewMonitor(cfg *Config) (*Monitor, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
 	return &Monitor{
-		config:  cfg,
-		results: make(map[string]*CheckResult),
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		config:           cfg,
+		results:          make(map[string]*CheckResult),
+		logManager:       NewLogManager(cfg, httpClient),
+		httpClient:       httpClient,
 		ctx:              ctx,
 		cancel:           cancel,
 		metricsCollector: &LinuxSystemMetricsCollector{},
@@ -222,6 +223,11 @@ func (m *Monitor) Start() error {
 		}
 		m.reportSystemMetricsTicker = time.NewTicker(interval)
 		go m.reportSystemMetricsLoop()
+	}
+
+	// Start log collection if configured
+	if len(m.config.LogSources) > 0 && m.config.Report.SendTo != "" && m.config.Report.Token != "" {
+		m.logManager.StartLogCollection(m.ctx)
 	}
 
 	// Start all health checks
@@ -310,19 +316,6 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)", check.Type, check.Name, result.Status, result.Duration.Seconds())
 	case "port":
 		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)", check.Type, check.Name, result.Status, result.Duration.Seconds())
-	case "cpu", "memory", "disk", "load":
-		// System checks with threshold information
-		thresholdInfo := ""
-		if result.ThresholdBreach {
-			thresholdInfo = fmt.Sprintf(" [THRESHOLD BREACH: %.2f > %.2f]", result.ActualValue, result.ThresholdValue)
-		} else if result.ThresholdValue > 0 {
-			thresholdInfo = fmt.Sprintf(" [Threshold: %.2f, Current: %.2f]", result.ThresholdValue, result.ActualValue)
-		} else {
-			thresholdInfo = fmt.Sprintf(" [Current: %.2f]", result.ActualValue)
-		}
-
-		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)%s",
-			check.Type, check.Name, result.Status, result.Duration.Seconds(), thresholdInfo)
 	case "command":
 		// Format output with truncation and whitespace normalization
 		output := strings.Join(strings.Fields(result.CommandOutput), " ")

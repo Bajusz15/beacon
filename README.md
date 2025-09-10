@@ -1,17 +1,36 @@
 # Beacon
-Lightweight deployment and reporting agent for self-hosted IoT devices such as Raspberry Pi. It polls a Git repository for new tags and deploys code when a new tag appears.
-Future proof your IoT or self-hosted deployments with automated monitoring and deployment.
 
----
+Lightweight deployment and monitoring agent for self-hosted IoT devices such as Raspberry Pi. It polls a Git repository for new tags and deploys code when a new tag appears, while providing comprehensive infrastructure monitoring and log forwarding. Future proof your IoT or self-hosted deployments with automated monitoring and deployment. 
 
-## ✨ Features
+## 📚 **Documentation**
 
-- **Deployment**: Polls a Git repo for new tags and automatically deploys latest versions
-- **Monitoring**: Comprehensive health checking for HTTP endpoints, ports, and custom commands
-- **Flexible Commands**: Executes custom deploy commands (Docker, scripts, etc.)
-- **Status Server**: Runs an HTTP status server with Prometheus metrics support
-- **Systemd Compatible**: Easy integration with systemd services
-- **Minimal Setup**: Lightweight and easy to configure
+- **[LOG_FORWARDING.md](./LOG_FORWARDING.md)** - Complete guide for log forwarding (file, Docker, deploy, command logs)
+- **[beacon.monitor.example.yml](./beacon.monitor.example.yml)** - Comprehensive configuration examples
+- **[beacon.env.example](./beacon.env.example)** - Environment configuration template
+
+## 📖 **Table of Contents**
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Configuration Files](#configuration-files)
+- [Project Structure](#project-structure-for-multi-repo-support)
+- [Monitoring Configuration](#configuration)
+- [Log Forwarding](#log-forwarding) → See [LOG_FORWARDING.md](./LOG_FORWARDING.md)
+- [Installation](#installation)
+- [Systemd Setup](#systemd-service-template)
+- [Bootstrap Command](#project-setup--bootstrap)
+- [Troubleshooting](#troubleshooting)
+
+## ✨ **Features**
+
+- **🚀 Deployment**: Polls Git repos for new tags and automatically deploys latest versions
+- **📊 Monitoring**: Comprehensive health checking for HTTP endpoints, ports, and custom commands
+- **📋 Log Forwarding**: Forward logs from files, Docker containers, deployments, and custom commands
+- **📈 System Metrics**: Collect and report CPU, memory, disk usage, uptime, and load average
+- **⚙️ Flexible Commands**: Executes custom deploy commands (Docker, scripts, etc.)
+- **🔧 Status Server**: Runs an HTTP status server with Prometheus metrics support
+- **🔄 Systemd Compatible**: Easy integration with systemd services  
+- **⚡ Minimal Setup**: Lightweight and easy to configure
 
 ## 🚀 Quick Start
 
@@ -27,6 +46,30 @@ beacon monitor
 
 # Get help
 beacon --help
+```
+
+## 📋 **Configuration Files**
+
+Beacon uses two main configuration files:
+
+1. **`beacon.env`** - Environment variables for deployment settings
+   - Repository URLs, deploy commands, polling intervals
+   - See: [beacon.env.example](./beacon.env.example)
+
+2. **`beacon.monitor.yml`** - YAML configuration for monitoring and log forwarding
+   - Health checks, system metrics, log sources, reporting
+   - See: [beacon.monitor.example.yml](./beacon.monitor.example.yml) for comprehensive examples
+   - See: [LOG_FORWARDING.md](./LOG_FORWARDING.md) for detailed log forwarding setup
+
+**Quick Setup:**
+```bash
+# Copy example configurations
+cp beacon.env.example beacon.env
+cp beacon.monitor.example.yml beacon.monitor.yml
+
+# Edit configurations for your environment
+nano beacon.env
+nano beacon.monitor.yml
 ```
 
 ---
@@ -152,7 +195,47 @@ The bootstrap command will:
 
 ---
 
-### Configuration
+## 📋 **Log Forwarding**
+
+Beacon supports comprehensive log forwarding to external monitoring systems like Beaconinfra. Configure multiple log sources in your `beacon.monitor.yml`:
+
+```yaml
+log_sources:
+  # File-based log forwarding
+  - name: "Application Logs"
+    type: file
+    enabled: true
+    file_path: "/var/log/app.log"
+    interval: 60s
+
+  # Docker container logs
+  - name: "Container Logs"
+    type: docker
+    enabled: true
+    containers: ["web", "api", "worker"]
+    interval: 30s
+
+  # Deploy command output
+  - name: "Deploy Logs"
+    type: deploy
+    enabled: true
+    deploy_log_file: "/tmp/beacon-deploy.log"
+    interval: 60s
+
+  # System logs via commands
+  - name: "System Errors"
+    type: command
+    enabled: true
+    command: "journalctl --since '5 minutes ago' -p err -n 30"
+    interval: 300s
+```
+
+**📖 For complete log forwarding setup, filtering, Docker examples, and deploy integration:**
+👉 **[See LOG_FORWARDING.md](./LOG_FORWARDING.md)**
+
+---
+
+### Monitoring Configuration
 
 Create a monitoring configuration file (`beacon.monitor.yml`):
 
@@ -316,12 +399,20 @@ If you prefer to build from source:
 Beacon uses two types of configuration files:
 
 1. **`beacon.env`** - Environment variables for deployment (see example above)
-2. **`beacon.monitor.yml`** - YAML configuration for monitoring (see `beacon.monitor.example.yml`)
+2. **`beacon.monitor.yml`** - YAML configuration for monitoring and log forwarding
+
+**Configuration Examples:**
+- **[beacon.env.example](./beacon.env.example)** - Deployment configuration template
+- **[beacon.monitor.example.yml](./beacon.monitor.example.yml)** - Comprehensive monitoring and log forwarding examples
+- **[LOG_FORWARDING.md](./LOG_FORWARDING.md)** - Detailed log forwarding documentation
 
 Copy the example files and customize them for your environment:
 ```bash
 cp beacon.env.example beacon.env
 cp beacon.monitor.example.yml beacon.monitor.yml
+# Edit files to match your setup
+nano beacon.env
+nano beacon.monitor.yml
 ```
 
 ## ⚙️ Alternative: Run in Background (without systemd)
