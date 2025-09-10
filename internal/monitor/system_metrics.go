@@ -219,7 +219,7 @@ func getHostname() (string, error) {
 
 func getIPAddress() (string, error) {
 	// Get primary IP address by connecting to a dummy address
-	conn, err := net.Dial("udp", "8.8.8.8:80")
+	conn, err := net.Dial("udp4", "8.8.8.8:80") // <-- "udp4" forces IPv4
 	if err != nil {
 		return "", fmt.Errorf("failed to get IP address: %v", err)
 	}
