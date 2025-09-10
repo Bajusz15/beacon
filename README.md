@@ -10,16 +10,16 @@ Lightweight deployment and monitoring agent for self-hosted IoT devices such as 
 
 ## 📖 **Table of Contents**
 
-- [Features](#features)
-- [Quick Start](#quick-start)
-- [Configuration Files](#configuration-files)
+- [Features](#-features)
+- [Quick Start](#-quick-start)
+- [Configuration Files](#-configuration-files)
 - [Project Structure](#project-structure-for-multi-repo-support)
-- [Monitoring Configuration](#configuration)
-- [Log Forwarding](#log-forwarding) → See [LOG_FORWARDING.md](./LOG_FORWARDING.md)
-- [Installation](#installation)
+- [Monitoring Configuration](#monitoring-configuration)
+- [Log Forwarding](#-log-forwarding) → See [LOG_FORWARDING.md](./LOG_FORWARDING.md)
+- [Installation](#-installation)
 - [Systemd Setup](#systemd-service-template)
 - [Bootstrap Command](#project-setup--bootstrap)
-- [Troubleshooting](#troubleshooting)
+- [Troubleshooting](#-troubleshooting)
 
 ## ✨ **Features**
 
@@ -33,7 +33,7 @@ Lightweight deployment and monitoring agent for self-hosted IoT devices such as 
 - **⚡ Minimal Setup**: Lightweight and easy to configure
 
 ## 🚀 Quick Start
-
+Keep in mind commands depend on the project's beacon.env and beacon.monitor.yml file, this must be configured by user.
 ```bash
 # Setup a new project
 beacon bootstrap myapp
@@ -394,26 +394,6 @@ If you prefer to build from source:
 > sudo chmod +x /usr/local/bin/beacon
 > ```
 
-### Configuration Files
-
-Beacon uses two types of configuration files:
-
-1. **`beacon.env`** - Environment variables for deployment (see example above)
-2. **`beacon.monitor.yml`** - YAML configuration for monitoring and log forwarding
-
-**Configuration Examples:**
-- **[beacon.env.example](./beacon.env.example)** - Deployment configuration template
-- **[beacon.monitor.example.yml](./beacon.monitor.example.yml)** - Comprehensive monitoring and log forwarding examples
-- **[LOG_FORWARDING.md](./LOG_FORWARDING.md)** - Detailed log forwarding documentation
-
-Copy the example files and customize them for your environment:
-```bash
-cp beacon.env.example beacon.env
-cp beacon.monitor.example.yml beacon.monitor.yml
-# Edit files to match your setup
-nano beacon.env
-nano beacon.monitor.yml
-```
 
 ## ⚙️ Alternative: Run in Background (without systemd)
 
@@ -427,8 +407,6 @@ To stop it later:
 ```bash
 kill $(pgrep beacon)
 ```
-
-<pre lang="markdown">
 
 ### 🧪 Example Run on Raspberry Pi
 
@@ -456,7 +434,6 @@ pi@raspberrypi:~ $ beacon monitor
 2025/08/26 10:25:21 [Beacon] Check (http) Homepage: up (0.17s)
 2025/08/26 10:25:51 [Beacon] Check (http) Homepage: up (0.16s)
 ```
-</pre>
 
 ---
 
