@@ -121,9 +121,9 @@ type SystemMetricsCollector interface {
 
 type Monitor struct {
 	config                    *Config
+	logManager                *LogManager
 	results                   map[string]*CheckResult
 	resultsMux                sync.RWMutex
-	logManager                *LogManager
 	httpClient                *http.Client
 	ctx                       context.Context
 	cancel                    context.CancelFunc
@@ -181,16 +181,15 @@ func NewMonitor(cfg *Config) (*Monitor, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-
-	httpClient := &http.Client{
+	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
-
+	logManager := NewLogManager(cfg, client)
 	return &Monitor{
 		config:           cfg,
+		logManager:       logManager,
 		results:          make(map[string]*CheckResult),
-		logManager:       NewLogManager(cfg, httpClient),
-		httpClient:       httpClient,
+		httpClient:       client,
 		ctx:              ctx,
 		cancel:           cancel,
 		metricsCollector: &LinuxSystemMetricsCollector{},
@@ -225,7 +224,7 @@ func (m *Monitor) Start() error {
 		go m.reportSystemMetricsLoop()
 	}
 
-	// Start log collection if configured
+	// Start log collection if enabled
 	if len(m.config.LogSources) > 0 && m.config.Report.SendTo != "" && m.config.Report.Token != "" {
 		m.logManager.StartLogCollection(m.ctx)
 	}
@@ -676,4 +675,5 @@ func Run(cmd *cobra.Command, args []string) {
 		cmd.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
+
 }

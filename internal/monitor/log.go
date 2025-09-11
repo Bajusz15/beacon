@@ -195,6 +195,9 @@ func (lm *LogManager) runDockerLogCollection(collector *LogCollector) {
 	source := collector.source
 	log.Printf("[Beacon] Starting docker log collection: %s", source.Name)
 
+	// Initialize lastTimestamp to avoid getting all historical logs on first run
+	collector.lastTimestamp = time.Now().Add(-source.Interval)
+
 	ticker := time.NewTicker(source.Interval)
 	defer ticker.Stop()
 
@@ -203,15 +206,121 @@ func (lm *LogManager) runDockerLogCollection(collector *LogCollector) {
 		case <-collector.ctx.Done():
 			return
 		case <-ticker.C:
-			entries := lm.collectDockerLog(source)
+			entries := lm.collectDockerLogSince(source, collector.lastTimestamp)
 			if len(entries) > 0 {
 				lm.addLogEntries(entries)
+				// Update lastTimestamp to the most recent log entry
+				for _, entry := range entries {
+					if entry.Timestamp.After(collector.lastTimestamp) {
+						collector.lastTimestamp = entry.Timestamp
+					}
+				}
 			}
 		}
 	}
 }
 
-// collectDockerLog reads log entries from Docker containers
+// collectDockerLogSince reads log entries from Docker containers since a specific timestamp
+func (lm *LogManager) collectDockerLogSince(source LogSource, since time.Time) []LogEntry {
+	var entries []LogEntry
+
+	containers := source.Containers
+	if source.AllContainers {
+		// Get all running containers
+		cmd := exec.Command("docker", "ps", "--format", "{{.Names}}")
+		output, err := cmd.Output()
+		if err != nil {
+			log.Printf("[Beacon] Error getting docker containers: %v", err)
+			return nil
+		}
+		containers = strings.Split(strings.TrimSpace(string(output)), "\n")
+	}
+
+	for _, container := range containers {
+		if container == "" {
+			continue
+		}
+
+		// Use --since with timestamp instead of --tail
+		sinceStr := since.Format("2006-01-02T15:04:05")
+		args := []string{"logs", "--since", sinceStr, "--timestamps"}
+
+		// Add any additional docker options
+		if source.DockerOptions != "" {
+			optArgs := strings.Fields(source.DockerOptions)
+			// Filter out --tail and --since options to avoid conflicts
+			filteredOpts := []string{}
+			skipNext := false
+			for i, opt := range optArgs {
+				if skipNext {
+					skipNext = false
+					continue
+				}
+				if opt == "--tail" || opt == "--since" {
+					skipNext = true
+					continue
+				}
+				if strings.HasPrefix(opt, "--tail=") || strings.HasPrefix(opt, "--since=") {
+					continue
+				}
+				filteredOpts = append(filteredOpts, opt)
+			}
+			args = append(args, filteredOpts...)
+		}
+		args = append(args, container)
+
+		cmd := exec.Command("docker", args...)
+		output, err := cmd.Output()
+		if err != nil {
+			log.Printf("[Beacon] Error getting docker logs for %s: %v", container, err)
+			continue
+		}
+
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			// Parse Docker timestamp format: 2024-01-15T10:30:00.123456789Z message
+			var logTimestamp time.Time
+			var logContent string
+
+			parts := strings.SplitN(line, " ", 2)
+			if len(parts) >= 2 {
+				if ts, err := time.Parse(time.RFC3339Nano, parts[0]); err == nil {
+					logTimestamp = ts
+					logContent = parts[1]
+				} else {
+					// Fallback if timestamp parsing fails
+					logTimestamp = time.Now()
+					logContent = line
+				}
+			} else {
+				logTimestamp = time.Now()
+				logContent = line
+			}
+
+			// Only include logs newer than our last timestamp
+			if logTimestamp.After(since) && lm.shouldIncludeLogLine(logContent, source) {
+				entry := LogEntry{
+					Source:    source.Name,
+					Type:      source.Type,
+					Container: container,
+					Content:   logContent,
+					Timestamp: logTimestamp,
+					Level:     lm.detectLogLevel(logContent),
+				}
+				entries = append(entries, entry)
+			}
+		}
+	}
+
+	return entries
+}
+
+// collectDockerLog reads log entries from Docker containers (legacy method)
 func (lm *LogManager) collectDockerLog(source LogSource) []LogEntry {
 	var entries []LogEntry
 
@@ -494,7 +603,7 @@ func (lm *LogManager) reportLogs(logs []LogEntry) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", lm.config.Report.SendTo+"/logs", strings.NewReader(string(jsonData)))
+	req, err := http.NewRequest("POST", lm.config.Report.SendTo+"/agent/logs", strings.NewReader(string(jsonData)))
 	if err != nil {
 		log.Printf("[Beacon] Failed to create logs report request: %v", err)
 		return
