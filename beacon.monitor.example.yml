@@ -95,7 +95,7 @@ log_sources:
   # Monitor specific containers
   - name: "Web Container Logs"
     type: docker
-    enabled: true
+    enabled: false
     containers: ["myapp-web", "myapp-api"]
     interval: 30s
     max_lines: 50
@@ -106,7 +106,7 @@ log_sources:
   # Monitor ALL running containers
   - name: "All Docker Logs"
     type: docker
-    enabled: false  # Disabled by default to avoid noise
+    enabled: true  # Disabled by default to avoid noise
     all_containers: true
     interval: 60s
     max_lines: 20
@@ -116,14 +116,6 @@ log_sources:
       - "FATAL"
       - "PANIC"
 
-  # Monitor specific container with detailed options
-  - name: "Database Container"
-    type: docker
-    enabled: true
-    containers: ["postgres-db"]
-    interval: 120s
-    max_lines: 30
-    docker_options: "--since 10m"
 
   # 3. DEPLOY LOG FORWARDING
   # Capture deployment command output to a file
@@ -151,13 +143,6 @@ log_sources:
     interval: 180s
     max_lines: 30
 
-  # Custom monitoring commands
-  - name: "Failed SSH Attempts"
-    type: command
-    enabled: true
-    command: "grep 'Failed password' /var/log/auth.log | tail -20"
-    interval: 600s  # Every 10 minutes
-    max_lines: 20
 
   - name: "Disk Usage Alerts"
     type: command
