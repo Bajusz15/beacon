@@ -118,6 +118,24 @@ exclude_patterns:
 ### Log Level Detection
 Beacon automatically detects log levels (error, warning, info, debug) based on content.
 
+### Log Deduplication
+Beacon can automatically filter out duplicate log entries to reduce noise and bandwidth usage:
+
+```yaml
+- name: "Application Logs"
+  type: file
+  enabled: true
+  file_path: "/var/log/app.log"
+  deduplicate: true  # Enable deduplication
+  interval: 30s
+```
+
+**How it works:**
+- Creates a hash based on source, type, container, and content
+- Tracks seen logs for 1 hour to prevent duplicates
+- Automatically cleans up old hash entries every 6 hours
+- Only affects logs from sources with `deduplicate: true`
+
 ## 📊 Configuration Options
 
 | Option | Description | Default |
@@ -130,6 +148,7 @@ Beacon automatically detects log levels (error, warning, info, debug) based on c
 | `docker_options` | Additional docker logs options | - |
 | `include_patterns` | Regex patterns to include | - |
 | `exclude_patterns` | Regex patterns to exclude | - |
+| `deduplicate` | Enable log deduplication | `false` |
 
 ## 🐳 Docker Examples
 

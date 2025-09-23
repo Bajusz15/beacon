@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -104,8 +105,24 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 		os.Chdir(cfg.LocalPath)
 		defer os.Chdir(originalDir)
 
+		// Build the command with secure environment file sourcing
+		var command string
+		if cfg.SecureEnvPath != "" {
+			// Check if secure env file exists
+			if _, err := os.Stat(cfg.SecureEnvPath); err == nil {
+				log.Printf("[Beacon] Sourcing secure environment file: %s\n", cfg.SecureEnvPath)
+				command = fmt.Sprintf("set -a && source %s && set +a && %s", cfg.SecureEnvPath, cfg.DeployCommand)
+			} else {
+				log.Printf("[Beacon] Warning: Secure environment file not found: %s\n", cfg.SecureEnvPath)
+				log.Printf("[Beacon] Running deploy command without secure environment\n")
+				command = cfg.DeployCommand
+			}
+		} else {
+			command = cfg.DeployCommand
+		}
+
 		// Execute the command
-		cmd := exec.Command("sh", "-c", cfg.DeployCommand)
+		cmd := exec.Command("sh", "-c", command)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 

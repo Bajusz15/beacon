@@ -66,6 +66,7 @@ log_sources:
     follow_file: true
     interval: 30s
     max_lines: 100
+    deduplicate: true  # Enable deduplication for this source
     include_patterns:
       - "ERROR"
       - "WARN" 
@@ -110,6 +111,7 @@ log_sources:
     all_containers: true
     interval: 60s
     max_lines: 20
+    deduplicate: true  # Enable deduplication for Docker logs
     docker_options: "--since 2m"
     include_patterns:
       - "ERROR"
@@ -224,9 +226,21 @@ report:
 #     enabled: true
 #     file_path: "/var/www/app/storage/logs/laravel.log"
 #     follow_file: true
+#     use_tail: false  # try direct file access first, fallback to tail if needed
 #     interval: 30s
 #     include_patterns:
 #       - "ERROR"
+
+# System logs (requires elevated permissions - use tail):
+# log_sources:
+#   - name: "System Logs"
+#     type: file
+#     enabled: true
+#     file_path: "/var/log/syslog"
+#     follow_file: true
+#     use_tail: true  # force tail command for permission-restricted files
+#     interval: 30s
+#     max_lines: 200
 #       - "CRITICAL"
 #       - "EMERGENCY"
 

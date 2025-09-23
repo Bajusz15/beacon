@@ -1,14 +1,19 @@
 package monitor
 
 import (
+	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +31,7 @@ type LogSource struct {
 	// File-based logging
 	FilePath   string `yaml:"file_path,omitempty"`
 	FollowFile bool   `yaml:"follow_file,omitempty"` // tail -f behavior
+	UseTail    bool   `yaml:"use_tail,omitempty"`    // force tail command instead of direct file access
 
 	// Docker logging
 	Containers    []string `yaml:"containers,omitempty"`     // specific containers
@@ -41,6 +47,9 @@ type LogSource struct {
 	// Filtering
 	IncludePatterns []string `yaml:"include_patterns,omitempty"` // regex patterns to include
 	ExcludePatterns []string `yaml:"exclude_patterns,omitempty"` // regex patterns to exclude
+
+	// Deduplication
+	Deduplicate bool `yaml:"deduplicate,omitempty"` // enable log deduplication for this source
 }
 
 // LogEntry represents a single log entry
@@ -51,6 +60,7 @@ type LogEntry struct {
 	Content   string    `json:"content"`
 	Timestamp time.Time `json:"timestamp"`
 	Level     string    `json:"level,omitempty"` // parsed log level if detected
+	Hash      string    `json:"hash,omitempty"`  // hash for deduplication
 }
 
 // LogCollector manages log collection for a specific source
@@ -61,6 +71,7 @@ type LogCollector struct {
 	running       bool
 	ctx           context.Context
 	cancel        context.CancelFunc
+	fileHandle    *os.File // for file-based collection
 }
 
 // LogManager handles all log collection and forwarding
@@ -70,6 +81,8 @@ type LogManager struct {
 	logsMux       sync.RWMutex
 	logCollectors map[string]*LogCollector
 	httpClient    *http.Client
+	seenLogs      map[string]time.Time // hash -> last seen timestamp for deduplication
+	seenLogsMux   sync.RWMutex
 }
 
 // NewLogManager creates a new log manager
@@ -79,12 +92,72 @@ func NewLogManager(config *Config, httpClient *http.Client) *LogManager {
 		logs:          make([]LogEntry, 0),
 		logCollectors: make(map[string]*LogCollector),
 		httpClient:    httpClient,
+		seenLogs:      make(map[string]time.Time),
 	}
+}
+
+// parseLogTimestamp attempts to parse timestamps from various log formats
+func (lm *LogManager) parseLogTimestamp(line string) (time.Time, string) {
+	// Common timestamp patterns
+	patterns := []struct {
+		regex   *regexp.Regexp
+		layout  string
+		example string
+	}{
+		// RFC3339: 2024-01-15T10:30:00.123456789Z
+		{regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)\s+(.*)`), time.RFC3339Nano, "2024-01-15T10:30:00.123456789Z"},
+		// RFC3339 without nanoseconds: 2024-01-15T10:30:00Z
+		{regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s+(.*)`), time.RFC3339, "2024-01-15T10:30:00Z"},
+		// Syslog: Jan 15 10:30:00
+		{regexp.MustCompile(`^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(.*)`), "Jan 2 15:04:05", "Jan 15 10:30:00"},
+		// ISO 8601: 2024-01-15 10:30:00
+		{regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+(.*)`), "2006-01-02 15:04:05", "2024-01-15 10:30:00"},
+		// ISO 8601 with milliseconds: 2024-01-15 10:30:00.123
+		{regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3})\s+(.*)`), "2006-01-02 15:04:05.000", "2024-01-15 10:30:00.123"},
+		// Unix timestamp: 1705312200
+		{regexp.MustCompile(`^(\d{10})\s+(.*)`), "unix", "1705312200"},
+		// Unix timestamp with milliseconds: 1705312200123
+		{regexp.MustCompile(`^(\d{13})\s+(.*)`), "unix_ms", "1705312200123"},
+	}
+
+	for _, pattern := range patterns {
+		matches := pattern.regex.FindStringSubmatch(line)
+		if len(matches) >= 3 {
+			timestampStr := matches[1]
+			content := matches[2]
+
+			var timestamp time.Time
+			var err error
+
+			switch pattern.layout {
+			case "unix":
+				if unix, err := strconv.ParseInt(timestampStr, 10, 64); err == nil {
+					timestamp = time.Unix(unix, 0)
+				}
+			case "unix_ms":
+				if unix, err := strconv.ParseInt(timestampStr, 10, 64); err == nil {
+					timestamp = time.Unix(unix/1000, (unix%1000)*1000000)
+				}
+			default:
+				timestamp, err = time.Parse(pattern.layout, timestampStr)
+			}
+
+			if err == nil {
+				return timestamp, content
+			}
+		}
+	}
+
+	// No timestamp found, return current time
+	return time.Now(), line
 }
 
 // StartLogCollection starts all configured log sources
 func (lm *LogManager) StartLogCollection(ctx context.Context) {
 	log.Printf("[Beacon] Starting log collection for %d sources", len(lm.config.LogSources))
+
+	// Start periodic cleanup of old hashes
+	go lm.startHashCleanup(ctx)
 
 	for _, source := range lm.config.LogSources {
 		if !source.Enabled {
@@ -114,6 +187,21 @@ func (lm *LogManager) StartLogCollection(ctx context.Context) {
 	}
 }
 
+// startHashCleanup runs periodic cleanup of old hash entries
+func (lm *LogManager) startHashCleanup(ctx context.Context) {
+	ticker := time.NewTicker(6 * time.Hour) // Cleanup every 6 hours
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			lm.cleanupOldHashes()
+		}
+	}
+}
+
 // StopLogCollection stops all log collectors
 func (lm *LogManager) StopLogCollection() {
 	for _, collector := range lm.logCollectors {
@@ -128,6 +216,39 @@ func (lm *LogManager) runFileLogCollection(collector *LogCollector) {
 	source := collector.source
 	log.Printf("[Beacon] Starting file log collection: %s -> %s", source.Name, source.FilePath)
 
+	// If user explicitly wants tail or we can't open the file directly, use tail
+	if source.UseTail || !lm.canAccessFileDirectly(source.FilePath) {
+		log.Printf("[Beacon] Using tail command for %s", source.FilePath)
+		lm.runFileLogCollectionWithTail(collector)
+		return
+	}
+
+	// Try direct file access
+	file, err := os.Open(source.FilePath)
+	if err != nil {
+		log.Printf("[Beacon] Cannot open file %s directly (%v), falling back to tail", source.FilePath, err)
+		lm.runFileLogCollectionWithTail(collector)
+		return
+	}
+	defer file.Close()
+
+	collector.fileHandle = file
+
+	// Get initial file size and position
+	stat, err := file.Stat()
+	if err != nil {
+		log.Printf("[Beacon] Error getting file stats for %s: %v", source.FilePath, err)
+		lm.runFileLogCollectionWithTail(collector)
+		return
+	}
+	collector.lastPosition = stat.Size()
+
+	// If following file, start from the end
+	if source.FollowFile {
+		collector.lastPosition = stat.Size()
+	}
+
+	log.Printf("[Beacon] Using direct file access for %s", source.FilePath)
 	ticker := time.NewTicker(source.Interval)
 	defer ticker.Stop()
 
@@ -136,7 +257,7 @@ func (lm *LogManager) runFileLogCollection(collector *LogCollector) {
 		case <-collector.ctx.Done():
 			return
 		case <-ticker.C:
-			entries := lm.collectFileLog(source)
+			entries := lm.collectFileLogFromPosition(collector)
 			if len(entries) > 0 {
 				lm.addLogEntries(entries)
 			}
@@ -144,30 +265,138 @@ func (lm *LogManager) runFileLogCollection(collector *LogCollector) {
 	}
 }
 
-// collectFileLog reads log entries from a file
-func (lm *LogManager) collectFileLog(source LogSource) []LogEntry {
+// collectFileLogFromPosition reads new log entries from file since last position
+func (lm *LogManager) collectFileLogFromPosition(collector *LogCollector) []LogEntry {
+	source := collector.source
+	file := collector.fileHandle
+
+	// Get current file size
+	stat, err := file.Stat()
+	if err != nil {
+		log.Printf("[Beacon] Error getting file stats for %s: %v", source.FilePath, err)
+		return nil
+	}
+
+	currentSize := stat.Size()
+
+	// If file was truncated (log rotation), reset position
+	if currentSize < collector.lastPosition {
+		log.Printf("[Beacon] File %s was truncated, resetting position", source.FilePath)
+		collector.lastPosition = 0
+	}
+
+	// If no new content, return empty
+	if currentSize <= collector.lastPosition {
+		return nil
+	}
+
+	// Seek to last position
+	_, err = file.Seek(collector.lastPosition, 0)
+	if err != nil {
+		log.Printf("[Beacon] Error seeking in file %s: %v", source.FilePath, err)
+		return nil
+	}
+
+	// Read new content
+	reader := bufio.NewReader(file)
+	var entries []LogEntry
+	var line string
+
+	for {
+		line, err = reader.ReadString('\n')
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Printf("[Beacon] Error reading file %s: %v", source.FilePath, err)
+			break
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		if lm.shouldIncludeLogLine(line, source) {
+			timestamp, content := lm.parseLogTimestamp(line)
+
+			entry := LogEntry{
+				Source:    source.Name,
+				Type:      source.Type,
+				Content:   content,
+				Timestamp: timestamp,
+				Level:     lm.detectLogLevel(content),
+			}
+			entries = append(entries, entry)
+		}
+	}
+
+	// Update position
+	collector.lastPosition = currentSize
+
+	return entries
+}
+
+// canAccessFileDirectly checks if we can read the file without permission issues
+func (lm *LogManager) canAccessFileDirectly(filePath string) bool {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	file.Close()
+	return true
+}
+
+// runFileLogCollectionWithTail handles file-based log collection using tail command
+func (lm *LogManager) runFileLogCollectionWithTail(collector *LogCollector) {
+	source := collector.source
+
+	ticker := time.NewTicker(source.Interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-collector.ctx.Done():
+			return
+		case <-ticker.C:
+			entries := lm.collectFileLogWithTail(source, collector)
+			if len(entries) > 0 {
+				lm.addLogEntries(entries)
+			}
+		}
+	}
+}
+
+// collectFileLogWithTail reads log entries using tail command with position tracking
+func (lm *LogManager) collectFileLogWithTail(source LogSource, collector *LogCollector) []LogEntry {
 	maxLines := source.MaxLines
 	if maxLines == 0 {
 		maxLines = 100
 	}
 
 	var cmd *exec.Cmd
-	if source.FollowFile {
-		// Use tail -n for recent lines
+	if source.FollowFile && collector.lastTimestamp.IsZero() {
+		// First run with follow - get recent lines
 		cmd = exec.Command("tail", "-n", fmt.Sprintf("%d", maxLines), source.FilePath)
+		collector.lastTimestamp = time.Now()
+	} else if source.FollowFile {
+		// Subsequent runs - try to get only new lines since last check
+		// Use tail with grep to filter by timestamp (if possible)
+		cmd = exec.Command("tail", "-n", fmt.Sprintf("%d", maxLines*2), source.FilePath)
 	} else {
-		// Use head for beginning of file or tail for end
+		// Not following - get end of file
 		cmd = exec.Command("tail", "-n", fmt.Sprintf("%d", maxLines), source.FilePath)
 	}
 
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("[Beacon] Error reading file log %s: %v", source.FilePath, err)
+		log.Printf("[Beacon] Error reading file log %s with tail: %v", source.FilePath, err)
 		return nil
 	}
 
 	lines := strings.Split(string(output), "\n")
 	var entries []LogEntry
+	var newestTimestamp time.Time
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -176,15 +405,32 @@ func (lm *LogManager) collectFileLog(source LogSource) []LogEntry {
 		}
 
 		if lm.shouldIncludeLogLine(line, source) {
+			timestamp, content := lm.parseLogTimestamp(line)
+
+			// Skip logs older than our last timestamp when following
+			if source.FollowFile && !collector.lastTimestamp.IsZero() && timestamp.Before(collector.lastTimestamp) {
+				continue
+			}
+
 			entry := LogEntry{
 				Source:    source.Name,
 				Type:      source.Type,
-				Content:   line,
-				Timestamp: time.Now(),
-				Level:     lm.detectLogLevel(line),
+				Content:   content,
+				Timestamp: timestamp,
+				Level:     lm.detectLogLevel(content),
 			}
 			entries = append(entries, entry)
+
+			// Track newest timestamp
+			if timestamp.After(newestTimestamp) {
+				newestTimestamp = timestamp
+			}
 		}
+	}
+
+	// Update last timestamp for next run
+	if source.FollowFile && !newestTimestamp.IsZero() {
+		collector.lastTimestamp = newestTimestamp
 	}
 
 	return entries
@@ -251,7 +497,7 @@ func (lm *LogManager) collectDockerLogSince(source LogSource, since time.Time) [
 			// Filter out --tail and --since options to avoid conflicts
 			filteredOpts := []string{}
 			skipNext := false
-			for i, opt := range optArgs {
+			for _, opt := range optArgs {
 				if skipNext {
 					skipNext = false
 					continue
@@ -283,24 +529,7 @@ func (lm *LogManager) collectDockerLogSince(source LogSource, since time.Time) [
 				continue
 			}
 
-			// Parse Docker timestamp format: 2024-01-15T10:30:00.123456789Z message
-			var logTimestamp time.Time
-			var logContent string
-
-			parts := strings.SplitN(line, " ", 2)
-			if len(parts) >= 2 {
-				if ts, err := time.Parse(time.RFC3339Nano, parts[0]); err == nil {
-					logTimestamp = ts
-					logContent = parts[1]
-				} else {
-					// Fallback if timestamp parsing fails
-					logTimestamp = time.Now()
-					logContent = line
-				}
-			} else {
-				logTimestamp = time.Now()
-				logContent = line
-			}
+			logTimestamp, logContent := lm.parseLogTimestamp(line)
 
 			// Only include logs newer than our last timestamp
 			if logTimestamp.After(since) && lm.shouldIncludeLogLine(logContent, source) {
@@ -311,70 +540,6 @@ func (lm *LogManager) collectDockerLogSince(source LogSource, since time.Time) [
 					Content:   logContent,
 					Timestamp: logTimestamp,
 					Level:     lm.detectLogLevel(logContent),
-				}
-				entries = append(entries, entry)
-			}
-		}
-	}
-
-	return entries
-}
-
-// collectDockerLog reads log entries from Docker containers (legacy method)
-func (lm *LogManager) collectDockerLog(source LogSource) []LogEntry {
-	var entries []LogEntry
-
-	containers := source.Containers
-	if source.AllContainers {
-		// Get all running containers
-		cmd := exec.Command("docker", "ps", "--format", "{{.Names}}")
-		output, err := cmd.Output()
-		if err != nil {
-			log.Printf("[Beacon] Error getting docker containers: %v", err)
-			return nil
-		}
-		containers = strings.Split(strings.TrimSpace(string(output)), "\n")
-	}
-
-	for _, container := range containers {
-		if container == "" {
-			continue
-		}
-
-		maxLines := source.MaxLines
-		if maxLines == 0 {
-			maxLines = 50
-		}
-
-		args := []string{"logs", "--tail", fmt.Sprintf("%d", maxLines)}
-		if source.DockerOptions != "" {
-			optArgs := strings.Fields(source.DockerOptions)
-			args = append(args, optArgs...)
-		}
-		args = append(args, container)
-
-		cmd := exec.Command("docker", args...)
-		output, err := cmd.Output()
-		if err != nil {
-			log.Printf("[Beacon] Error getting docker logs for %s: %v", container, err)
-			continue
-		}
-
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-
-			if lm.shouldIncludeLogLine(line, source) {
-				entry := LogEntry{
-					Source:    source.Name,
-					Type:      source.Type,
-					Container: container,
-					Content:   line,
-					Timestamp: time.Now(),
-					Level:     lm.detectLogLevel(line),
 				}
 				entries = append(entries, entry)
 			}
@@ -439,12 +604,14 @@ func (lm *LogManager) collectDeployLog(source LogSource) []LogEntry {
 		}
 
 		if lm.shouldIncludeLogLine(line, source) {
+			timestamp, content := lm.parseLogTimestamp(line)
+
 			entry := LogEntry{
 				Source:    source.Name,
 				Type:      source.Type,
-				Content:   line,
-				Timestamp: time.Now(),
-				Level:     lm.detectLogLevel(line),
+				Content:   content,
+				Timestamp: timestamp,
+				Level:     lm.detectLogLevel(content),
 			}
 			entries = append(entries, entry)
 		}
@@ -493,12 +660,14 @@ func (lm *LogManager) collectCommandLog(source LogSource) []LogEntry {
 		}
 
 		if lm.shouldIncludeLogLine(line, source) {
+			timestamp, content := lm.parseLogTimestamp(line)
+
 			entry := LogEntry{
 				Source:    source.Name,
 				Type:      source.Type,
-				Content:   line,
-				Timestamp: time.Now(),
-				Level:     lm.detectLogLevel(line),
+				Content:   content,
+				Timestamp: timestamp,
+				Level:     lm.detectLogLevel(content),
 			}
 			entries = append(entries, entry)
 		}
@@ -549,14 +718,98 @@ func (lm *LogManager) detectLogLevel(line string) string {
 	return ""
 }
 
+// generateLogHash creates a hash for log deduplication
+func (lm *LogManager) generateLogHash(entry LogEntry) string {
+	// Create a hash based on source, type, container, and content
+	// Timestamp is excluded to allow same log content at different times
+	hashInput := fmt.Sprintf("%s|%s|%s|%s", entry.Source, entry.Type, entry.Container, entry.Content)
+	hash := sha256.Sum256([]byte(hashInput))
+	return hex.EncodeToString(hash[:])
+}
+
+// isDuplicateLog checks if a log entry is a duplicate
+func (lm *LogManager) isDuplicateLog(entry LogEntry, source LogSource) bool {
+	if !source.Deduplicate {
+		return false
+	}
+
+	hash := lm.generateLogHash(entry)
+
+	lm.seenLogsMux.RLock()
+	lastSeen, exists := lm.seenLogs[hash]
+	lm.seenLogsMux.RUnlock()
+
+	if !exists {
+		// New log entry
+		lm.seenLogsMux.Lock()
+		lm.seenLogs[hash] = entry.Timestamp
+		lm.seenLogsMux.Unlock()
+		return false
+	}
+
+	// Check if this is the same log within a reasonable time window (e.g., 1 hour)
+	// This prevents the same log from being sent multiple times
+	timeWindow := time.Hour
+	if entry.Timestamp.Sub(lastSeen) < timeWindow {
+		return true
+	}
+
+	// Update the timestamp for this hash
+	lm.seenLogsMux.Lock()
+	lm.seenLogs[hash] = entry.Timestamp
+	lm.seenLogsMux.Unlock()
+	return false
+}
+
+// cleanupOldHashes removes old hash entries to prevent memory leaks
+func (lm *LogManager) cleanupOldHashes() {
+	cutoff := time.Now().Add(-24 * time.Hour) // Keep hashes for 24 hours
+
+	lm.seenLogsMux.Lock()
+	defer lm.seenLogsMux.Unlock()
+
+	for hash, lastSeen := range lm.seenLogs {
+		if lastSeen.Before(cutoff) {
+			delete(lm.seenLogs, hash)
+		}
+	}
+}
+
 // addLogEntries adds new log entries to the collection and reports them
 func (lm *LogManager) addLogEntries(entries []LogEntry) {
 	if len(entries) == 0 {
 		return
 	}
 
+	// Filter out duplicates and add hashes
+	var filteredEntries []LogEntry
+	for _, entry := range entries {
+		// Generate hash for the entry
+		entry.Hash = lm.generateLogHash(entry)
+
+		// Find the source configuration for this entry
+		var source LogSource
+		for _, s := range lm.config.LogSources {
+			if s.Name == entry.Source {
+				source = s
+				break
+			}
+		}
+
+		// Check if this is a duplicate
+		if lm.isDuplicateLog(entry, source) {
+			continue
+		}
+
+		filteredEntries = append(filteredEntries, entry)
+	}
+
+	if len(filteredEntries) == 0 {
+		return
+	}
+
 	lm.logsMux.Lock()
-	lm.logs = append(lm.logs, entries...)
+	lm.logs = append(lm.logs, filteredEntries...)
 
 	// Keep only last 1000 log entries to prevent memory issues
 	if len(lm.logs) > 1000 {
@@ -566,10 +819,10 @@ func (lm *LogManager) addLogEntries(entries []LogEntry) {
 
 	// Report logs to external API
 	if lm.config.Report.SendTo != "" && lm.config.Report.Token != "" {
-		go lm.reportLogs(entries)
+		go lm.reportLogs(filteredEntries)
 	}
 
-	log.Printf("[Beacon] Collected %d log entries", len(entries))
+	log.Printf("[Beacon] Collected %d log entries (filtered from %d)", len(filteredEntries), len(entries))
 }
 
 // reportLogs sends log entries to the external API

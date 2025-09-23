@@ -19,6 +19,7 @@ type Config struct {
 	SSHKeyPath    string
 	GitToken      string
 	DeployCommand string
+	SecureEnvPath string // Path to secure environment file for deploy command
 	ProjectDir    string
 }
 
@@ -32,6 +33,7 @@ func Load() *Config {
 		SSHKeyPath:    getEnvOrPrompt("BEACON_SSH_KEY_PATH", "Enter the SSH key path (optional)", ""),
 		GitToken:      getEnvOrPrompt("BEACON_GIT_TOKEN", "Enter the Git token (optional)", ""),
 		DeployCommand: getEnvOrPrompt("BEACON_DEPLOY_CMD", "Enter the deploy command to run after update (optional)", ""),
+		SecureEnvPath: getEnvOrPrompt("BEACON_SECURE_ENV_PATH", "Enter secure environment file path (optional)", ""),
 	}
 	cfg.ProjectDir = filepath.Base(cfg.LocalPath)
 
