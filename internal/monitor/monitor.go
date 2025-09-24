@@ -33,6 +33,7 @@ type Config struct {
 	Device        DeviceConfig        `yaml:"device"`
 	Checks        []CheckConfig       `yaml:"checks"`
 	SystemMetrics SystemMetricsConfig `yaml:"system_metrics,omitempty"`
+	LogSources    []LogSource         `yaml:"log_sources,omitempty"`
 	Report        ReportConfig        `yaml:"report"`
 }
 
@@ -45,6 +46,7 @@ type CheckConfig struct {
 	Cmd          string        `yaml:"cmd,omitempty"`
 	Interval     time.Duration `yaml:"interval"`
 	ExpectStatus int           `yaml:"expect_status,omitempty"`
+	AlertCommand string        `yaml:"alert_command,omitempty"`
 }
 
 type SystemMetricsConfig struct {
@@ -82,10 +84,6 @@ type CheckResult struct {
 	CommandOutput  string        `json:"command_output,omitempty"`
 	CommandError   string        `json:"command_error,omitempty"`
 	Device         DeviceConfig  `json:"device,omitempty"`
-	// Threshold fields for system metrics
-	ThresholdBreach bool    `json:"threshold_breach,omitempty"`
-	ThresholdValue  float64 `json:"threshold_value,omitempty"`
-	ActualValue     float64 `json:"actual_value,omitempty"`
 }
 
 // AgentMetrics represents system metrics for the /agent/metrics endpoint
@@ -124,6 +122,7 @@ type SystemMetricsCollector interface {
 
 type Monitor struct {
 	config                    *Config
+	logManager                *LogManager
 	results                   map[string]*CheckResult
 	resultsMux                sync.RWMutex
 	httpClient                *http.Client
@@ -183,13 +182,15 @@ func NewMonitor(cfg *Config) (*Monitor, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	logManager := NewLogManager(cfg, client)
 	return &Monitor{
-		config:  cfg,
-		results: make(map[string]*CheckResult),
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		config:           cfg,
+		logManager:       logManager,
+		results:          make(map[string]*CheckResult),
+		httpClient:       client,
 		ctx:              ctx,
 		cancel:           cancel,
 		metricsCollector: &LinuxSystemMetricsCollector{},
@@ -222,6 +223,11 @@ func (m *Monitor) Start() error {
 		}
 		m.reportSystemMetricsTicker = time.NewTicker(interval)
 		go m.reportSystemMetricsLoop()
+	}
+
+	// Start log collection if enabled
+	if len(m.config.LogSources) > 0 && m.config.Report.SendTo != "" && m.config.Report.Token != "" {
+		m.logManager.StartLogCollection(m.ctx)
 	}
 
 	// Start all health checks
@@ -310,19 +316,6 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)", check.Type, check.Name, result.Status, result.Duration.Seconds())
 	case "port":
 		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)", check.Type, check.Name, result.Status, result.Duration.Seconds())
-	case "cpu", "memory", "disk", "load":
-		// System checks with threshold information
-		thresholdInfo := ""
-		if result.ThresholdBreach {
-			thresholdInfo = fmt.Sprintf(" [THRESHOLD BREACH: %.2f > %.2f]", result.ActualValue, result.ThresholdValue)
-		} else if result.ThresholdValue > 0 {
-			thresholdInfo = fmt.Sprintf(" [Threshold: %.2f, Current: %.2f]", result.ThresholdValue, result.ActualValue)
-		} else {
-			thresholdInfo = fmt.Sprintf(" [Current: %.2f]", result.ActualValue)
-		}
-
-		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)%s",
-			check.Type, check.Name, result.Status, result.Duration.Seconds(), thresholdInfo)
 	case "command":
 		// Format output with truncation and whitespace normalization
 		output := strings.Join(strings.Fields(result.CommandOutput), " ")
@@ -350,6 +343,11 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 	m.resultsMux.Lock()
 	m.results[check.Name] = &result
 	m.resultsMux.Unlock()
+
+	// Execute alert command if check failed and alert_command is configured
+	if result.Status != "up" && check.AlertCommand != "" {
+		m.executeAlertCommand(check.AlertCommand, result)
+	}
 }
 
 func (m *Monitor) executeHTTPCheck(check CheckConfig) CheckResult {
@@ -447,6 +445,40 @@ func (m *Monitor) executeCommandCheck(check CheckConfig) CheckResult {
 
 	result.Status = "up"
 	return result
+}
+
+func (m *Monitor) executeAlertCommand(command string, result CheckResult) {
+	if command == "" {
+		return
+	}
+
+	log.Printf("[Beacon] Executing alert command for failed check: %s", result.Name)
+
+	// Execute the alert command in a goroutine to avoid blocking
+	go func() {
+		// Replace variables in the command string directly
+		expandedCommand := strings.ReplaceAll(command, "$BEACON_CHECK_NAME", result.Name)
+		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_CHECK_TYPE", result.Type)
+		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_CHECK_STATUS", result.Status)
+		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_CHECK_ERROR", result.Error)
+		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_CHECK_DURATION", fmt.Sprintf("%.2f", result.Duration.Seconds()))
+		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_DEVICE_NAME", result.Device.Name)
+
+		cmd := exec.CommandContext(m.ctx, "sh", "-c", expandedCommand)
+
+		// Capture output for logging
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		err := cmd.Run()
+
+		if err != nil {
+			log.Printf("[Beacon] Alert command failed: %v, stderr: %s", err, stderr.String())
+		} else {
+			log.Printf("[Beacon] Alert command executed successfully: %s", stdout.String())
+		}
+	}()
 }
 
 func (m *Monitor) reportSystemMetricsLoop() {
@@ -683,4 +715,5 @@ func Run(cmd *cobra.Command, args []string) {
 		cmd.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
+
 }

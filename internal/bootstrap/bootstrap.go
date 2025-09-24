@@ -24,6 +24,7 @@ type BootstrapConfig struct {
 	Port             string
 	SSHKeyPath       string
 	GitToken         string
+	SecureEnvPath    string // Path to secure environment file for deploy command
 	User             string
 	WorkingDir       string
 	ProjectConfigDir string
@@ -57,6 +58,11 @@ BEACON_POLL_INTERVAL={{.PollInterval}}
 
 # HTTP server port
 BEACON_PORT={{.Port}}
+
+# Secure environment file path for deploy command (optional)
+{{- if .SecureEnvPath}}
+BEACON_SECURE_ENV_PATH={{.SecureEnvPath}}
+{{- end}}
 `
 
 const systemdTemplate = `[Unit]
@@ -65,6 +71,10 @@ After=network.target
 
 [Service]
 EnvironmentFile={{.ProjectConfigDir}}/env
+{{- if .SecureEnvPath}}
+# Secure environment file for deploy command
+EnvironmentFile={{.SecureEnvPath}}
+{{- end}}
 Type=simple
 ExecStart=/usr/local/bin/beacon deploy
 Restart=always
@@ -149,6 +159,7 @@ func Run(cmd *cobra.Command, args []string) {
 		Port:          promptForInput("Enter HTTP server port", "8080"),
 		SSHKeyPath:    promptForInput("Enter SSH key path (optional)", ""),
 		GitToken:      promptForInput("Enter Git token (optional)", ""),
+		SecureEnvPath: promptForInput("Enter secure environment file path (optional)", fmt.Sprintf("/etc/beacon/%s.env", projectName)),
 		User:          currentUser.Username,
 		WorkingDir:    fmt.Sprintf("%s/beacon/%s", currentUser.HomeDir, projectName),
 	}
@@ -208,6 +219,13 @@ func Run(cmd *cobra.Command, args []string) {
 	cmd.Printf("1. Review configuration: %s/env\n", config.ProjectConfigDir)
 	cmd.Printf("2. Edit configuration if needed\n")
 
+	if config.SecureEnvPath != "" {
+		cmd.Printf("3. Set up secure environment file: %s\n", config.SecureEnvPath)
+		cmd.Printf("   Add your deployment environment variables (API keys, database URLs, etc.)\n")
+		cmd.Printf("   Example: sudo nano %s\n", config.SecureEnvPath)
+		cmd.Printf("   Set permissions: sudo chmod 600 %s\n", config.SecureEnvPath)
+	}
+
 	// Check if systemd service was created
 	homeDir := os.Getenv("HOME")
 	servicePath := filepath.Join(homeDir, ".config", "systemd", "user", fmt.Sprintf("beacon@%s.service", projectName))
@@ -233,6 +251,14 @@ func Run(cmd *cobra.Command, args []string) {
 	cmd.Printf("  ✓ Project configuration: %s/\n", config.ProjectConfigDir)
 	cmd.Printf("  ✓ Environment file: %s/env\n", config.ProjectConfigDir)
 	cmd.Printf("  ✓ Working directory: %s\n", config.WorkingDir)
+
+	if config.SecureEnvPath != "" {
+		if _, err := os.Stat(config.SecureEnvPath); err == nil {
+			cmd.Printf("  ✓ Secure environment file: %s\n", config.SecureEnvPath)
+		} else {
+			cmd.Printf("  ⚠ Secure environment file: %s (needs to be created)\n", config.SecureEnvPath)
+		}
+	}
 
 	if _, err := os.Stat(servicePath); err == nil {
 		cmd.Printf("  ✓ User systemd service: beacon@%s.service\n", projectName)
