@@ -15,11 +15,13 @@ checks:
     type: http
     url: https://example.com
     interval: 30s
+    alert_command: "curl -X POST https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK -d '{\"text\":\"🚨 Website is down! Check: $BEACON_CHECK_NAME, Error: $BEACON_CHECK_ERROR\"}'"
 
   - name: "API Health"
     type: http
     url: https://api.example.com/health
     interval: 60s
+    alert_command: "echo 'API is down!' | mail -s 'Alert: API Down' admin@example.com"
 
   # Port connectivity checks
   - name: "Database Port"
@@ -27,12 +29,14 @@ checks:
     host: 127.0.0.1
     port: 5432
     interval: 60s
+    alert_command: "curl -X POST https://api.telegram.org/bot<TOKEN>/sendMessage -d 'chat_id=<CHAT_ID>&text=Database connection failed on $BEACON_DEVICE_NAME'"
 
   - name: "Redis Port"
     type: port
     host: 127.0.0.1
     port: 6379
     interval: 60s
+    alert_command: "logger -p local0.err 'Redis port check failed on $BEACON_DEVICE_NAME'"
 
   # Command-based checks
   - name: "Disk Space Check"
@@ -163,7 +167,7 @@ log_sources:
 
 # Reporting configuration
 report:
-  send_to: https://beaconinfra.dev/api/agent
+  send_to: https://beaconinfra.dev/api
   token: YOUR_API_TOKEN
   prometheus_metrics: true
   prometheus_port: 9100
@@ -264,3 +268,49 @@ report:
 #     include_patterns:
 #       - "\\[error\\]"
 #       - "\\[crit\\]"
+
+# -------------------------------------------
+# ALERT COMMAND EXAMPLES
+# -------------------------------------------
+
+# Beacon supports alert_command for each check. When a check fails, the command is executed.
+# The following environment variables are available in the alert command:
+#
+# BEACON_CHECK_NAME    - Name of the failed check
+# BEACON_CHECK_TYPE    - Type of check (http, port, command)
+# BEACON_CHECK_STATUS  - Status of the check (down, error)
+# BEACON_CHECK_ERROR   - Error message from the check
+# BEACON_CHECK_DURATION - Duration of the check in seconds
+# BEACON_DEVICE_NAME   - Name of the device running the check
+#
+# Example alert commands:
+
+# 1. Slack Webhook Alert:
+# alert_command: "curl -X POST https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK -d '{\"text\":\"🚨 $BEACON_CHECK_NAME is down on $BEACON_DEVICE_NAME: $BEACON_CHECK_ERROR\"}'"
+
+# 2. Email Alert:
+# alert_command: "echo 'Alert: $BEACON_CHECK_NAME failed on $BEACON_DEVICE_NAME' | mail -s 'Beacon Alert' admin@example.com"
+
+# 3. Telegram Bot Alert:
+# alert_command: "curl -X POST https://api.telegram.org/bot<TOKEN>/sendMessage -d 'chat_id=<CHAT_ID>&text=Alert: $BEACON_CHECK_NAME failed'"
+
+# 4. System Log Alert:
+# alert_command: "logger -p local0.err 'Beacon Alert: $BEACON_CHECK_NAME failed on $BEACON_DEVICE_NAME'"
+
+# 5. Custom Script Alert:
+# alert_command: "/usr/local/bin/my-alert-script.sh '$BEACON_CHECK_NAME' '$BEACON_CHECK_ERROR' '$BEACON_DEVICE_NAME'"
+
+# 6. Discord Webhook Alert:
+# alert_command: "curl -H 'Content-Type: application/json' -d '{\"content\":\"🚨 $BEACON_CHECK_NAME is down on $BEACON_DEVICE_NAME\"}' https://discord.com/api/webhooks/YOUR/WEBHOOK"
+
+# 7. SMS Alert (via Twilio):
+# alert_command: "curl -X POST https://api.twilio.com/2010-04-01/Accounts/YOUR_ACCOUNT/Messages.json --data-urlencode 'To=+1234567890' --data-urlencode 'From=+0987654321' --data-urlencode 'Body=Alert: $BEACON_CHECK_NAME failed' -u YOUR_ACCOUNT:YOUR_TOKEN"
+
+# 8. Auto-remediation (restart service):
+# alert_command: "systemctl restart nginx && echo 'Nginx restarted due to check failure' | logger -p local0.warn"
+
+# 9. Multiple alerts (chain commands):
+# alert_command: "curl -X POST https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK -d '{\"text\":\"Alert: $BEACON_CHECK_NAME failed\"}' && echo 'Alert sent to Slack' | logger -p local0.info"
+
+# 10. Conditional alerting (only alert on specific errors):
+# alert_command: "if [[ '$BEACON_CHECK_ERROR' == *'connection refused'* ]]; then curl -X POST https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK -d '{\"text\":\"Critical: $BEACON_CHECK_NAME connection refused\"}'; fi"

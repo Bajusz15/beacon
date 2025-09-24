@@ -46,6 +46,7 @@ type CheckConfig struct {
 	Cmd          string        `yaml:"cmd,omitempty"`
 	Interval     time.Duration `yaml:"interval"`
 	ExpectStatus int           `yaml:"expect_status,omitempty"`
+	AlertCommand string        `yaml:"alert_command,omitempty"`
 }
 
 type SystemMetricsConfig struct {
@@ -342,6 +343,11 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 	m.resultsMux.Lock()
 	m.results[check.Name] = &result
 	m.resultsMux.Unlock()
+
+	// Execute alert command if check failed and alert_command is configured
+	if result.Status != "up" && check.AlertCommand != "" {
+		m.executeAlertCommand(check.AlertCommand, result)
+	}
 }
 
 func (m *Monitor) executeHTTPCheck(check CheckConfig) CheckResult {
@@ -439,6 +445,40 @@ func (m *Monitor) executeCommandCheck(check CheckConfig) CheckResult {
 
 	result.Status = "up"
 	return result
+}
+
+func (m *Monitor) executeAlertCommand(command string, result CheckResult) {
+	if command == "" {
+		return
+	}
+
+	log.Printf("[Beacon] Executing alert command for failed check: %s", result.Name)
+
+	// Execute the alert command in a goroutine to avoid blocking
+	go func() {
+		// Replace variables in the command string directly
+		expandedCommand := strings.ReplaceAll(command, "$BEACON_CHECK_NAME", result.Name)
+		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_CHECK_TYPE", result.Type)
+		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_CHECK_STATUS", result.Status)
+		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_CHECK_ERROR", result.Error)
+		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_CHECK_DURATION", fmt.Sprintf("%.2f", result.Duration.Seconds()))
+		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_DEVICE_NAME", result.Device.Name)
+
+		cmd := exec.CommandContext(m.ctx, "sh", "-c", expandedCommand)
+
+		// Capture output for logging
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		err := cmd.Run()
+
+		if err != nil {
+			log.Printf("[Beacon] Alert command failed: %v, stderr: %s", err, stderr.String())
+		} else {
+			log.Printf("[Beacon] Alert command executed successfully: %s", stdout.String())
+		}
+	}()
 }
 
 func (m *Monitor) reportSystemMetricsLoop() {
