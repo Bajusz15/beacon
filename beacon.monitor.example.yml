@@ -3,9 +3,9 @@
 
 # Device configuration  
 device:
-  name: "Production Server"
-  location: "Homelab"
-  tags: ["production", "web-server", "docker"]
+  name: "My Raspberry Pi"
+  location: "Living room"
+  tags: ["raspberry-pi", "homelab", "monitor"]
   environment: "production"
 
 # Health checks (HTTP, port, command)

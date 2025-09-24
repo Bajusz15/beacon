@@ -111,7 +111,7 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 			// Check if secure env file exists
 			if _, err := os.Stat(cfg.SecureEnvPath); err == nil {
 				log.Printf("[Beacon] Sourcing secure environment file: %s\n", cfg.SecureEnvPath)
-				command = fmt.Sprintf("set -a && source %s && set +a && %s", cfg.SecureEnvPath, cfg.DeployCommand)
+				command = fmt.Sprintf("set -a && . %s && set +a && %s", cfg.SecureEnvPath, cfg.DeployCommand)
 			} else {
 				log.Printf("[Beacon] Warning: Secure environment file not found: %s\n", cfg.SecureEnvPath)
 				log.Printf("[Beacon] Running deploy command without secure environment\n")
