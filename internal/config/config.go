@@ -18,6 +18,7 @@ type Config struct {
 	Port          string
 	SSHKeyPath    string
 	GitToken      string
+	GitTokenName  string // Name of stored Git token
 	DeployCommand string
 	SecureEnvPath string // Path to secure environment file for deploy command
 	ProjectDir    string

@@ -1,0 +1,173 @@
+# Beacon Monitor Configuration Template - Nginx Web Server
+# This template is optimized for Nginx-based web servers
+
+# Device identification
+device:
+  name: "Nginx Web Server"
+  location: "Production"
+  tags: ["nginx", "web-server", "production"]
+  environment: "production"
+
+# Health checks optimized for Nginx environments
+checks:
+  # Nginx process health
+  - name: "Nginx Process"
+    type: command
+    cmd: "pgrep nginx > /dev/null && echo 'running' || echo 'stopped'"
+    interval: 30s
+    expect_output: "running"
+    timeout: 5s
+
+  # Nginx configuration test
+  - name: "Nginx Config Test"
+    type: command
+    cmd: "nginx -t"
+    interval: 300s
+    timeout: 10s
+
+  # Nginx worker processes
+  - name: "Nginx Workers"
+    type: command
+    cmd: "pgrep -f 'nginx: worker process' | wc -l"
+    interval: 60s
+    timeout: 5s
+
+  # HTTP endpoint checks
+  - name: "Homepage"
+    type: http
+    url: http://localhost/
+    interval: 30s
+    expect_status: 200
+    timeout: 10s
+    headers:
+      User-Agent: "Beacon-Nginx-Monitor/1.0"
+      Host: "example.com"
+
+  - name: "Health Endpoint"
+    type: http
+    url: http://localhost/health
+    interval: 30s
+    expect_status: 200
+    timeout: 10s
+
+  - name: "API Endpoint"
+    type: http
+    url: http://localhost/api/status
+    interval: 30s
+    expect_status: 200
+    timeout: 10s
+
+  # SSL certificate checks
+  - name: "SSL Certificate"
+    type: command
+    cmd: "echo | openssl s_client -servername example.com -connect localhost:443 2>/dev/null | openssl x509 -noout -dates | grep 'notAfter'"
+    interval: 3600s
+    timeout: 30s
+
+  # Nginx status module (if enabled)
+  - name: "Nginx Status"
+    type: http
+    url: http://localhost/nginx_status
+    interval: 60s
+    expect_status: 200
+    timeout: 5s
+
+  # Port availability
+  - name: "HTTP Port"
+    type: port
+    host: localhost
+    port: 80
+    interval: 30s
+    timeout: 5s
+
+  - name: "HTTPS Port"
+    type: port
+    host: localhost
+    port: 443
+    interval: 30s
+    timeout: 5s
+
+  # Disk space for log files
+  - name: "Log Disk Usage"
+    type: command
+    cmd: "df -h /var/log/nginx | tail -1 | awk '{print $5}' | sed 's/%//'"
+    interval: 300s
+    timeout: 5s
+
+  # Nginx error rate
+  - name: "Nginx Error Rate"
+    type: command
+    cmd: "tail -100 /var/log/nginx/error.log | grep -c 'error'"
+    interval: 300s
+    timeout: 10s
+
+# Log sources for Nginx environments
+log_sources:
+  # Nginx access logs
+  - name: "Nginx Access Logs"
+    type: file
+    enabled: true
+    file_path: "/var/log/nginx/access.log"
+    interval: 30s
+    max_lines: 100
+    filters:
+      - "4[0-9][0-9]"
+      - "5[0-9][0-9]"
+    exclude_patterns:
+      - "GET /favicon.ico"
+      - "GET /robots.txt"
+
+  # Nginx error logs
+  - name: "Nginx Error Logs"
+    type: file
+    enabled: true
+    file_path: "/var/log/nginx/error.log"
+    interval: 30s
+    max_lines: 50
+    filters:
+      - "error"
+      - "warn"
+      - "crit"
+      - "alert"
+      - "emerg"
+
+  # Application logs (if proxied)
+  - name: "Application Logs"
+    type: file
+    enabled: true
+    file_path: "/var/log/app/application.log"
+    interval: 30s
+    max_lines: 50
+    filters:
+      - "ERROR"
+      - "WARN"
+      - "FATAL"
+
+  # System logs
+  - name: "System Logs"
+    type: command
+    enabled: true
+    command: "journalctl -u nginx --since '5 minutes ago' -n 20"
+    interval: 60s
+    filters:
+      - "error"
+      - "warn"
+
+# Reporting configuration
+report:
+  send_to: https://beaconwatch.dev/api
+  token: YOUR_BEACONWATCH_API_KEY
+  interval: 60s
+  prometheus_metrics: true
+  prometheus_port: 9100
+  prometheus_path: "/metrics"
+
+# System metrics collection
+system_metrics:
+  enabled: true
+  interval: 60s
+  include_cpu: true
+  include_memory: true
+  include_disk: true
+  include_network: true
+  include_load: true

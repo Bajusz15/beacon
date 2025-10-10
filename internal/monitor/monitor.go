@@ -11,11 +11,17 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"beacon/internal/keys"
+	"beacon/internal/ratelimit"
+	"beacon/internal/version"
+
+	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -61,7 +67,8 @@ type SystemMetricsConfig struct {
 
 type ReportConfig struct {
 	SendTo           string          `yaml:"send_to"`
-	Token            string          `yaml:"token"`
+	Token            string          `yaml:"token,omitempty"`
+	TokenName        string          `yaml:"token_name,omitempty"`
 	PrometheusEnable bool            `yaml:"prometheus_metrics"`
 	PrometheusPort   int             `yaml:"prometheus_port"`
 	Heartbeat        HeartbeatConfig `yaml:"heartbeat,omitempty"`
@@ -125,12 +132,16 @@ type Monitor struct {
 	logManager                *LogManager
 	results                   map[string]*CheckResult
 	resultsMux                sync.RWMutex
-	httpClient                *http.Client
+	httpClient                *ratelimit.HTTPClient
 	ctx                       context.Context
 	cancel                    context.CancelFunc
 	heartbeatTicker           *time.Ticker
 	reportSystemMetricsTicker *time.Ticker
 	metricsCollector          SystemMetricsCollector
+	keyManager                *keys.KeyManager
+	currentToken              string
+	configWatcher             *fsnotify.Watcher
+	configPath                string
 }
 
 // LinuxSystemMetricsCollector implements SystemMetricsCollector for Linux systems
@@ -176,29 +187,84 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-func NewMonitor(cfg *Config) (*Monitor, error) {
+func NewMonitor(cfg *Config, configPath string) (*Monitor, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	client := &http.Client{
-		Timeout: 30 * time.Second,
+
+	// Initialize rate limiter with sensible defaults
+	httpClient := ratelimit.NewHTTPClient(ratelimit.DefaultConfig())
+	logManager := NewLogManager(cfg, httpClient.Client)
+
+	// Initialize key manager
+	configDir := getConfigDir()
+	keyManager, err := keys.NewKeyManager(configDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize key manager: %w", err)
 	}
-	logManager := NewLogManager(cfg, client)
+
+	// Get current token
+	currentToken, err := getCurrentToken(cfg, keyManager)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current token: %w", err)
+	}
+
+	// Initialize file watcher for config hot-reload
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file watcher: %w", err)
+	}
+
 	return &Monitor{
 		config:           cfg,
 		logManager:       logManager,
 		results:          make(map[string]*CheckResult),
-		httpClient:       client,
+		httpClient:       httpClient,
 		ctx:              ctx,
 		cancel:           cancel,
 		metricsCollector: &LinuxSystemMetricsCollector{},
+		keyManager:       keyManager,
+		currentToken:     currentToken,
+		configWatcher:    watcher,
+		configPath:       configPath,
 	}, nil
+}
+
+// getConfigDir returns the beacon configuration directory
+func getConfigDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ".beacon"
+	}
+	return filepath.Join(homeDir, ".beacon")
+}
+
+// getCurrentToken retrieves the current API token from config or key manager
+func getCurrentToken(cfg *Config, keyManager *keys.KeyManager) (string, error) {
+	// If token is directly specified in config, use it
+	if cfg.Report.Token != "" {
+		return cfg.Report.Token, nil
+	}
+
+	// If token_name is specified, get it from key manager
+	if cfg.Report.TokenName != "" {
+		storedKey, err := keyManager.GetKey(cfg.Report.TokenName)
+		if err != nil {
+			return "", fmt.Errorf("failed to get token '%s': %w", cfg.Report.TokenName, err)
+		}
+		return storedKey.Key, nil
+	}
+
+	return "", fmt.Errorf("no token or token_name specified in report configuration")
 }
 
 func (m *Monitor) Start() error {
 	log.Printf("[Beacon] Starting monitoring system for device: %s", m.config.Device.Name)
+
+	// Start config hot-reload monitoring
+	m.startConfigHotReload()
 
 	// Start Prometheus metrics server if enabled
 	if m.config.Report.PrometheusEnable {
@@ -365,7 +431,7 @@ func (m *Monitor) executeHTTPCheck(check CheckConfig) CheckResult {
 	}
 
 	start := time.Now()
-	resp, err := m.httpClient.Do(req)
+	resp, err := m.httpClient.Do(m.ctx, req)
 	result.ResponseTime = time.Since(start)
 
 	if err != nil {
@@ -586,7 +652,7 @@ func (m *Monitor) sendHeartbeat() {
 		Hostname:     hostname,
 		IPAddress:    ipAddress,
 		Tags:         m.config.Device.Tags,
-		AgentVersion: "1.0.0", // TODO: Get from build info
+		AgentVersion: version.GetVersion(), // Get from build info
 		DeviceName:   m.config.Device.Name,
 		Metadata: map[string]string{
 			"location":    m.config.Device.Location,
@@ -614,9 +680,9 @@ func (m *Monitor) sendToAPI(url string, payload interface{}) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", m.config.Report.Token)
+	req.Header.Set("X-API-Key", m.currentToken)
 
-	resp, err := m.httpClient.Do(req)
+	resp, err := m.httpClient.Do(m.ctx, req)
 	if err != nil {
 		log.Printf("[Beacon] Failed to send to API: %v", err)
 		return
@@ -705,7 +771,7 @@ func Run(cmd *cobra.Command, args []string) {
 	}
 
 	// Create and start monitor
-	monitor, err := NewMonitor(cfg)
+	monitor, err := NewMonitor(cfg, configPath)
 	if err != nil {
 		cmd.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -716,4 +782,114 @@ func Run(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+}
+
+// Stop stops the monitor and cleans up resources
+func (m *Monitor) Stop() {
+	log.Printf("[Beacon] Stopping monitoring system")
+
+	if m.configWatcher != nil {
+		m.configWatcher.Close()
+	}
+
+	if m.heartbeatTicker != nil {
+		m.heartbeatTicker.Stop()
+	}
+
+	if m.reportSystemMetricsTicker != nil {
+		m.reportSystemMetricsTicker.Stop()
+	}
+
+	m.cancel()
+}
+
+// startConfigHotReload starts monitoring the configuration file for changes
+func (m *Monitor) startConfigHotReload() {
+	// Watch the config file
+	err := m.configWatcher.Add(m.configPath)
+	if err != nil {
+		log.Printf("[Beacon] Failed to watch config file: %v", err)
+		return
+	}
+
+	// Watch the keys directory for key changes
+	keysDir := filepath.Join(getConfigDir(), "keys")
+	if err := m.configWatcher.Add(keysDir); err != nil {
+		log.Printf("[Beacon] Failed to watch keys directory: %v", err)
+	}
+
+	go func() {
+		for {
+			select {
+			case event, ok := <-m.configWatcher.Events:
+				if !ok {
+					return
+				}
+				m.handleConfigChange(event)
+			case err, ok := <-m.configWatcher.Errors:
+				if !ok {
+					return
+				}
+				log.Printf("[Beacon] Config watcher error: %v", err)
+			case <-m.ctx.Done():
+				return
+			}
+		}
+	}()
+
+	log.Printf("[Beacon] Started config hot-reload monitoring")
+}
+
+// handleConfigChange handles configuration file changes
+func (m *Monitor) handleConfigChange(event fsnotify.Event) {
+	// Debounce rapid changes
+	time.Sleep(100 * time.Millisecond)
+
+	switch {
+	case event.Op&fsnotify.Write == fsnotify.Write:
+		if event.Name == m.configPath {
+			log.Printf("[Beacon] Config file changed, reloading...")
+			m.reloadConfig()
+		} else if strings.Contains(event.Name, "keys/") && strings.HasSuffix(event.Name, ".json") {
+			log.Printf("[Beacon] Key file changed, reloading token...")
+			m.reloadToken()
+		}
+	case event.Op&fsnotify.Create == fsnotify.Create:
+		if strings.Contains(event.Name, "keys/") && strings.HasSuffix(event.Name, ".json") {
+			log.Printf("[Beacon] New key file created, checking for token updates...")
+			m.reloadToken()
+		}
+	}
+}
+
+// reloadConfig reloads the configuration file
+func (m *Monitor) reloadConfig() {
+	newConfig, err := LoadConfig(m.configPath)
+	if err != nil {
+		log.Printf("[Beacon] Failed to reload config: %v", err)
+		return
+	}
+
+	// Update configuration
+	m.config = newConfig
+
+	log.Printf("[Beacon] Configuration reloaded successfully")
+}
+
+// reloadToken reloads the current token from the key manager
+func (m *Monitor) reloadToken() {
+	if m.config.Report.TokenName == "" {
+		return // No token reload for hardcoded tokens
+	}
+
+	newToken, err := getCurrentToken(m.config, m.keyManager)
+	if err != nil {
+		log.Printf("[Beacon] Failed to reload token: %v", err)
+		return
+	}
+
+	if newToken != m.currentToken {
+		m.currentToken = newToken
+		log.Printf("[Beacon] Token reloaded successfully")
+	}
 }

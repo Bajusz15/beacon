@@ -1,0 +1,163 @@
+# Beacon Monitor Configuration Template - Docker Environment
+# This template is optimized for Docker-based deployments
+
+# Device identification
+device:
+  name: "Docker Host"
+  location: "Production"
+  tags: ["docker", "production", "web-server"]
+  environment: "production"
+
+# Health checks optimized for Docker environments
+checks:
+  # Docker daemon health
+  - name: "Docker Daemon"
+    type: command
+    cmd: "docker info > /dev/null 2>&1 && echo 'running' || echo 'stopped'"
+    interval: 60s
+    expect_output: "running"
+    timeout: 10s
+
+  # Docker container health checks
+  - name: "Web Container"
+    type: command
+    cmd: "docker ps --filter 'name=web' --filter 'status=running' --format '{{.Names}}' | wc -l"
+    interval: 30s
+    expect_output: "1"
+    timeout: 5s
+
+  - name: "Database Container"
+    type: command
+    cmd: "docker ps --filter 'name=db' --filter 'status=running' --format '{{.Names}}' | wc -l"
+    interval: 60s
+    expect_output: "1"
+    timeout: 5s
+
+  # Docker Compose services
+  - name: "Docker Compose Services"
+    type: command
+    cmd: "docker compose ps --services --filter 'status=running' | wc -l"
+    interval: 60s
+    timeout: 10s
+
+  # Container resource usage
+  - name: "Container Memory Usage"
+    type: command
+    cmd: "docker stats --no-stream --format 'table {{.MemPerc}}' | tail -n +2 | awk '{sum+=$1} END {printf \"%.1f\", sum}'"
+    interval: 300s
+    timeout: 15s
+
+  # Docker volume usage
+  - name: "Docker Volume Usage"
+    type: command
+    cmd: "docker system df --format '{{.Size}}' | head -1"
+    interval: 600s
+    timeout: 10s
+
+  # HTTP health checks for containerized services
+  - name: "Web Service Health"
+    type: http
+    url: http://localhost:8080/health
+    interval: 30s
+    expect_status: 200
+    timeout: 10s
+    headers:
+      User-Agent: "Beacon-Docker-Monitor/1.0"
+
+  - name: "API Service Health"
+    type: http
+    url: http://localhost:3000/api/health
+    interval: 30s
+    expect_status: 200
+    timeout: 10s
+
+  # Database connectivity through Docker
+  - name: "Database Connection"
+    type: command
+    cmd: "docker exec db pg_isready -h localhost -p 5432"
+    interval: 60s
+    timeout: 10s
+
+  # Redis connectivity
+  - name: "Redis Connection"
+    type: command
+    cmd: "docker exec redis redis-cli ping"
+    interval: 60s
+    timeout: 5s
+    expect_output: "PONG"
+
+# Log sources for Docker environments
+log_sources:
+  # Docker container logs
+  - name: "Web Container Logs"
+    type: docker
+    enabled: true
+    containers: ["web", "nginx"]
+    interval: 30s
+    since: "5m"
+    filters:
+      - "ERROR"
+      - "WARN"
+      - "FATAL"
+
+  - name: "Database Logs"
+    type: docker
+    enabled: true
+    containers: ["db", "postgres"]
+    interval: 60s
+    since: "10m"
+    filters:
+      - "ERROR"
+      - "FATAL"
+      - "connection"
+
+  - name: "Application Logs"
+    type: docker
+    enabled: true
+    containers: ["app", "api"]
+    interval: 30s
+    since: "5m"
+    filters:
+      - "ERROR"
+      - "WARN"
+      - "Exception"
+
+  # Docker daemon logs
+  - name: "Docker Daemon Logs"
+    type: file
+    enabled: true
+    file_path: "/var/log/docker.log"
+    interval: 60s
+    max_lines: 50
+    filters:
+      - "ERROR"
+      - "WARN"
+
+  # Docker Compose logs
+  - name: "Docker Compose Logs"
+    type: command
+    enabled: true
+    command: "docker compose logs --tail=20 --since=5m"
+    interval: 60s
+    filters:
+      - "ERROR"
+      - "WARN"
+
+# Reporting configuration
+report:
+  send_to: https://beaconwatch.dev/api
+  token: YOUR_BEACONWATCH_API_KEY
+  interval: 60s
+  prometheus_metrics: true
+  prometheus_port: 9100
+  prometheus_path: "/metrics"
+
+# System metrics collection
+system_metrics:
+  enabled: true
+  interval: 60s
+  include_cpu: true
+  include_memory: true
+  include_disk: true
+  include_network: true
+  include_load: true

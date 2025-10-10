@@ -3,8 +3,11 @@ package main
 import (
 	"beacon/internal/config"
 	"beacon/internal/deploy"
+	"beacon/internal/keys"
 	"beacon/internal/server"
 	"beacon/internal/state"
+	"beacon/internal/version"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -27,7 +30,51 @@ var rootCmd = &cobra.Command{
 Usage:
 1. beacon deploy - runs the deployment agent that polls Git repositories for new tags and deploys them
 2. beacon bootstrap - sets up your project configuration and optionally creates systemd services
-3. beacon monitor - runs health checks and monitoring (not yet implemented)`,
+3. beacon monitor - runs health checks and monitoring
+4. beacon version - displays version information`,
+	Version: version.GetVersion(),
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Display version information",
+	Long:  `Display detailed version information including build details.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("Beacon %s\n", version.GetVersion())
+		fmt.Printf("Commit: %s\n", version.GetCommit())
+		fmt.Printf("Build Date: %s\n", version.GetBuildDate())
+		fmt.Printf("Built by: %s\n", version.GetBuildUser())
+	},
+}
+
+var restartCmd = &cobra.Command{
+	Use:   "restart [service]",
+	Short: "Restart beacon services",
+	Long: `Restart beacon services. If no service is specified, restarts the deploy service.
+Available services: deploy, monitor`,
+	Example: `  beacon restart
+  beacon restart deploy
+  beacon restart monitor`,
+	Run: func(cmd *cobra.Command, args []string) {
+		service := "deploy"
+		if len(args) > 0 {
+			service = args[0]
+		}
+
+		switch service {
+		case "deploy":
+			log.Println("[Beacon] Restarting deploy service...")
+			// For now, just log the restart - in a real implementation,
+			// this would signal the systemd service to restart
+			log.Println("[Beacon] Deploy service restart requested")
+		case "monitor":
+			log.Println("[Beacon] Restarting monitor service...")
+			log.Println("[Beacon] Monitor service restart requested")
+		default:
+			log.Printf("[Beacon] Unknown service: %s. Available services: deploy, monitor\n", service)
+			os.Exit(1)
+		}
+	},
 }
 
 var bootstrapCmd = &cobra.Command{
@@ -75,6 +122,9 @@ func main() {
 	rootCmd.AddCommand(bootstrapCmd)
 	rootCmd.AddCommand(monitorCmd)
 	rootCmd.AddCommand(deployCmd)
+	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(restartCmd)
+	rootCmd.AddCommand(keys.KeysCmd)
 
 	// If no subcommand is provided, run in deploy mode
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {

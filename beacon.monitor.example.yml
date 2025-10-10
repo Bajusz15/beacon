@@ -167,8 +167,8 @@ log_sources:
 
 # Reporting configuration
 report:
-  send_to: https://beaconinfra.dev/api
-  token: YOUR_API_TOKEN
+  send_to: https://beaconwatch.dev/api
+  token: YOUR_BEACONWATCH_API_KEY
   prometheus_metrics: true
   prometheus_port: 9100
   

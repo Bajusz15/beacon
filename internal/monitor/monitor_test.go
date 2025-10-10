@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"beacon/internal/ratelimit"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -263,9 +264,16 @@ func TestReportSystemMetrics(t *testing.T) {
 
 			// Create monitor with mock collector
 			monitor := &Monitor{
-				config:           tt.config,
-				results:          make(map[string]*CheckResult),
-				httpClient:       &http.Client{Timeout: 5 * time.Second},
+				config:  tt.config,
+				results: make(map[string]*CheckResult),
+				httpClient: ratelimit.NewHTTPClient(&ratelimit.Config{
+					RequestsPerMinute: 1000, // 1 request per second
+					RequestsPerHour:   9000, // 1 request per second
+					MinInterval:       1 * time.Millisecond,
+					MaxInterval:       60 * time.Second,
+					BackoffMultiplier: 2.0,
+					MaxRetries:        5,
+				}),
 				metricsCollector: tt.mockCollector,
 			}
 
