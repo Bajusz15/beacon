@@ -1,0 +1,134 @@
+# Simple Alert Routing Configuration
+# Perfect for self-hosted IoT monitoring and homelab setups
+
+# Alert routing rules - simple severity-based routing
+alert_routing:
+  - severity: "critical"
+    channels: ["email", "discord"]
+    recipients: 
+      - "admin@example.com"
+      - "#alerts"
+    backup_delay: "10m"  # Notify backup after 10 minutes
+    backup_recipients:
+      - "backup@example.com"
+    quiet_hours:
+      enabled: false  # Critical alerts always go through
+    enabled: true
+
+  - severity: "warning"
+    channels: ["discord"]
+    recipients:
+      - "#alerts"
+    backup_delay: "30m"  # Notify backup after 30 minutes
+    backup_recipients:
+      - "backup@example.com"
+    quiet_hours:
+      enabled: true
+      start_time: "23:00"
+      end_time: "07:00"
+      timezone: "UTC"
+      suppress_severities: ["warning"]  # Suppress warnings during quiet hours
+    enabled: true
+
+  - severity: "info"
+    channels: ["discord"]
+    recipients:
+      - "#logs"
+    backup_delay: "0"  # No backup for info alerts
+    quiet_hours:
+      enabled: true
+      start_time: "23:00"
+      end_time: "07:00"
+      timezone: "UTC"
+      suppress_severities: ["info"]  # Suppress info alerts during quiet hours
+    enabled: true
+
+# Alert channels configuration
+alert_channels:
+  email:
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    smtp_user: "${SMTP_USER}"
+    smtp_password: "${SMTP_PASSWORD}"
+    from: "Beacon Alerts <alerts@example.com>"
+    enabled: true
+
+  discord:
+    webhook_url: "${DISCORD_WEBHOOK_URL}"
+    username: "Beacon Bot"
+    enabled: true
+
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+    enabled: true
+
+  slack:
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+    channel: "#alerts"
+    username: "Beacon Bot"
+    enabled: true
+
+# Alert templates - simple and clean
+alert_templates:
+  critical:
+    subject: "🚨 CRITICAL: {{.Service}} is {{.Status}}"
+    body: |
+      🚨 **CRITICAL ALERT**
+      
+      **Service:** {{.Service}}
+      **Status:** {{.Status}}
+      **Time:** {{.Timestamp.Format "2006-01-02 15:04:05"}}
+      **Environment:** {{.Environment}}
+      
+      {{if .Message}}
+      **Message:** {{.Message}}
+      {{end}}
+      
+      Please check immediately!
+
+  warning:
+    subject: "⚠️ WARNING: {{.Service}} {{.Message}}"
+    body: |
+      ⚠️ **WARNING**
+      
+      **Service:** {{.Service}}
+      **Message:** {{.Message}}
+      **Time:** {{.Timestamp.Format "2006-01-02 15:04:05"}}
+      
+      Monitor the situation.
+
+  info:
+    subject: "ℹ️ INFO: {{.Service}} {{.Message}}"
+    body: |
+      ℹ️ **INFO**
+      
+      **Service:** {{.Service}}
+      **Message:** {{.Message}}
+      **Time:** {{.Timestamp.Format "2006-01-02 15:04:05"}}
+
+# Example alert rules (integrate with monitor config)
+alert_rules:
+  - name: "database-down"
+    service: "postgresql"
+    severity: "critical"
+    condition: "down"
+    enabled: true
+
+  - name: "web-server-down"
+    service: "nginx"
+    severity: "critical"
+    condition: "down"
+    enabled: true
+
+  - name: "high-cpu"
+    service: "server"
+    severity: "warning"
+    condition: "cpu_usage > 80"
+    enabled: true
+
+  - name: "deployment-complete"
+    service: "app"
+    severity: "info"
+    condition: "deployment"
+    enabled: true

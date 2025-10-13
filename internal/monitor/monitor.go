@@ -17,7 +17,13 @@ import (
 	"syscall"
 	"time"
 
+	"beacon/internal/errors"
 	"beacon/internal/keys"
+	"beacon/internal/plugins"
+	"beacon/internal/plugins/discord"
+	"beacon/internal/plugins/email"
+	"beacon/internal/plugins/telegram"
+	"beacon/internal/plugins/webhook"
 	"beacon/internal/ratelimit"
 	"beacon/internal/version"
 
@@ -36,11 +42,13 @@ type DeviceConfig struct {
 }
 
 type Config struct {
-	Device        DeviceConfig        `yaml:"device"`
-	Checks        []CheckConfig       `yaml:"checks"`
-	SystemMetrics SystemMetricsConfig `yaml:"system_metrics,omitempty"`
-	LogSources    []LogSource         `yaml:"log_sources,omitempty"`
-	Report        ReportConfig        `yaml:"report"`
+	Device        DeviceConfig           `yaml:"device"`
+	Checks        []CheckConfig          `yaml:"checks"`
+	SystemMetrics SystemMetricsConfig    `yaml:"system_metrics,omitempty"`
+	LogSources    []LogSource            `yaml:"log_sources,omitempty"`
+	Plugins       []plugins.PluginConfig `yaml:"plugins,omitempty"`
+	AlertRules    []plugins.AlertRule    `yaml:"alert_rules,omitempty"`
+	Report        ReportConfig           `yaml:"report"`
 }
 
 type CheckConfig struct {
@@ -142,6 +150,7 @@ type Monitor struct {
 	currentToken              string
 	configWatcher             *fsnotify.Watcher
 	configPath                string
+	pluginManager             *plugins.Manager
 }
 
 // LinuxSystemMetricsCollector implements SystemMetricsCollector for Linux systems
@@ -178,12 +187,25 @@ func (c *LinuxSystemMetricsCollector) GetUptime() (int64, error) {
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		beaconErr := errors.NewFileError(path, err)
+		return nil, beaconErr
 	}
+
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
+		beaconErr := errors.NewConfigError(path, err).
+			WithTroubleshooting(
+				"Invalid YAML syntax",
+				"Missing required fields",
+				"Invalid field values",
+			).WithNextSteps(
+			"Validate YAML syntax",
+			"Check configuration schema",
+			"Compare with example configuration",
+		)
+		return nil, beaconErr
 	}
+
 	return &cfg, nil
 }
 
@@ -217,6 +239,14 @@ func NewMonitor(cfg *Config, configPath string) (*Monitor, error) {
 		return nil, fmt.Errorf("failed to create file watcher: %w", err)
 	}
 
+	// Initialize plugin manager
+	pluginManager := plugins.NewManager()
+
+	// Register built-in plugins
+	if err := registerBuiltinPlugins(pluginManager); err != nil {
+		return nil, fmt.Errorf("failed to register built-in plugins: %w", err)
+	}
+
 	return &Monitor{
 		config:           cfg,
 		logManager:       logManager,
@@ -229,6 +259,7 @@ func NewMonitor(cfg *Config, configPath string) (*Monitor, error) {
 		currentToken:     currentToken,
 		configWatcher:    watcher,
 		configPath:       configPath,
+		pluginManager:    pluginManager,
 	}, nil
 }
 
@@ -260,8 +291,38 @@ func getCurrentToken(cfg *Config, keyManager *keys.KeyManager) (string, error) {
 	return "", fmt.Errorf("no token or token_name specified in report configuration")
 }
 
+// registerBuiltinPlugins registers all built-in plugins with the manager
+func registerBuiltinPlugins(manager *plugins.Manager) error {
+	// Register Discord plugin
+	if err := manager.RegisterPlugin(discord.NewDiscordPlugin()); err != nil {
+		return fmt.Errorf("failed to register Discord plugin: %w", err)
+	}
+
+	// Register Telegram plugin
+	if err := manager.RegisterPlugin(telegram.NewTelegramPlugin()); err != nil {
+		return fmt.Errorf("failed to register Telegram plugin: %w", err)
+	}
+
+	// Register Email plugin
+	if err := manager.RegisterPlugin(email.NewEmailPlugin()); err != nil {
+		return fmt.Errorf("failed to register Email plugin: %w", err)
+	}
+
+	// Register Webhook plugin
+	if err := manager.RegisterPlugin(webhook.NewWebhookPlugin()); err != nil {
+		return fmt.Errorf("failed to register Webhook plugin: %w", err)
+	}
+
+	return nil
+}
+
 func (m *Monitor) Start() error {
 	log.Printf("[Beacon] Starting monitoring system for device: %s", m.config.Device.Name)
+
+	// Load plugin configurations
+	if err := m.pluginManager.LoadConfigs(m.config.Plugins, m.config.AlertRules); err != nil {
+		log.Printf("[Beacon] Warning: failed to load plugin configurations: %v", err)
+	}
 
 	// Start config hot-reload monitoring
 	m.startConfigHotReload()
@@ -410,8 +471,40 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 	m.results[check.Name] = &result
 	m.resultsMux.Unlock()
 
-	// Execute alert command if check failed and alert_command is configured
-	if result.Status != "up" && check.AlertCommand != "" {
+	// Send alert via plugin system if check failed
+	if result.Status != "up" {
+		// Convert monitor.CheckResult to plugins.CheckResult
+		pluginResult := &plugins.CheckResult{
+			Name:           result.Name,
+			Type:           result.Type,
+			Status:         result.Status,
+			Duration:       result.Duration,
+			Timestamp:      result.Timestamp,
+			Error:          result.Error,
+			HTTPStatusCode: result.HTTPStatusCode,
+			ResponseTime:   result.ResponseTime,
+			CommandOutput:  result.CommandOutput,
+			CommandError:   result.CommandError,
+			Device: plugins.DeviceConfig{
+				Name:        result.Device.Name,
+				Location:    result.Device.Location,
+				Tags:        result.Device.Tags,
+				Environment: result.Device.Environment,
+			},
+		}
+
+		if err := m.pluginManager.SendAlert(pluginResult); err != nil {
+			log.Printf("[Beacon] Failed to send alert via plugins: %v", err)
+		}
+	}
+
+	// Execute alert command for command checks (always run regardless of status)
+	if check.Type == "command" && check.AlertCommand != "" {
+		log.Printf("[Beacon] Executing alert command for command check: %s", result.Name)
+		m.executeAlertCommand(check.AlertCommand, result)
+	} else if result.Status != "up" && check.AlertCommand != "" {
+		// For non-command checks, only run alert command on failure
+		log.Printf("[Beacon] Executing alert command for failed check: %s", result.Name)
 		m.executeAlertCommand(check.AlertCommand, result)
 	}
 }
@@ -426,7 +519,15 @@ func (m *Monitor) executeHTTPCheck(check CheckConfig) CheckResult {
 	req, err := http.NewRequest("GET", check.URL, nil)
 	if err != nil {
 		result.Status = "error"
-		result.Error = fmt.Sprintf("failed to create request: %v", err)
+		beaconErr := errors.NewBeaconError(errors.ErrorTypeConfig, "Failed to create HTTP request", err).
+			WithTroubleshooting(
+				"Invalid URL format",
+				"Malformed URL in configuration",
+			).WithNextSteps(
+			"Check URL format in configuration",
+			"Verify URL is properly formatted",
+		)
+		result.Error = errors.FormatError(beaconErr)
 		return result
 	}
 
@@ -436,7 +537,19 @@ func (m *Monitor) executeHTTPCheck(check CheckConfig) CheckResult {
 
 	if err != nil {
 		result.Status = "down"
-		result.Error = fmt.Sprintf("request failed: %v", err)
+		beaconErr := errors.NewHTTPError(check.URL, 0, err).
+			WithTroubleshooting(
+				"Network connectivity issues",
+				"Service is not running",
+				"DNS resolution failed",
+				"Firewall blocking connection",
+			).WithNextSteps(
+			"Check network connectivity",
+			"Verify service is running",
+			"Test with curl: curl -v "+check.URL,
+			"Check DNS resolution: nslookup "+extractHostname(check.URL),
+		)
+		result.Error = errors.FormatError(beaconErr)
 		return result
 	}
 	defer resp.Body.Close()
@@ -445,15 +558,45 @@ func (m *Monitor) executeHTTPCheck(check CheckConfig) CheckResult {
 
 	if check.ExpectStatus > 0 && resp.StatusCode != check.ExpectStatus {
 		result.Status = "down"
-		result.Error = fmt.Sprintf("expected status %d, got %d", check.ExpectStatus, resp.StatusCode)
+		beaconErr := errors.NewHTTPError(check.URL, resp.StatusCode, nil).
+			WithTroubleshooting(
+				"Service returned unexpected status code",
+				"Configuration expects different status",
+				"Service may be misconfigured",
+			).WithNextSteps(
+			fmt.Sprintf("Check if status %d is expected", resp.StatusCode),
+			"Update configuration if needed",
+			"Check service logs for errors",
+		)
+		result.Error = errors.FormatError(beaconErr)
 	} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		result.Status = "up"
 	} else {
 		result.Status = "down"
-		result.Error = fmt.Sprintf("HTTP status %d", resp.StatusCode)
+		beaconErr := errors.NewHTTPError(check.URL, resp.StatusCode, nil)
+		result.Error = errors.FormatError(beaconErr)
 	}
 
 	return result
+}
+
+// extractHostname extracts hostname from URL for DNS troubleshooting
+func extractHostname(url string) string {
+	if strings.HasPrefix(url, "http://") {
+		url = url[7:]
+	} else if strings.HasPrefix(url, "https://") {
+		url = url[8:]
+	}
+
+	if idx := strings.Index(url, "/"); idx != -1 {
+		url = url[:idx]
+	}
+
+	if idx := strings.Index(url, ":"); idx != -1 {
+		url = url[:idx]
+	}
+
+	return url
 }
 
 func (m *Monitor) executePortCheck(check CheckConfig) CheckResult {
@@ -471,10 +614,12 @@ func (m *Monitor) executePortCheck(check CheckConfig) CheckResult {
 	} else {
 		address = fmt.Sprintf("%s:%d", check.Host, check.Port)
 	}
+
 	conn, err := net.DialTimeout("tcp", address, 10*time.Second)
 	if err != nil {
 		result.Status = "down"
-		result.Error = fmt.Sprintf("connection failed: %v", err)
+		beaconErr := errors.NewConnectionError(check.Host, check.Port, err)
+		result.Error = errors.FormatError(beaconErr)
 		return result
 	}
 	defer conn.Close()
@@ -505,7 +650,19 @@ func (m *Monitor) executeCommandCheck(check CheckConfig) CheckResult {
 
 	if err != nil {
 		result.Status = "down"
-		result.Error = fmt.Sprintf("command failed: %v", err)
+		beaconErr := errors.NewBeaconError(errors.ErrorTypeSystem, "Command execution failed", err).
+			WithTroubleshooting(
+				"Command syntax error",
+				"Required program not installed",
+				"Insufficient permissions",
+				"Command timeout",
+			).WithNextSteps(
+			"Test command manually: "+check.Cmd,
+			"Check if required programs are installed",
+			"Verify command syntax",
+			"Check file permissions",
+		)
+		result.Error = errors.FormatError(beaconErr)
 		return result
 	}
 
@@ -518,7 +675,7 @@ func (m *Monitor) executeAlertCommand(command string, result CheckResult) {
 		return
 	}
 
-	log.Printf("[Beacon] Executing alert command for failed check: %s", result.Name)
+	log.Printf("[Beacon] Executing alert command for check: %s", result.Name)
 
 	// Execute the alert command in a goroutine to avoid blocking
 	go func() {
@@ -529,6 +686,11 @@ func (m *Monitor) executeAlertCommand(command string, result CheckResult) {
 		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_CHECK_ERROR", result.Error)
 		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_CHECK_DURATION", fmt.Sprintf("%.2f", result.Duration.Seconds()))
 		expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_DEVICE_NAME", result.Device.Name)
+
+		// Add command output for command-type checks
+		if result.Type == "command" {
+			expandedCommand = strings.ReplaceAll(expandedCommand, "$BEACON_CHECK_OUTPUT", result.CommandOutput)
+		}
 
 		cmd := exec.CommandContext(m.ctx, "sh", "-c", expandedCommand)
 
@@ -753,7 +915,12 @@ func (m *Monitor) prometheusHandler(w http.ResponseWriter, r *http.Request) {
 func Run(cmd *cobra.Command, args []string) {
 	// Determine config file path
 	configPath := "beacon.monitor.yml"
-	if len(args) > 0 {
+
+	// Check for --config flag first
+	if configFlag := cmd.Flag("config"); configFlag != nil && configFlag.Value.String() != "" {
+		configPath = configFlag.Value.String()
+	} else if len(args) > 0 {
+		// Fall back to positional argument
 		configPath = args[0]
 	}
 
@@ -798,6 +965,12 @@ func (m *Monitor) Stop() {
 
 	if m.reportSystemMetricsTicker != nil {
 		m.reportSystemMetricsTicker.Stop()
+	}
+
+	if m.pluginManager != nil {
+		if err := m.pluginManager.Close(); err != nil {
+			log.Printf("[Beacon] Error closing plugin manager: %v", err)
+		}
 	}
 
 	m.cancel()
@@ -872,6 +1045,11 @@ func (m *Monitor) reloadConfig() {
 
 	// Update configuration
 	m.config = newConfig
+
+	// Reload plugin configurations
+	if err := m.pluginManager.LoadConfigs(m.config.Plugins, m.config.AlertRules); err != nil {
+		log.Printf("[Beacon] Failed to reload plugin configurations: %v", err)
+	}
 
 	log.Printf("[Beacon] Configuration reloaded successfully")
 }

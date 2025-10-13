@@ -38,16 +38,30 @@ checks:
     interval: 60s
     alert_command: "logger -p local0.err 'Redis port check failed on $BEACON_DEVICE_NAME'"
 
-  # Command-based checks
-  - name: "Disk Space Check"
+  # Command-based checks with alert_command
+  - name: "Disk Space"
     type: command
-    cmd: "df -h | grep -w '/'"
-    interval: 300s
+    command: "df -h / | awk 'NR==2 {print $5}' | sed 's/%//'"
+    interval: 60s
+    alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 90 ]; then echo 'Disk space critical: $BEACON_CHECK_OUTPUT%' | telegram-send --stdin; fi"
 
   - name: "Process Check"
     type: command
-    cmd: "pgrep nginx > /dev/null && echo 'running' || echo 'stopped'"
+    command: "pgrep nginx > /dev/null && echo 'running' || echo 'stopped'"
     interval: 60s
+    alert_command: "if [ '$BEACON_CHECK_OUTPUT' = 'stopped' ]; then echo 'Nginx process stopped!' | curl -X POST -H 'Content-Type: application/json' -d '{\"text\":\"Nginx is down!\"}' ${DISCORD_WEBHOOK_URL}; fi"
+
+  - name: "Memory Usage"
+    type: command
+    command: "free | awk 'NR==2{printf \"%.0f\", $3*100/$2}'"
+    interval: 30s
+    alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 85 ]; then echo 'Memory usage high: $BEACON_CHECK_OUTPUT%' | mail -s 'Memory Alert' admin@example.com; fi"
+
+  - name: "Log File Size"
+    type: command
+    command: "du -m /var/log/syslog | cut -f1"
+    interval: 300s
+    alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 100 ]; then echo 'Log file size: ${BEACON_CHECK_OUTPUT}MB' | logger -t beacon-alert; fi"
 
 # System metrics collection
 system_metrics:
@@ -58,6 +72,88 @@ system_metrics:
   disk: true
   load_average: true
   disk_path: "/"
+
+# Alert Commands (Legacy but still supported)
+# For command-type checks, alert_command always runs regardless of check status
+# Available variables in alert commands:
+#   $BEACON_CHECK_NAME     - Name of the check
+#   $BEACON_CHECK_TYPE     - Type of check (command, http, port)
+#   $BEACON_CHECK_STATUS   - Status (up, down, error)
+#   $BEACON_CHECK_OUTPUT   - Command output (for command checks only)
+#   $BEACON_CHECK_ERROR    - Error message if any
+#   $BEACON_CHECK_DURATION - Check duration in seconds
+#   $BEACON_DEVICE_NAME    - Device name
+#
+# Example alert commands:
+#   - Send to Telegram: "echo 'Alert: $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS' | telegram-send --stdin"
+#   - Send to Discord: "curl -X POST -H 'Content-Type: application/json' -d '{\"text\":\"$BEACON_CHECK_NAME: $BEACON_CHECK_STATUS\"}' ${DISCORD_WEBHOOK_URL}"
+#   - Send email: "echo 'Check $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS' | mail -s 'Beacon Alert' admin@example.com"
+#   - Log to syslog: "logger -p local0.err 'Beacon Alert: $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS'"
+
+# Plugin configuration for alerts (Modern approach)
+plugins:
+  # Discord webhook plugin
+  - name: discord
+    enabled: true
+    webhook_url: "${DISCORD_WEBHOOK_URL}"
+  
+  # Telegram bot plugin
+  - name: telegram
+    enabled: true
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+  
+  # SMTP email plugin
+  - name: email
+    enabled: true
+    smtp_host: "smtp.gmail.com"
+    smtp_port: "587"
+    smtp_user: "${SMTP_USER}"
+    smtp_pass: "${SMTP_PASSWORD}"
+    from: "beacon@example.com"
+    to: ["admin@example.com"]
+    use_tls: true
+  
+  # Generic webhook plugin
+  - name: webhook
+    enabled: true
+    url: "${WEBHOOK_URL}"
+    method: "POST"
+    content_type: "application/json"
+    headers:
+      Authorization: "Bearer ${WEBHOOK_TOKEN}"
+      X-Custom-Header: "Beacon-Alert"
+    template: |
+      {
+        "alert": {
+          "title": "{{.Title}}",
+          "message": "{{.Message}}",
+          "severity": "{{.Severity}}",
+          "device": "{{.Device.Name}}",
+          "check": "{{.Check.Name}}",
+          "status": "{{.Check.Status}}"
+        }
+      }
+
+# Alert rules - define when and how alerts are sent
+alert_rules:
+  # Critical alerts - send to all channels
+  - check: "Homepage"
+    severity: critical
+    plugins: ["discord", "telegram", "email"]
+    cooldown: "5m"
+  
+  # Warning alerts - send to Discord and Telegram only
+  - check: "API Health"
+    severity: warning
+    plugins: ["discord", "telegram"]
+    cooldown: "10m"
+  
+  # Database alerts - email only
+  - check: "Database Port"
+    severity: critical
+    plugins: ["email"]
+    cooldown: "15m"
 
 # Comprehensive Log Sources Configuration
 log_sources:

@@ -7,8 +7,44 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20-lightgrey)](https://github.com/Bajusz15/beacon/releases)
+[![CI](https://github.com/Bajusz15/beacon/workflows/CI/badge.svg)](https://github.com/Bajusz15/beacon/actions)
+[![codecov](https://codecov.io/gh/Bajusz15/beacon/branch/main/graph/badge.svg)](https://codecov.io/gh/Bajusz15/beacon)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Bajusz15/beacon)](https://goreportcard.com/report/github.com/Bajusz15/beacon)
+[![Security](https://github.com/Bajusz15/beacon/workflows/CI/badge.svg?label=security)](https://github.com/Bajusz15/beacon/security)
+[![Release](https://github.com/Bajusz15/beacon/workflows/Release/badge.svg)](https://github.com/Bajusz15/beacon/releases)
 
 Beacon polls a Git repository for new tags and deploys code when a new tag appears, while providing comprehensive infrastructure monitoring and log forwarding. Future proof your IoT or self-hosted deployments with automated monitoring and deployment. 
+
+## 📊 **CI Status & Quality**
+
+Our CI pipeline ensures code quality and reliability:
+
+| Badge | Description | Status |
+|-------|-------------|--------|
+| ![CI](https://github.com/Bajusz15/beacon/workflows/CI/badge.svg) | **Tests & Builds** - Runs tests on Go 1.21, 1.22, 1.23 and builds for all platforms | [View Details](https://github.com/Bajusz15/beacon/actions) |
+| ![codecov](https://codecov.io/gh/Bajusz15/beacon/branch/main/graph/badge.svg) | **Test Coverage** - Shows percentage of code covered by tests | [View Coverage](https://codecov.io/gh/Bajusz15/beacon) |
+| ![Go Report Card](https://goreportcard.com/badge/github.com/Bajusz15/beacon) | **Code Quality** - Go code quality metrics and analysis | [View Report](https://goreportcard.com/report/github.com/Bajusz15/beacon) |
+| ![Security](https://github.com/Bajusz15/beacon/workflows/CI/badge.svg?label=security) | **Security Scan** - Automated security vulnerability scanning | [View Security](https://github.com/Bajusz15/beacon/security) |
+| ![Release](https://github.com/Bajusz15/beacon/workflows/Release/badge.svg) | **Releases** - Automated releases with cross-platform binaries | [View Releases](https://github.com/Bajusz15/beacon/releases) |
+
+### CI Pipeline Features
+
+- **Multi-version Testing**: Tests on Go 1.21, 1.22, and 1.23
+- **Cross-platform Builds**: Linux (ARM, ARM64, AMD64) and macOS (ARM64, AMD64)
+- **Security Scanning**: Gosec and govulncheck for vulnerability detection
+- **Code Quality**: golangci-lint with comprehensive rules
+- **Test Coverage**: Detailed coverage reports with HTML output
+- **Automated Releases**: Triggered by Git tags with checksums
+- **Dependency Updates**: Weekly automated dependency updates
+
+### How to Read the Badges
+
+- **Green ✅**: All checks passed
+- **Red ❌**: Some checks failed (click badge for details)
+- **Yellow ⚠️**: Checks are running or pending
+- **Gray ⚪**: Checks are disabled or not configured
+
+Click any badge to see detailed results and logs.
 
 ## 📚 **Documentation**
 
@@ -38,6 +74,10 @@ Beacon polls a Git repository for new tags and deploys code when a new tag appea
 - **🔧 Status Server**: Runs an HTTP status server with Prometheus metrics support
 - **🔄 Systemd Compatible**: Easy integration with systemd services  
 - **⚡ Minimal Setup**: Lightweight and easy to configure
+- **🔔 Alert Plugins**: Send alerts to Discord, Telegram, email, and webhooks with smart routing
+- **🎯 Alert Rules**: Configure different alert channels per check with cooldown periods
+- **🔄 Hot Reload**: Configuration changes are applied without restart
+- **🛡️ Backward Compatible**: Existing configurations continue to work
 
 ## 🚀 Quick Start
 
@@ -67,9 +107,142 @@ beacon deploy
 # Run monitoring
 beacon monitor
 
+# Interactive configuration wizard
+beacon setup-wizard
+
 # Get help
 beacon --help
 ```
+
+## 🔔 Simple Alert Routing (NEW!)
+
+Beacon now includes a **simple, powerful alert routing system** perfect for self-hosted IoT monitoring and homelab setups:
+
+### Features
+
+- **🎯 Severity-based routing**: Critical, warning, and info alerts with different channels
+- **📱 Multiple channels**: Email, Discord, Telegram, Slack, and webhooks
+- **⏰ Simple backup notification**: Notify backup person after configurable delay
+- **🌙 Quiet hours**: Suppress non-critical alerts during specified hours
+- **🔧 Easy configuration**: Clean YAML configuration with sensible defaults
+- **🚀 Perfect for**: Self-hosted IoT, homelab infrastructure, small teams, privacy-first monitoring
+
+### Quick Setup
+
+```bash
+# Initialize simple alert routing
+beacon alerts init
+
+# Test your configuration
+beacon alerts test
+
+# View active alerts
+beacon alerts status
+```
+
+### Configuration Example
+
+```yaml
+# Simple alert routing - perfect for self-hosted setups
+alert_routing:
+  - severity: "critical"
+    channels: ["email", "discord"]
+    recipients: 
+      - "admin@example.com"
+      - "#alerts"
+    backup_delay: "10m"  # Notify backup after 10 minutes
+    backup_recipients:
+      - "backup@example.com"
+    quiet_hours:
+      enabled: false  # Critical alerts always go through
+    enabled: true
+
+  - severity: "warning"
+    channels: ["discord"]
+    recipients:
+      - "#alerts"
+    backup_delay: "30m"  # Notify backup after 30 minutes
+    quiet_hours:
+      enabled: true
+      start_time: "23:00"
+      end_time: "07:00"
+      suppress_severities: ["warning"]  # Suppress warnings during quiet hours
+    enabled: true
+
+  - severity: "info"
+    channels: ["discord"]
+    recipients:
+      - "#logs"
+    quiet_hours:
+      enabled: true
+      start_time: "23:00"
+      end_time: "07:00"
+      suppress_severities: ["info"]  # Suppress info alerts during quiet hours
+    enabled: true
+```
+
+### Alert Channels
+
+Configure your preferred notification channels:
+
+```yaml
+alert_channels:
+  email:
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    smtp_user: "${SMTP_USER}"
+    smtp_password: "${SMTP_PASSWORD}"
+    from: "Beacon Alerts <alerts@example.com>"
+    enabled: true
+
+  discord:
+    webhook_url: "${DISCORD_WEBHOOK_URL}"
+    username: "Beacon Bot"
+    enabled: true
+
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+    enabled: true
+```
+
+### Why Simple Alert Routing?
+
+Unlike complex enterprise escalation systems, Beacon's simple alert routing is designed for:
+
+- **🏠 Self-hosted environments**: No external dependencies or complex setup
+- **🔒 Privacy-first**: All alerts stay within your infrastructure
+- **⚡ Lightweight**: Minimal resource usage on IoT devices
+- **🎯 Focused**: Does exactly what you need without bloat
+- **🔧 Easy to understand**: Clear configuration that anyone can modify
+
+## 🧙‍♂️ **Configuration Wizard**
+
+Beacon includes an interactive configuration wizard to help you set up monitoring quickly:
+
+```bash
+# Start the configuration wizard
+beacon setup-wizard
+
+# Specify custom paths
+beacon setup-wizard --config ./my-config.yml --env .env
+```
+
+### Wizard Features
+
+- **Device Templates**: Pre-configured setups for Raspberry Pi, web servers, Docker hosts, and databases
+- **Interactive Setup**: Step-by-step configuration with helpful prompts
+- **Plugin Configuration**: Easy setup for Discord, Telegram, email, and webhook alerts
+- **Environment Variables**: Automatic generation of `.env` file with secure credential placeholders
+- **Validation**: Configuration validation before saving
+
+### Supported Templates
+
+1. **Raspberry Pi / IoT Device** - SSH service monitoring, system health checks
+2. **Web Server / Application** - HTTP endpoint monitoring, health checks, process monitoring
+3. **Docker Container Host** - Docker daemon, compose services, container health
+4. **Database Server** - PostgreSQL, MySQL, Redis port monitoring, connection tests
+5. **Custom Configuration** - Start minimal and add checks manually
 
 ## 🔍 **How Beacon Works**
 
@@ -99,7 +272,7 @@ The monitoring agent provides comprehensive infrastructure monitoring:
 - **Health Checks**: Monitors HTTP endpoints, TCP ports, and custom commands
 - **System Metrics**: Collects CPU, memory, disk usage, and other system information
 - **Log Forwarding**: Captures and forwards logs from files, Docker containers, and commands
-- **External Reporting**: Sends monitoring data to external systems like [BeaconInfra](https://beaconinfra.dev/)
+- **External Reporting**: Sends monitoring data to external systems like [BeaconWatch](https://beaconinfra.dev/)
 - **Prometheus Metrics**: Exposes metrics in Prometheus format for integration with monitoring stacks
 
 **Integration with BeaconInfra Cloud Dashboard:**
@@ -142,6 +315,9 @@ The `beacon bootstrap` command is the recommended way to set up new projects. It
 # Interactive setup (recommended)
 beacon bootstrap myapp
 
+# Use configuration file for non-interactive setup
+beacon bootstrap myapp -f beacon.bootstrap.example.yml
+
 # With options
 beacon bootstrap myapp --force --skip-systemd
 ```
@@ -149,6 +325,41 @@ beacon bootstrap myapp --force --skip-systemd
 **Options:**
 - `--force, -f` - Force overwrite of existing components
 - `--skip-systemd, -s` - Skip systemd service setup
+- `--config, -f` - Use configuration file for non-interactive setup
+
+### Bootstrap Configuration File
+
+For automation and testing, you can use a YAML configuration file instead of interactive prompts:
+
+```bash
+beacon bootstrap myapp -f beacon.bootstrap.example.yml
+```
+
+**Example configuration file** (`beacon.bootstrap.example.yml`):
+```yaml
+# Project configuration
+project_name: "my-awesome-app"
+repo_url: "https://github.com/username/my-awesome-app.git"
+local_path: "$HOME/beacon/my-awesome-app"
+deploy_command: "./scripts/deploy.sh"
+poll_interval: "60s"
+port: "8080"
+
+# Authentication (choose one or both)
+ssh_key_path: "/home/user/.ssh/id_rsa"  # For SSH URLs
+git_token: "ghp_xxxxxxxxxxxxxxxxxxxx"  # For HTTPS URLs (GitHub Personal Access Token)
+
+# Security and environment
+secure_env_path: "/etc/beacon/my-awesome-app.env"
+user: "deploy-user"
+working_dir: "$HOME/beacon/my-awesome-app"
+use_system_service: false  # Set to true for system-wide service
+```
+
+**Benefits of using config files:**
+- **Non-interactive**: Perfect for CI/CD and automation
+- **Version controlled**: Store configuration in your repository
+- **Reproducible**: Consistent setup across environments
 
 ### What Bootstrap Creates
 
@@ -408,24 +619,46 @@ checks:
     timeout: 5s
     alert_command: "echo 'Database connection failed' | mail -s 'Alert: DB Down' admin@example.com"
 
-  # Custom command checks
+  # Custom command checks with alert_command
   - name: "Disk Usage"
     type: command
-    cmd: "df -h | grep -w '/' | awk '{print $5}' | sed 's/%//'"
+    command: "df -h / | awk 'NR==2 {print $5}' | sed 's/%//'"
     interval: 300s
-    expect_output: "85"  # Alert if usage > 85%
+    alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 90 ]; then echo 'Disk space critical: $BEACON_CHECK_OUTPUT%' | telegram-send --stdin; fi"
 
   - name: "Nginx Process"
     type: command
-    cmd: "pgrep nginx > /dev/null && echo 'running' || echo 'stopped'"
+    command: "pgrep nginx > /dev/null && echo 'running' || echo 'stopped'"
     interval: 60s
-    expect_output: "running"
+    alert_command: "if [ '$BEACON_CHECK_OUTPUT' = 'stopped' ]; then echo 'Nginx process stopped!' | curl -X POST -H 'Content-Type: application/json' -d '{\"text\":\"Nginx is down!\"}' ${DISCORD_WEBHOOK_URL}; fi"
 
-  # System metrics
   - name: "Memory Usage"
     type: command
-    cmd: "free | grep Mem | awk '{printf \"%.1f\", $3/$2 * 100.0}'"
-    interval: 120s
+    command: "free | awk 'NR==2{printf \"%.0f\", $3*100/$2}'"
+    interval: 30s
+    alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 85 ]; then echo 'Memory usage high: $BEACON_CHECK_OUTPUT%' | mail -s 'Memory Alert' admin@example.com; fi"
+
+# Alert Command Variables
+# For command-type checks, alert_command always runs regardless of check status
+# Available variables in alert commands:
+#   $BEACON_CHECK_NAME     - Name of the check
+#   $BEACON_CHECK_TYPE     - Type of check (command, http, port)
+#   $BEACON_CHECK_STATUS   - Status (up, down, error)
+#   $BEACON_CHECK_OUTPUT   - Command output (for command checks only)
+#   $BEACON_CHECK_ERROR    - Error message if any
+#   $BEACON_CHECK_DURATION - Check duration in seconds
+#   $BEACON_DEVICE_NAME    - Device name
+#
+# Example alert commands:
+#   - Send to Telegram: "echo 'Alert: $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS' | telegram-send --stdin"
+#   - Send to Discord: "curl -X POST -H 'Content-Type: application/json' -d '{\"text\":\"$BEACON_CHECK_NAME: $BEACON_CHECK_STATUS\"}' ${DISCORD_WEBHOOK_URL}"
+#   - Send email: "echo 'Check $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS' | mail -s 'Beacon Alert' admin@example.com"
+#   - Log to syslog: "logger -p local0.err 'Beacon Alert: $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS'"
+
+# System metrics
+system_metrics:
+  enabled: true
+  interval: 120s
 
 # Reporting configuration
 report:

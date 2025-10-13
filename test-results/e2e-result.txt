@@ -1,0 +1,81 @@
+[0;34m[E2E][0m Starting Beacon E2E Integration Test
+[0;34m[E2E][0m Project: e2e-test-project
+[0;34m[E2E][0m Timeout: 30s
+[0;34m[E2E][0m Checking prerequisites...
+[0;34m[E2E][0m Using beacon command: beacon
+[0;32m[E2E][0m Prerequisites check passed
+[0;34m[E2E][0m Setting up mock Git server...
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: is subject to change. To configure the initial branch name to use in all
+hint: of your new repositories, which will suppress this warning, call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+Initialized empty Git repository in /tmp/beacon-e2e-git/test-repo.git/
+Cloning into 'test-repo'...
+warning: You appear to have cloned an empty repository.
+done.
+[master (root-commit) 99af735] Initial commit
+ 2 files changed, 6 insertions(+)
+ create mode 100755 deploy.sh
+ create mode 100644 version.txt
+To /tmp/beacon-e2e-git/test-repo.git
+ * [new branch]      master -> master
+To /tmp/beacon-e2e-git/test-repo.git
+ * [new tag]         v1.0.0 -> v1.0.0
+[0;32m[E2E][0m Mock Git repository created
+[0;34m[E2E][0m Starting mock Git server on port 8080...
+2025/10/13 16:08:25 Mock Git server starting on :8080
+[0;32m[E2E][0m Mock Git server started (PID: 47)
+[0;34m[E2E][0m Bootstrapping Beacon project: e2e-test-project
+✅ Project 'e2e-test-project' removed successfully
+Enter Git repository URL [https://github.com/yourusername/yourrepo.git]: Enter local deployment path [/root/beacon/e2e-test-project]: Enter deploy command (optional): Enter polling interval [60s]: Enter HTTP server port [8080]: Enter SSH key path (optional): Enter Git token (optional): Enter secure environment file path (optional) [/etc/beacon/e2e-test-project.env]: ✅ Created environment file: /root/.beacon/config/projects/e2e-test-project/env
+
+🎉 Project bootstrapped successfully!
+
+📁 Project: e2e-test-project
+📂 Config: /root/.beacon/config/projects/e2e-test-project
+📂 Working: /root/beacon/e2e-test-project
+📄 Environment: /root/.beacon/config/projects/e2e-test-project/env
+
+Next steps:
+1. Review and edit the environment file if needed
+2. Set up monitoring configuration:
+   cp beacon.monitor.example.yml /root/.beacon/config/projects/e2e-test-project/monitor.yml
+3. Set up alert routing:
+   beacon alerts init --project e2e-test-project
+4. Start the service:
+   systemctl --user start beacon@e2e-test-project
+
+💡 Tip: Use 'beacon --help' to see all available commands
+[0;32m[E2E][0m Beacon project bootstrapped
+[0;34m[E2E][0m Starting Beacon monitoring...
+Error: Configuration file 'beacon.monitor.yml' not found.
+Please create a configuration file or use the example: beacon.monitor.example.yml
+[0;32m[E2E][0m Beacon monitoring test completed
+[0;34m[E2E][0m Testing deployment by creating new Git tag...
+Cloning into 'test-repo-new'...
+done.
+[master 67da498] Update version for E2E test
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+To /tmp/beacon-e2e-git/test-repo.git
+   99af735..67da498  master -> master
+To /tmp/beacon-e2e-git/test-repo.git
+ * [new tag]         v1.1.0 -> v1.1.0
+[0;32m[E2E][0m New tag v1.1.0 created and pushed
+[0;34m[E2E][0m Verifying deployment...
+[0;34m[E2E][0m Verifying Git operations...
+[0;32m[E2E][0m Git tag v1.1.0 successfully created and pushed!
+[0;34m[E2E][0m Testing monitoring functionality...
+[1;33m[E2E][0m Monitoring status endpoint not responding (may be expected)
+[0;32m[E2E][0m Monitoring test completed
+[0;34m[E2E][0m Testing alerting functionality...
+[0;32m[E2E][0m Alert configuration created
+[0;32m[E2E][0m 🎉 All E2E tests passed!
+[0;34m[E2E][0m Beacon is working correctly in a real-world scenario
+[0;34m[E2E][0m Cleaning up test environment...
+[0;32m[E2E][0m Cleanup completed

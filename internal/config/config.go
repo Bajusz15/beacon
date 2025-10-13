@@ -34,9 +34,9 @@ func Load() *Config {
 		SSHKeyPath:    getEnvOrPrompt("BEACON_SSH_KEY_PATH", "Enter the SSH key path (optional)", ""),
 		GitToken:      getEnvOrPrompt("BEACON_GIT_TOKEN", "Enter the Git token (optional)", ""),
 		DeployCommand: getEnvOrPrompt("BEACON_DEPLOY_CMD", "Enter the deploy command to run after update (optional)", ""),
-		SecureEnvPath: getEnvOrPrompt("BEACON_SECURE_ENV_PATH", "Enter secure environment file path (optional)", ""),
+		SecureEnvPath: getEnvOrPrompt("BEACON_SECURE_ENV_PATH", "Enter secure environment file path (optional)", "$HOME/beacon/project/.env"),
 	}
-	cfg.ProjectDir = filepath.Base(cfg.LocalPath)
+	cfg.ProjectDir = filepath.Base(cfg.SecureEnvPath)
 
 	ensureDir(cfg.LocalPath)
 

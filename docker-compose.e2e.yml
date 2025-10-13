@@ -1,0 +1,14 @@
+
+services:
+  beacon-e2e:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    container_name: beacon-e2e-test
+    volumes:
+      - ./test-results:/app/test-results
+    environment:
+      - CI=true
+      - BEACON_E2E_TEST=1
+    # Debug mode - run bash instead of test
+    command: /bin/bash
