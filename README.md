@@ -15,6 +15,54 @@
 
 Beacon polls a Git repository for new tags and deploys code when a new tag appears, while providing comprehensive infrastructure monitoring and log forwarding. Future proof your IoT or self-hosted deployments with automated monitoring and deployment. 
 
+## 🚀 **5-Minute Quick Start**
+
+Get Beacon up and running in minutes:
+
+### 1. Install Beacon
+```bash
+curl -fsSL https://raw.githubusercontent.com/Bajusz15/beacon/main/scripts/install.sh | bash
+```
+
+### 2. Bootstrap Your First Project
+```bash
+# Interactive setup (recommended for first time)
+beacon bootstrap myapp
+
+# Or use a config file for automation
+beacon bootstrap myapp -f beacon.bootstrap.example.yml
+```
+
+### 3. Start Monitoring
+```bash
+# Set up monitoring configuration
+cp beacon.monitor.example.yml ~/.beacon/config/projects/myapp/monitor.yml
+
+# Start monitoring
+beacon monitor -f ~/.beacon/config/projects/myapp/monitor.yml
+```
+
+### 4. Enable Auto-Deployment (Optional)
+```bash
+# Enable systemd service for automatic deployment
+systemctl --user daemon-reload
+systemctl --user enable beacon@myapp
+systemctl --user start beacon@myapp
+```
+
+### 5. Test It Works
+```bash
+# Check status
+systemctl --user status beacon@myapp
+
+# View logs
+journalctl --user -u beacon@myapp -f
+```
+
+**🎉 That's it!** Your project is now being monitored and will automatically deploy when you push new tags to your Git repository.
+
+> **Need help?** Check out the [Troubleshooting](#-troubleshooting) section or [open an issue](https://github.com/Bajusz15/beacon/issues).
+
 ## 📊 **CI Status & Quality**
 
 Our CI pipeline ensures code quality and reliability:
@@ -49,13 +97,15 @@ Click any badge to see detailed results and logs.
 ## 📚 **Documentation**
 
 - **[LOG_FORWARDING.md](./LOG_FORWARDING.md)** - Complete guide for log forwarding (file, Docker, deploy, command logs)
-- **[beacon.monitor.example.yml](./beacon.monitor.example.yml)** - Comprehensive configuration examples
+- **[beacon.monitor.example.yml](./beacon.monitor.example.yml)** - Comprehensive monitoring configuration examples
+- **[beacon.bootstrap.example.yml](./beacon.bootstrap.example.yml)** - Bootstrap configuration template for automation
 - **[beacon.env.example](./beacon.env.example)** - Environment configuration template
 
 ## 📖 **Table of Contents**
 
+- [🚀 5-Minute Quick Start](#-5-minute-quick-start) ⚡ **Start Here**
 - [Features](#-features)
-- [Quick Start](#-quick-start)
+- [Perfect For](#-perfect-for) 🎯 **Who Should Use Beacon**
 - [How Beacon Works](#-how-beacon-works) 🔍 **Understanding the System**
 - [Bootstrap Setup](#-bootstrap-setup) ⭐ **Recommended**
 - [Configuration Files](#-configuration-files)
@@ -66,53 +116,27 @@ Click any badge to see detailed results and logs.
 
 ## ✨ **Features**
 
-- **🚀 Deployment**: Polls Git repos for new tags and automatically deploys latest versions
-- **📊 Monitoring**: Comprehensive health checking for HTTP endpoints, ports, and custom commands
-- **📋 Log Forwarding**: Forward logs from files, Docker containers, deployments, and custom commands
-- **📈 System Metrics**: Collect and report CPU, memory, disk usage, uptime, and load average
-- **⚙️ Flexible Commands**: Executes custom deploy commands (Docker, scripts, etc.)
-- **🔧 Status Server**: Runs an HTTP status server with Prometheus metrics support
-- **🔄 Systemd Compatible**: Easy integration with systemd services  
-- **⚡ Minimal Setup**: Lightweight and easy to configure
-- **🔔 Alert Plugins**: Send alerts to Discord, Telegram, email, and webhooks with smart routing
-- **🎯 Alert Rules**: Configure different alert channels per check with cooldown periods
-- **🔄 Hot Reload**: Configuration changes are applied without restart
-- **🛡️ Backward Compatible**: Existing configurations continue to work
+- **🚀 Auto-Deployment**: Polls Git repos for new tags and automatically deploys latest versions
+- **📊 Health Monitoring**: HTTP endpoints, ports, custom commands, and system metrics
+- **📋 Log Forwarding**: Files, Docker containers, deployments, and custom commands
+- **🔔 Smart Alerting**: Email, webhooks, Discord, Telegram with severity-based routing
+- **⚡ Lightweight**: Single binary, minimal dependencies, perfect for IoT devices
+- **🔧 Easy Setup**: Interactive bootstrap wizard or config file automation
+- **🛡️ Self-Hosted**: No cloud dependencies, complete privacy and control
+- **📱 Status Page**: Built-in web interface for monitoring status
+- **🔄 Hot Reload**: Update configuration without restarting services
+- **🎯 Multi-Project**: Manage multiple projects independently
 
-## 🚀 Quick Start
+## 🎯 **Perfect For**
 
-The easiest way to get started with Beacon is using the bootstrap command, which sets up everything automatically:
+- **🏠 Self-Hosters**: Home labs, personal servers, IoT projects
+- **👨‍💻 Developers**: Individual developers and small teams
+- **🌱 Entrepreneurs**: Startups and small businesses
+- **🎮 Hobbyists**: Raspberry Pi enthusiasts, makers, tinkerers
+- **🔒 Privacy-Focused**: Users who want complete control over their infrastructure
+- **⚡ Simple Needs**: Those who want powerful monitoring without enterprise complexity
 
-```bash
-# Install Beacon
-curl -fsSL https://raw.githubusercontent.com/Bajusz15/beacon/main/scripts/install.sh | bash
-
-# Bootstrap a new project (interactive setup)
-beacon bootstrap myapp
-
-# Enable and start the service
-systemctl --user daemon-reload
-systemctl --user enable beacon@myapp
-systemctl --user start beacon@myapp
-
-# Check status
-systemctl --user status beacon@myapp
-```
-
-**Manual Commands** (bootstrap automatically runs deploy, but not monitoring):
-```bash
-# Run deployment agent
-beacon deploy
-
-# Run monitoring
-beacon monitor
-
-# Interactive configuration wizard
-beacon setup-wizard
-
-# Get help
-beacon --help
-```
+> **Not for**: Large enterprise teams with complex compliance requirements. Beacon is designed for individuals, small teams, and self-hosted environments.
 
 ## 🔔 Simple Alert Routing (NEW!)
 
