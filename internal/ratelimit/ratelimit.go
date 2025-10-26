@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"beacon/internal/util"
 	"context"
 	"fmt"
 	"log"
@@ -224,7 +225,7 @@ func (c *HTTPClient) Do(ctx context.Context, req *http.Request) (*http.Response,
 		if resp.StatusCode == 429 {
 			c.rateLimiter.RecordFailure()
 			log.Printf("[RateLimiter] HTTP 429 received, applying backoff")
-			resp.Body.Close()
+			util.LogError(resp.Body.Close(), "HTTP response body close")
 
 			if !c.rateLimiter.ShouldRetry() {
 				return nil, fmt.Errorf("max retries exceeded after HTTP 429")
@@ -235,7 +236,7 @@ func (c *HTTPClient) Do(ctx context.Context, req *http.Request) (*http.Response,
 		// Handle other error status codes
 		if resp.StatusCode >= 400 {
 			c.rateLimiter.RecordFailure()
-			resp.Body.Close()
+			util.LogError(resp.Body.Close(), "HTTP response body close")
 
 			if !c.rateLimiter.ShouldRetry() {
 				return nil, fmt.Errorf("max retries exceeded, last status: %d", resp.StatusCode)

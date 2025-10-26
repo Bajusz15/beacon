@@ -13,14 +13,14 @@ type Template struct {
 
 // TemplateCheck represents a check in a template
 type TemplateCheck struct {
-	Name            string
-	Type            string
-	URL             string
-	Host            string
-	Port            int
-	Command         string
-	ExpectedStatus  int
-	Interval        time.Duration
+	Name           string
+	Type           string
+	URL            string
+	Host           string
+	Port           int
+	Command        string
+	ExpectedStatus int
+	Interval       time.Duration
 }
 
 // getTemplates returns available configuration templates
@@ -50,18 +50,18 @@ func getTemplates() []*Template {
 			Description: "Monitoring for web applications and APIs",
 			Checks: []TemplateCheck{
 				{
-					Name:            "Homepage",
-					Type:            "http",
-					URL:             "http://localhost:8080",
-					ExpectedStatus:  200,
-					Interval:        30 * time.Second,
+					Name:           "Homepage",
+					Type:           "http",
+					URL:            "http://localhost:8080",
+					ExpectedStatus: 200,
+					Interval:       30 * time.Second,
 				},
 				{
-					Name:            "Health Check",
-					Type:            "http",
-					URL:             "http://localhost:8080/health",
-					ExpectedStatus:  200,
-					Interval:        30 * time.Second,
+					Name:           "Health Check",
+					Type:           "http",
+					URL:            "http://localhost:8080/health",
+					ExpectedStatus: 200,
+					Interval:       30 * time.Second,
 				},
 				{
 					Name:     "Web Server Process",

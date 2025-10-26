@@ -26,16 +26,16 @@ func BenchmarkMonitor_ExecuteCheck(b *testing.B) {
 			Token:  "test-token",
 		},
 	}
-	
+
 	monitor, err := NewMonitor(cfg, "test-config.yml")
 	if err != nil {
 		b.Fatalf("Failed to create monitor: %v", err)
 	}
-	
+
 	check := cfg.Checks[0]
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		monitor.executeCheck(check)
 	}
@@ -60,16 +60,16 @@ func BenchmarkMonitor_ExecuteHTTPCheck(b *testing.B) {
 			Token:  "test-token",
 		},
 	}
-	
+
 	monitor, err := NewMonitor(cfg, "test-config.yml")
 	if err != nil {
 		b.Fatalf("Failed to create monitor: %v", err)
 	}
-	
+
 	check := cfg.Checks[0]
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		monitor.executeHTTPCheck(check)
 	}
@@ -94,16 +94,16 @@ func BenchmarkMonitor_ExecutePortCheck(b *testing.B) {
 			Token:  "test-token",
 		},
 	}
-	
+
 	monitor, err := NewMonitor(cfg, "test-config.yml")
 	if err != nil {
 		b.Fatalf("Failed to create monitor: %v", err)
 	}
-	
+
 	check := cfg.Checks[0]
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		monitor.executePortCheck(check)
 	}
@@ -127,16 +127,16 @@ func BenchmarkMonitor_ExecuteCommandCheck(b *testing.B) {
 			Token:  "test-token",
 		},
 	}
-	
+
 	monitor, err := NewMonitor(cfg, "test-config.yml")
 	if err != nil {
 		b.Fatalf("Failed to create monitor: %v", err)
 	}
-	
+
 	check := cfg.Checks[0]
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		monitor.executeCommandCheck(check)
 	}
@@ -160,14 +160,14 @@ func BenchmarkMonitor_ReportSystemMetrics(b *testing.B) {
 			Token:  "test-token",
 		},
 	}
-	
+
 	monitor, err := NewMonitor(cfg, "test-config.yml")
 	if err != nil {
 		b.Fatalf("Failed to create monitor: %v", err)
 	}
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		monitor.reportSystemMetrics()
 	}
@@ -207,16 +207,16 @@ func BenchmarkMonitor_PluginIntegration(b *testing.B) {
 			Token:  "test-token",
 		},
 	}
-	
+
 	monitor, err := NewMonitor(cfg, "test-config.yml")
 	if err != nil {
 		b.Fatalf("Failed to create monitor: %v", err)
 	}
-	
+
 	check := cfg.Checks[0]
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		monitor.executeCheck(check)
 	}
@@ -229,9 +229,9 @@ func BenchmarkCheckResultCreation(b *testing.B) {
 		Tags:        []string{"test", "benchmark"},
 		Environment: "test",
 	}
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		result := CheckResult{
 			Name:           "test-check",

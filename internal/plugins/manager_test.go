@@ -7,19 +7,19 @@ import (
 
 func TestPluginManager(t *testing.T) {
 	manager := NewManager()
-	
+
 	// Test registering plugins
 	discordPlugin := &MockPlugin{name: "discord"}
 	telegramPlugin := &MockPlugin{name: "telegram"}
-	
+
 	if err := manager.RegisterPlugin(discordPlugin); err != nil {
 		t.Fatalf("Failed to register Discord plugin: %v", err)
 	}
-	
+
 	if err := manager.RegisterPlugin(telegramPlugin); err != nil {
 		t.Fatalf("Failed to register Telegram plugin: %v", err)
 	}
-	
+
 	// Test loading configurations
 	configs := []PluginConfig{
 		{
@@ -38,7 +38,7 @@ func TestPluginManager(t *testing.T) {
 			},
 		},
 	}
-	
+
 	rules := []AlertRule{
 		{
 			Check:    "test-check",
@@ -47,11 +47,11 @@ func TestPluginManager(t *testing.T) {
 			Cooldown: "5m",
 		},
 	}
-	
+
 	if err := manager.LoadConfigs(configs, rules); err != nil {
 		t.Fatalf("Failed to load plugin configurations: %v", err)
 	}
-	
+
 	// Test sending alert
 	checkResult := &CheckResult{
 		Name:      "test-check",
@@ -64,25 +64,25 @@ func TestPluginManager(t *testing.T) {
 			Name: "test-device",
 		},
 	}
-	
+
 	if err := manager.SendAlert(checkResult); err != nil {
 		t.Fatalf("Failed to send alert: %v", err)
 	}
-	
+
 	// Verify plugins were called
 	if !discordPlugin.sendAlertCalled {
 		t.Error("Discord plugin SendAlert was not called")
 	}
-	
+
 	if !telegramPlugin.sendAlertCalled {
 		t.Error("Telegram plugin SendAlert was not called")
 	}
-	
+
 	// Test health check
 	if err := manager.HealthCheck(); err != nil {
 		t.Fatalf("Health check failed: %v", err)
 	}
-	
+
 	// Test close
 	if err := manager.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
@@ -91,11 +91,11 @@ func TestPluginManager(t *testing.T) {
 
 // MockPlugin implements the Plugin interface for testing
 type MockPlugin struct {
-	name            string
-	initCalled      bool
-	sendAlertCalled bool
+	name              string
+	initCalled        bool
+	sendAlertCalled   bool
 	healthCheckCalled bool
-	closeCalled     bool
+	closeCalled       bool
 }
 
 func (p *MockPlugin) Name() string {

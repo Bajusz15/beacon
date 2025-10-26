@@ -4,7 +4,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"golang.org/x/crypto/pbkdf2"
+	"beacon/internal/util"
 )
 
 // KeyManager handles API key rotation and management
@@ -120,7 +119,7 @@ func (km *KeyManager) GetKey(name string) (*StoredKey, error) {
 
 	// Update last used time
 	storedKey.LastUsed = time.Now()
-	km.saveKey(&storedKey)
+	util.LogError(km.saveKey(&storedKey), "save updated key")
 
 	return &storedKey, nil
 }
@@ -271,11 +270,12 @@ func (km *KeyManager) decrypt(data []byte) ([]byte, error) {
 // generateKeyID creates a unique key ID
 func generateKeyID() string {
 	data := make([]byte, 16)
-	rand.Read(data)
+	util.LogError(func() error { _, err := rand.Read(data); return err }(), "generate random key ID")
 	return fmt.Sprintf("%x", data)
 }
 
+//TODO: add user set password functionality
 // deriveKey derives a key from a password using PBKDF2
-func deriveKey(password string, salt []byte) []byte {
-	return pbkdf2.Key([]byte(password), salt, 4096, 32, sha256.New)
-}
+// func deriveKey(password string, salt []byte) []byte {
+// 	return pbkdf2.Key([]byte(password), salt, 4096, 32, sha256.New)
+// }

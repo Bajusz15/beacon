@@ -1,6 +1,7 @@
 package systemd
 
 import (
+	"beacon/internal/util"
 	"fmt"
 	"os"
 	"os/exec"
@@ -44,7 +45,7 @@ func NewServiceManager(serviceType ServiceType) *ServiceManager {
 // CreateService creates a systemd service file for a Beacon project
 func (sm *ServiceManager) CreateService(config *ServiceConfig) error {
 	servicePath := sm.getServicePath(config.ProjectName)
-	
+
 	// Ensure the directory exists
 	serviceDir := filepath.Dir(servicePath)
 	if err := os.MkdirAll(serviceDir, 0755); err != nil {
@@ -56,7 +57,7 @@ func (sm *ServiceManager) CreateService(config *ServiceConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to create service file: %v", err)
 	}
-	defer file.Close()
+	defer util.Close(file, "service file")
 
 	// Generate service content
 	content, err := sm.generateServiceContent(config)
@@ -79,7 +80,7 @@ func (sm *ServiceManager) CreateService(config *ServiceConfig) error {
 // EnableService enables a systemd service
 func (sm *ServiceManager) EnableService(projectName string) error {
 	serviceName := fmt.Sprintf("beacon@%s.service", projectName)
-	
+
 	var cmd *exec.Cmd
 	if sm.serviceType == UserService {
 		cmd = exec.Command("systemctl", "--user", "enable", serviceName)
@@ -97,7 +98,7 @@ func (sm *ServiceManager) EnableService(projectName string) error {
 // StartService starts a systemd service
 func (sm *ServiceManager) StartService(projectName string) error {
 	serviceName := fmt.Sprintf("beacon@%s.service", projectName)
-	
+
 	var cmd *exec.Cmd
 	if sm.serviceType == UserService {
 		cmd = exec.Command("systemctl", "--user", "start", serviceName)
@@ -115,7 +116,7 @@ func (sm *ServiceManager) StartService(projectName string) error {
 // StopService stops a systemd service
 func (sm *ServiceManager) StopService(projectName string) error {
 	serviceName := fmt.Sprintf("beacon@%s.service", projectName)
-	
+
 	var cmd *exec.Cmd
 	if sm.serviceType == UserService {
 		cmd = exec.Command("systemctl", "--user", "stop", serviceName)
@@ -133,7 +134,7 @@ func (sm *ServiceManager) StopService(projectName string) error {
 // RestartService restarts a systemd service
 func (sm *ServiceManager) RestartService(projectName string) error {
 	serviceName := fmt.Sprintf("beacon@%s.service", projectName)
-	
+
 	var cmd *exec.Cmd
 	if sm.serviceType == UserService {
 		cmd = exec.Command("systemctl", "--user", "restart", serviceName)
@@ -151,7 +152,7 @@ func (sm *ServiceManager) RestartService(projectName string) error {
 // DisableService disables a systemd service
 func (sm *ServiceManager) DisableService(projectName string) error {
 	serviceName := fmt.Sprintf("beacon@%s.service", projectName)
-	
+
 	var cmd *exec.Cmd
 	if sm.serviceType == UserService {
 		cmd = exec.Command("systemctl", "--user", "disable", serviceName)
@@ -169,7 +170,7 @@ func (sm *ServiceManager) DisableService(projectName string) error {
 // GetServiceStatus returns the status of a systemd service
 func (sm *ServiceManager) GetServiceStatus(projectName string) (string, error) {
 	serviceName := fmt.Sprintf("beacon@%s.service", projectName)
-	
+
 	var cmd *exec.Cmd
 	if sm.serviceType == UserService {
 		cmd = exec.Command("systemctl", "--user", "is-active", serviceName)
@@ -188,7 +189,7 @@ func (sm *ServiceManager) GetServiceStatus(projectName string) (string, error) {
 // RemoveService removes a systemd service file
 func (sm *ServiceManager) RemoveService(projectName string) error {
 	servicePath := sm.getServicePath(projectName)
-	
+
 	if err := os.Remove(servicePath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove service file: %v", err)
 	}
@@ -227,7 +228,7 @@ func (sm *ServiceManager) IsAvailable() bool {
 // getServicePath returns the path where the service file should be created
 func (sm *ServiceManager) getServicePath(projectName string) string {
 	serviceName := fmt.Sprintf("beacon@%s.service", projectName)
-	
+
 	if sm.serviceType == UserService {
 		homeDir, _ := os.UserHomeDir()
 		return filepath.Join(homeDir, ".config", "systemd", "user", serviceName)

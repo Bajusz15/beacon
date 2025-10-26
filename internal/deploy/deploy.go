@@ -165,8 +165,8 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 func getLatestTagFromRepo(cfg *config.Config) string {
 	// Change to the project directory
 	originalDir, _ := os.Getwd()
-	os.Chdir(cfg.LocalPath)
-	defer os.Chdir(originalDir)
+	util.LogError(os.Chdir(cfg.LocalPath), "change to project directory")
+	defer func() { util.LogError(os.Chdir(originalDir), "change back to original directory") }()
 
 	// Fetch latest tags
 	fetchCmd := exec.Command("git", "fetch", "--tags")

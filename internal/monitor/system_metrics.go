@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"beacon/internal/util"
 )
 
 // System metric helper functions for Linux IoT devices
@@ -124,70 +126,6 @@ func getLoadAverage() (float64, error) {
 	return loadAvg, nil
 }
 
-// Additional helper functions for comprehensive system metrics
-
-func getLoadAverages() (load1, load5, load15 float64, err error) {
-	// Parse /proc/loadavg for all load averages
-	data, err := os.ReadFile("/proc/loadavg")
-	if err != nil {
-		return 0, 0, 0, err
-	}
-
-	fields := strings.Fields(string(data))
-	if len(fields) < 3 {
-		return 0, 0, 0, fmt.Errorf("invalid load average data: insufficient fields")
-	}
-
-	// Parse 1, 5, and 15 minute load averages
-	load1, err = strconv.ParseFloat(fields[0], 64)
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to parse 1-minute load average: %v", err)
-	}
-
-	load5, err = strconv.ParseFloat(fields[1], 64)
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to parse 5-minute load average: %v", err)
-	}
-
-	load15, err = strconv.ParseFloat(fields[2], 64)
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to parse 15-minute load average: %v", err)
-	}
-
-	return load1, load5, load15, nil
-}
-
-func getMemoryDetails() (total, free, available uint64, err error) {
-	// Parse /proc/meminfo for detailed memory information
-	data, err := os.ReadFile("/proc/meminfo")
-	if err != nil {
-		return 0, 0, 0, err
-	}
-
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-
-		switch fields[0] {
-		case "MemTotal:":
-			total, _ = strconv.ParseUint(fields[1], 10, 64)
-		case "MemFree:":
-			free, _ = strconv.ParseUint(fields[1], 10, 64)
-		case "MemAvailable:":
-			available, _ = strconv.ParseUint(fields[1], 10, 64)
-		}
-	}
-
-	if total == 0 {
-		return 0, 0, 0, fmt.Errorf("invalid memory data: MemTotal is 0")
-	}
-
-	return total, free, available, nil
-}
-
 func getUptime() (int64, error) {
 	// Parse /proc/uptime for system uptime
 	data, err := os.ReadFile("/proc/uptime")
@@ -223,7 +161,7 @@ func getIPAddress() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get IP address: %v", err)
 	}
-	defer conn.Close()
+	defer util.DeferClose(conn, "UDP connection")()
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 	return localAddr.IP.String(), nil

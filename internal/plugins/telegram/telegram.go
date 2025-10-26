@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"beacon/internal/plugins"
+	"beacon/internal/util"
 )
 
 // TelegramPlugin implements the Plugin interface for Telegram bot API
@@ -57,26 +58,26 @@ func (p *TelegramPlugin) Init(config map[string]interface{}) error {
 	if !ok || botToken == "" {
 		return fmt.Errorf("bot_token is required for Telegram plugin")
 	}
-	
+
 	chatID, ok := config["chat_id"].(string)
 	if !ok || chatID == "" {
 		return fmt.Errorf("chat_id is required for Telegram plugin")
 	}
-	
+
 	// Expand environment variables
 	p.botToken = os.ExpandEnv(botToken)
 	p.chatID = os.ExpandEnv(chatID)
-	
+
 	// Validate bot token format (should be numeric)
 	if !isNumeric(p.botToken) {
 		return fmt.Errorf("invalid bot token format")
 	}
-	
+
 	// Validate chat ID format (should be numeric or start with @)
 	if !isNumeric(p.chatID) && !strings.HasPrefix(p.chatID, "@") {
 		return fmt.Errorf("invalid chat ID format")
 	}
-	
+
 	return nil
 }
 
@@ -85,91 +86,91 @@ func (p *TelegramPlugin) SendAlert(alert plugins.Alert) error {
 	if p.botToken == "" || p.chatID == "" {
 		return fmt.Errorf("Telegram plugin not initialized")
 	}
-	
+
 	message := p.buildMessage(alert)
-	
+
 	payload := TelegramMessage{
 		ChatID:    p.chatID,
 		Text:      message,
 		ParseMode: "Markdown",
 	}
-	
+
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal Telegram payload: %v", err)
 	}
-	
+
 	url := fmt.Sprintf("%s%s/sendMessage", p.apiURL, p.botToken)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create Telegram request: %v", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send Telegram message: %v", err)
 	}
-	defer resp.Body.Close()
-	
+	defer util.DeferClose(resp.Body, "HTTP response body")()
+
 	var telegramResp TelegramResponse
 	if err := json.NewDecoder(resp.Body).Decode(&telegramResp); err != nil {
 		return fmt.Errorf("failed to decode Telegram response: %v", err)
 	}
-	
+
 	if !telegramResp.OK {
 		return fmt.Errorf("Telegram API error: %s (code: %d)", telegramResp.Description, telegramResp.ErrorCode)
 	}
-	
+
 	return nil
 }
 
 // buildMessage builds the Telegram message from an alert
 func (p *TelegramPlugin) buildMessage(alert plugins.Alert) string {
 	var message strings.Builder
-	
+
 	// Add emoji based on severity
 	emoji := p.getSeverityEmoji(alert.Severity)
 	message.WriteString(fmt.Sprintf("%s *%s*\n\n", emoji, alert.Title))
-	
+
 	// Add main message
 	message.WriteString(fmt.Sprintf("%s\n\n", alert.Message))
-	
+
 	// Add device information
 	message.WriteString("*Device Information:*\n")
 	message.WriteString(fmt.Sprintf("• Name: %s\n", escapeMarkdown(alert.Device.Name)))
-	
+
 	if alert.Device.Location != "" {
 		message.WriteString(fmt.Sprintf("• Location: %s\n", escapeMarkdown(alert.Device.Location)))
 	}
-	
+
 	message.WriteString(fmt.Sprintf("• Severity: %s\n", strings.ToUpper(alert.Severity)))
-	
+
 	// Add check details if available
 	if alert.Check != nil {
 		message.WriteString("\n*Check Details:*\n")
 		message.WriteString(fmt.Sprintf("• Name: %s\n", escapeMarkdown(alert.Check.Name)))
 		message.WriteString(fmt.Sprintf("• Type: %s\n", escapeMarkdown(alert.Check.Type)))
 		message.WriteString(fmt.Sprintf("• Status: %s\n", strings.ToUpper(alert.Check.Status)))
-		
+
 		if alert.Check.Duration > 0 {
 			message.WriteString(fmt.Sprintf("• Duration: %s\n", alert.Check.Duration.String()))
 		}
-		
+
 		if alert.Check.Error != "" {
 			message.WriteString(fmt.Sprintf("• Error: `%s`\n", escapeMarkdown(alert.Check.Error)))
 		}
 	}
-	
+
 	// Add tags if available
 	if len(alert.Device.Tags) > 0 {
 		message.WriteString(fmt.Sprintf("\n*Tags:* %s\n", strings.Join(alert.Device.Tags, ", ")))
 	}
-	
+
 	// Add timestamp
 	message.WriteString(fmt.Sprintf("\n*Time:* %s", alert.Timestamp.Format("2006-01-02 15:04:05 MST")))
-	
+
 	return message.String()
 }
 
@@ -229,42 +230,42 @@ func (p *TelegramPlugin) HealthCheck() error {
 	if p.botToken == "" || p.chatID == "" {
 		return fmt.Errorf("Telegram plugin not initialized")
 	}
-	
+
 	// Test bot by sending a simple message
 	testMessage := TelegramMessage{
 		ChatID:    p.chatID,
 		Text:      "Beacon Telegram plugin health check",
 		ParseMode: "Markdown",
 	}
-	
+
 	jsonData, err := json.Marshal(testMessage)
 	if err != nil {
 		return fmt.Errorf("failed to marshal test message: %v", err)
 	}
-	
+
 	url := fmt.Sprintf("%s%s/sendMessage", p.apiURL, p.botToken)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create test request: %v", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send test message: %v", err)
 	}
-	defer resp.Body.Close()
-	
+	defer util.DeferClose(resp.Body, "HTTP response body")()
+
 	var telegramResp TelegramResponse
 	if err := json.NewDecoder(resp.Body).Decode(&telegramResp); err != nil {
 		return fmt.Errorf("failed to decode test response: %v", err)
 	}
-	
+
 	if !telegramResp.OK {
 		return fmt.Errorf("test message failed: %s (code: %d)", telegramResp.Description, telegramResp.ErrorCode)
 	}
-	
+
 	return nil
 }
 

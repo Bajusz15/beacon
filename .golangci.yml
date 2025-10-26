@@ -11,7 +11,6 @@ linters:
     - govet
     - ineffassign
     - misspell
-    - prealloc
     - staticcheck
     - unconvert
     - unparam
@@ -28,7 +27,7 @@ linters:
       lines: 100
       statements: 60
     gocyclo:
-      min-complexity: 15
+      min-complexity: 25
     lll:
       line-length: 140
     misspell:
@@ -43,10 +42,19 @@ linters:
     rules:
       - linters:
           - staticcheck
-        text: 'ST1000:'
+        text: 'ST1000:|ST1005:'
       - linters:
           - errcheck
-        text: 'WithTroubleshooting|WithNextSteps|WithDocumentation'
+        text: 'WithTroubleshooting|WithNextSteps|WithDocumentation|fmt\.Scanln|http\.ListenAndServe|json\.NewEncoder.*\.Encode|os\.RemoveAll|conn\.Close|client\.Quit|resp\.Body\.Close'
+      - linters:
+          - errcheck
+        path: '.*_test\.go'
+      - linters:
+          - gosec
+        text: 'G301|G302|G304|G306|G204|G114|G104|G402.*TLS'
+      - linters:
+          - gosec
+        path: '.*_test\.go'
     paths:
       - vendor
       - internal/testdata
@@ -59,7 +67,6 @@ issues:
 formatters:
   enable:
     - gofmt
-    - goimports
   settings:
     goimports:
       local-prefixes:

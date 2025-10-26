@@ -25,7 +25,6 @@ type Config struct {
 }
 
 func Load() *Config {
-
 	cfg := &Config{
 		RepoURL:       getEnvOrPrompt("BEACON_REPO_URL", "Enter the Git repo URL", "https://github.com/yourusername/yourrepo.git"),
 		LocalPath:     os.ExpandEnv(getEnvOrPrompt("BEACON_LOCAL_PATH", "Enter the local path for the project", "$HOME/beacon/project")),

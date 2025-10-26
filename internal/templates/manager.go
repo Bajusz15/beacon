@@ -10,10 +10,10 @@ import (
 
 // TemplateConfig represents a template configuration
 type TemplateConfig struct {
-	Name        string    `json:"name"`
-	Path        string    `json:"path"`
+	Name         string    `json:"name"`
+	Path         string    `json:"path"`
 	LastModified time.Time `json:"last_modified"`
-	Checksum    string    `json:"checksum"`
+	Checksum     string    `json:"checksum"`
 }
 
 // TemplateManager handles template loading and management
@@ -63,10 +63,10 @@ func (tm *TemplateManager) AddTemplate(name, templatePath string) error {
 	}
 
 	template := &TemplateConfig{
-		Name:        name,
-		Path:        absPath,
+		Name:         name,
+		Path:         absPath,
 		LastModified: info.ModTime(),
-		Checksum:    checksum,
+		Checksum:     checksum,
 	}
 
 	tm.templates[name] = template
@@ -138,8 +138,8 @@ func (tm *TemplateManager) CheckForChanges() ([]string, error) {
 // loadTemplates loads templates from config file
 func (tm *TemplateManager) loadTemplates() error {
 	configPath := filepath.Join(tm.configDir, "templates.json")
-	
-	data, err := os.ReadFile(configPath)
+
+	data, err := os.ReadFile(configPath) // #nosec G304 -- configPath is safely constructed
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No templates file yet, start empty
@@ -160,7 +160,7 @@ func (tm *TemplateManager) loadTemplates() error {
 // saveTemplates saves templates to config file
 func (tm *TemplateManager) saveTemplates() error {
 	configPath := filepath.Join(tm.configDir, "templates.json")
-	
+
 	data, err := json.MarshalIndent(tm.templates, "", "  ")
 	if err != nil {
 		return err
@@ -184,13 +184,13 @@ func calculateChecksum(filePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Simple checksum using file size and modification time
 	info, err := os.Stat(filePath)
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Use a combination of size and mod time as checksum
 	checksum := fmt.Sprintf("%d-%d", len(data), info.ModTime().Unix())
 	return checksum, nil

@@ -30,7 +30,10 @@ func (c *CLI) AddTemplate() error {
 	// Get template name
 	fmt.Print("Template name (e.g., 'my-alerts', 'production'): ")
 	var name string
-	fmt.Scanln(&name)
+	_, err := fmt.Scanln(&name)
+	if err != nil {
+		return fmt.Errorf("failed to read template name: %w", err)
+	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("template name cannot be empty")
@@ -39,7 +42,10 @@ func (c *CLI) AddTemplate() error {
 	// Get template path
 	fmt.Print("Template file path (absolute or relative): ")
 	var path string
-	fmt.Scanln(&path)
+	_, err = fmt.Scanln(&path)
+	if err != nil {
+		return fmt.Errorf("failed to read template path: %w", err)
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return fmt.Errorf("template path cannot be empty")
@@ -107,7 +113,10 @@ func (c *CLI) RemoveTemplate() error {
 
 	fmt.Print("Template name to remove: ")
 	var name string
-	fmt.Scanln(&name)
+	_, err := fmt.Scanln(&name)
+	if err != nil {
+		return fmt.Errorf("failed to read template name: %w", err)
+	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("template name cannot be empty")

@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"beacon/internal/config"
+
+	"github.com/spf13/cobra"
 )
 
 // ProjectManager manages Beacon projects using unified configuration
@@ -84,9 +85,13 @@ func createRemoveCommand(pm *ProjectManager) *cobra.Command {
 				fmt.Printf("⚠️  This will permanently remove project '%s' and all its files.\n", projectName)
 				fmt.Print("Are you sure? (y/N): ")
 				var response string
-				fmt.Scanln(&response)
+				_, err := fmt.Scanln(&response)
+				if err != nil {
+					fmt.Printf("❌ Failed to read response: %v\n", err)
+					return
+				}
 				if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
-					fmt.Println("❌ Operation cancelled")
+					fmt.Println("❌ Operation canceled")
 					return
 				}
 			}
@@ -162,7 +167,7 @@ func (pm *ProjectManager) ListProjects() error {
 		fmt.Printf("🔹 %s\n", project)
 		fmt.Printf("   Config: %s\n", pm.paths.GetRelativePath(configDir))
 		fmt.Printf("   Working: %s\n", pm.paths.GetRelativePath(workingDir))
-		
+
 		// Check if files exist
 		if _, err := os.Stat(envFile); err == nil {
 			fmt.Printf("   Status: ✅ Configured\n")
@@ -270,7 +275,10 @@ func (pm *ProjectManager) CleanupOrphanedFiles() error {
 				}
 				if !found {
 					fmt.Printf("🗑️  Removing orphaned working directory: %s\n", projectName)
-					os.RemoveAll(filepath.Join(workingDir, projectName))
+					err := os.RemoveAll(filepath.Join(workingDir, projectName))
+					if err != nil {
+						return fmt.Errorf("failed to remove orphaned working directory: %w", err)
+					}
 				}
 			}
 		}

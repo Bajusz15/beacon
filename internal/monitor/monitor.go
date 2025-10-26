@@ -25,6 +25,7 @@ import (
 	"beacon/internal/plugins/telegram"
 	"beacon/internal/plugins/webhook"
 	"beacon/internal/ratelimit"
+	"beacon/internal/util"
 	"beacon/internal/version"
 
 	"github.com/fsnotify/fsnotify"
@@ -224,18 +225,21 @@ func NewMonitor(cfg *Config, configPath string) (*Monitor, error) {
 	configDir := getConfigDir()
 	keyManager, err := keys.NewKeyManager(configDir)
 	if err != nil {
+		cancel() // Ensure context is canceled on error
 		return nil, fmt.Errorf("failed to initialize key manager: %w", err)
 	}
 
 	// Get current token
 	currentToken, err := getCurrentToken(cfg, keyManager)
 	if err != nil {
+		cancel() // Ensure context is canceled on error
 		return nil, fmt.Errorf("failed to get current token: %w", err)
 	}
 
 	// Initialize file watcher for config hot-reload
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to create file watcher: %w", err)
 	}
 
@@ -244,6 +248,7 @@ func NewMonitor(cfg *Config, configPath string) (*Monitor, error) {
 
 	// Register built-in plugins
 	if err := registerBuiltinPlugins(pluginManager); err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to register built-in plugins: %w", err)
 	}
 
@@ -552,7 +557,7 @@ func (m *Monitor) executeHTTPCheck(check CheckConfig) CheckResult {
 		result.Error = errors.FormatError(beaconErr)
 		return result
 	}
-	defer resp.Body.Close()
+	defer util.DeferClose(resp.Body, "HTTP response body")()
 
 	result.HTTPStatusCode = resp.StatusCode
 
@@ -622,7 +627,7 @@ func (m *Monitor) executePortCheck(check CheckConfig) CheckResult {
 		result.Error = errors.FormatError(beaconErr)
 		return result
 	}
-	defer conn.Close()
+	defer util.DeferClose(conn, "TCP connection")()
 
 	result.Status = "up"
 	return result
@@ -849,7 +854,7 @@ func (m *Monitor) sendToAPI(url string, payload interface{}) {
 		log.Printf("[Beacon] Failed to send to API: %v", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer util.DeferClose(resp.Body, "HTTP response body")()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		log.Printf("[Beacon] Successfully sent data to %s", url)
@@ -894,21 +899,30 @@ func (m *Monitor) prometheusHandler(w http.ResponseWriter, r *http.Request) {
 			deviceLabels += fmt.Sprintf(",environment=\"%s\"", result.Device.Environment)
 		}
 
-		fmt.Fprintf(w, "beacon_check_status{%s} %d\n", deviceLabels, status)
+		util.LogError(func() error {
+			_, err := fmt.Fprintf(w, "beacon_check_status{%s} %d\n", deviceLabels, status)
+			return err
+		}(), "write metrics")
 
 		// Duration metric
-		fmt.Fprintf(w, "beacon_check_duration_seconds{%s} %.3f\n",
-			deviceLabels, result.Duration.Seconds())
+		util.LogError(func() error {
+			_, err := fmt.Fprintf(w, "beacon_check_duration_seconds{%s} %.3f\n", deviceLabels, result.Duration.Seconds())
+			return err
+		}(), "write metrics")
 
 		// Response time for HTTP checks
 		if result.Type == "http" && result.ResponseTime > 0 {
-			fmt.Fprintf(w, "beacon_check_response_time_seconds{%s} %.3f\n",
-				deviceLabels, result.ResponseTime.Seconds())
+			util.LogError(func() error {
+				_, err := fmt.Fprintf(w, "beacon_check_response_time_seconds{%s} %.3f\n", deviceLabels, result.ResponseTime.Seconds())
+				return err
+			}(), "write metrics")
 		}
 
 		// Last check timestamp
-		fmt.Fprintf(w, "beacon_check_last_check_timestamp{%s} %d\n",
-			deviceLabels, result.Timestamp.Unix())
+		util.LogError(func() error {
+			_, err := fmt.Fprintf(w, "beacon_check_last_check_timestamp{%s} %d\n", deviceLabels, result.Timestamp.Unix())
+			return err
+		}(), "write metrics")
 	}
 }
 
@@ -948,7 +962,6 @@ func Run(cmd *cobra.Command, args []string) {
 		cmd.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
-
 }
 
 // Stop stops the monitor and cleans up resources
@@ -956,7 +969,7 @@ func (m *Monitor) Stop() {
 	log.Printf("[Beacon] Stopping monitoring system")
 
 	if m.configWatcher != nil {
-		m.configWatcher.Close()
+		util.Close(m.configWatcher, "config watcher")
 	}
 
 	if m.heartbeatTicker != nil {

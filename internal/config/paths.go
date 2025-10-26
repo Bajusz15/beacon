@@ -116,10 +116,10 @@ func (bp *BeaconPaths) ValidateProjectName(name string) error {
 
 	// Check for invalid characters
 	for _, char := range name {
-		if !((char >= 'a' && char <= 'z') ||
-			(char >= 'A' && char <= 'Z') ||
-			(char >= '0' && char <= '9') ||
-			char == '-' || char == '_') {
+		if (char < 'a' || char > 'z') &&
+			(char < 'A' || char > 'Z') &&
+			(char < '0' || char > '9') &&
+			char != '-' && char != '_' {
 			return fmt.Errorf("project name contains invalid character '%c'. Only letters, numbers, hyphens, and underscores are allowed", char)
 		}
 	}

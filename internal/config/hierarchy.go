@@ -67,7 +67,7 @@ func (ch *ConfigHierarchy) GetConfigPath(configType ConfigType, projectName stri
 // LoadConfig loads configuration with hierarchy support
 func (ch *ConfigHierarchy) LoadConfig(configType ConfigType, projectName string, target interface{}) error {
 	configPath := ch.GetConfigPath(configType, projectName)
-	
+
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return fmt.Errorf("configuration file not found: %s", configPath)
 	}
@@ -91,7 +91,7 @@ func (ch *ConfigHierarchy) SaveConfig(configType ConfigType, projectName string,
 	}
 
 	var configPath string
-	
+
 	switch configType {
 	case AlertsConfig:
 		configPath = ch.paths.GetProjectAlertsFile(projectName)

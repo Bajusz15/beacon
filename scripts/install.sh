@@ -127,7 +127,7 @@ if [[ -f /usr/local/bin/beacon ]]; then
     echo -e "${YELLOW}Beacon binary already exists at /usr/local/bin/beacon${NC}"
     read -p "Do you want to overwrite it? (y/N): " REPLY
     if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
-        echo -e "${YELLOW}Installation cancelled${NC}"
+        echo -e "${YELLOW}Installation canceled${NC}"
         exit 0
     fi
     sudo rm -f /usr/local/bin/beacon
