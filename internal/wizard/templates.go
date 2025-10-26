@@ -84,7 +84,7 @@ func getTemplates() []*Template {
 				{
 					Name:     "Docker Compose",
 					Type:     "command",
-					Command:  "docker-compose ps",
+					Command:  "docker compose ps",
 					Interval: 60 * time.Second,
 				},
 				{

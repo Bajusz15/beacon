@@ -280,7 +280,7 @@ report:
 # When using beacon deploy, redirect output to the deploy log file:
 # 
 # Example 1: Docker Compose deployment with logging
-# BEACON_DEPLOY_CMD="docker-compose up --build -d 2>&1 | tee /tmp/beacon-deploy.log"
+# BEACON_DEPLOY_CMD="docker compose up --build -d 2>&1 | tee /tmp/beacon-deploy.log"
 #
 # Example 2: Custom script with logging
 # BEACON_DEPLOY_CMD="./deploy.sh 2>&1 | tee /tmp/beacon-deploy.log"

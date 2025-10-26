@@ -10,5 +10,5 @@ services:
     environment:
       - CI=true
       - BEACON_E2E_TEST=1
-    # Debug mode - run bash instead of test
-    command: /bin/bash
+    # Run the e2e test script
+    command: /app/test-e2e-cli.sh

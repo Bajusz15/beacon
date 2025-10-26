@@ -72,7 +72,7 @@ Capture deployment command output:
 **Deploy Command Examples:**
 ```bash
 # Docker Compose with logging
-DEPLOY_CMD="docker-compose up --build -d 2>&1 | tee /tmp/beacon-deploy.log"
+DEPLOY_CMD="docker compose up --build -d 2>&1 | tee /tmp/beacon-deploy.log"
 
 # Custom script with logging  
 DEPLOY_CMD="./deploy.sh 2>&1 | tee /tmp/beacon-deploy.log"
