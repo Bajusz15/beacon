@@ -138,8 +138,7 @@ func NewConnectionError(host string, port int, originalError error) *BeaconError
 		}
 	}
 
-	err.WithDocumentation("https://github.com/Bajusz15/beacon#troubleshooting-connection-errors")
-	return err
+	return err.WithDocumentation("https://github.com/Bajusz15/beacon#troubleshooting-connection-errors")
 }
 
 // HTTP Errors
@@ -194,8 +193,7 @@ func NewHTTPError(url string, statusCode int, originalError error) *BeaconError 
 		)
 	}
 
-	err.WithDocumentation("https://github.com/Bajusz15/beacon#troubleshooting-http-checks")
-	return err
+	return err.WithDocumentation("https://github.com/Bajusz15/beacon#troubleshooting-http-checks")
 }
 
 // Configuration Errors
@@ -207,7 +205,7 @@ func NewConfigError(configPath string, originalError error) *BeaconError {
 
 	err := NewBeaconError(errorType, message, originalError)
 
-	err.WithTroubleshooting(
+	err = err.WithTroubleshooting(
 		"Invalid YAML syntax",
 		"Missing required fields",
 		"Invalid field values",
@@ -219,7 +217,7 @@ func NewConfigError(configPath string, originalError error) *BeaconError {
 		"Run configuration wizard: beacon setup-wizard",
 	)
 
-	err.WithDocumentation("https://github.com/Bajusz15/beacon#configuration-reference")
+	err = err.WithDocumentation("https://github.com/Bajusz15/beacon#configuration-reference")
 	return err
 }
 

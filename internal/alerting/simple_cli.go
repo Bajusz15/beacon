@@ -6,9 +6,10 @@ import (
 	"os"
 	"time"
 
+	"beacon/internal/config"
+
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
-	"beacon/internal/config"
 )
 
 // SimpleAlertingCLI provides CLI commands for simple alert routing
@@ -26,7 +27,7 @@ func NewSimpleAlertingCLI() *SimpleAlertingCLI {
 // CreateSimpleAlertingCommand creates the simplified alerting command
 func CreateSimpleAlertingCommand() *cobra.Command {
 	cli := NewSimpleAlertingCLI()
-	
+
 	var alertingCmd = &cobra.Command{
 		Use:   "alerts",
 		Short: "Manage simple alert routing for projects",
@@ -45,19 +46,19 @@ Features:
   beacon alerts resolve alert-456 --project myapp
   beacon alerts test --project myapp`,
 	}
-	
+
 	alertingCmd.AddCommand(createSimpleInitCommand(cli))
 	alertingCmd.AddCommand(createSimpleStatusCommand(cli))
 	alertingCmd.AddCommand(createSimpleAcknowledgeCommand(cli))
 	alertingCmd.AddCommand(createSimpleResolveCommand(cli))
 	alertingCmd.AddCommand(createSimpleTestCommand(cli))
-	
+
 	return alertingCmd
 }
 
 func createSimpleInitCommand(cli *SimpleAlertingCLI) *cobra.Command {
 	var projectName string
-	
+
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize simple alert routing configuration for a project",
@@ -66,7 +67,7 @@ func createSimpleInitCommand(cli *SimpleAlertingCLI) *cobra.Command {
 			if projectName == "" {
 				log.Fatalf("Project name is required. Use --project flag")
 			}
-			
+
 			if err := cli.InitSimpleConfig(projectName); err != nil {
 				log.Fatalf("Failed to initialize alert config: %v", err)
 			}
@@ -86,10 +87,12 @@ func createSimpleInitCommand(cli *SimpleAlertingCLI) *cobra.Command {
 			fmt.Println("   - Privacy-first monitoring")
 		},
 	}
-	
+
 	cmd.Flags().StringVarP(&projectName, "project", "p", "", "Project name (required)")
-	cmd.MarkFlagRequired("project")
-	
+	err := cmd.MarkFlagRequired("project")
+	if err != nil {
+		log.Fatalf("Failed to mark flag required: %v", err)
+	}
 	return cmd
 }
 
@@ -118,7 +121,7 @@ func createSimpleAcknowledgeCommand(cli *SimpleAlertingCLI) *cobra.Command {
 			if acknowledgedBy == "" {
 				acknowledgedBy = "cli-user"
 			}
-			
+
 			if err := cli.AcknowledgeSimpleAlert(alertID, acknowledgedBy); err != nil {
 				log.Fatalf("Failed to acknowledge alert: %v", err)
 			}
@@ -162,105 +165,88 @@ func (cli *SimpleAlertingCLI) InitSimpleConfig(projectName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize config hierarchy: %v", err)
 	}
-	
+
 	// Ensure directories exist
 	paths, err := config.NewBeaconPaths()
 	if err != nil {
 		return fmt.Errorf("failed to initialize paths: %v", err)
 	}
-	
+
 	if err := paths.EnsureDirectories(); err != nil {
 		return fmt.Errorf("failed to create directories: %v", err)
 	}
-	
+
 	// Set the config path for this project
 	cli.configPath = hierarchy.GetConfigPath(config.AlertsConfig, projectName)
-	
+
 	// Check if config already exists
 	if _, err := os.Stat(cli.configPath); err == nil {
 		return fmt.Errorf("configuration file already exists: %s", cli.configPath)
 	}
-	
+
 	// Create simple configuration
 	alertConfig := SimpleAlertConfig{
 		Routing: []AlertRouting{
 			{
-				Severity:   SeverityCritical,
-				Channels:   []string{"email", "discord"},
-				Recipients: []string{"admin@example.com", "#alerts"},
-				BackupDelay: 10 * time.Minute,
+				Severity:         SeverityCritical,
+				Channels:         []string{"email", "discord"},
+				Recipients:       []string{"admin@example.com", "#alerts"},
+				BackupDelay:      10 * time.Minute,
 				BackupRecipients: []string{"backup@example.com"},
-				QuietHours: QuietHours{
-					Enabled: false, // Critical alerts always go through
-				},
-				Enabled: true,
+				Enabled:          true,
 			},
 			{
-				Severity:   SeverityWarning,
-				Channels:   []string{"discord"},
-				Recipients: []string{"#alerts"},
-				BackupDelay: 30 * time.Minute,
+				Severity:         SeverityWarning,
+				Channels:         []string{"discord"},
+				Recipients:       []string{"#alerts"},
+				BackupDelay:      30 * time.Minute,
 				BackupRecipients: []string{"backup@example.com"},
-				QuietHours: QuietHours{
-					Enabled: true,
-					StartTime: "23:00",
-					EndTime:   "07:00",
-					Timezone:  "UTC",
-					SuppressSeverities: []AlertSeverity{SeverityWarning},
-				},
-				Enabled: true,
+				Enabled:          true,
 			},
 			{
-				Severity:   SeverityInfo,
-				Channels:   []string{"discord"},
-				Recipients: []string{"#logs"},
+				Severity:    SeverityInfo,
+				Channels:    []string{"discord"},
+				Recipients:  []string{"#logs"},
 				BackupDelay: 0,
-				QuietHours: QuietHours{
-					Enabled: true,
-					StartTime: "23:00",
-					EndTime:   "07:00",
-					Timezone:  "UTC",
-					SuppressSeverities: []AlertSeverity{SeverityInfo},
-				},
-				Enabled: true,
+				Enabled:     true,
 			},
 		},
 		Channels: map[string]interface{}{
 			"email": map[string]interface{}{
-				"smtp_host": "smtp.gmail.com",
-				"smtp_port": 587,
-				"smtp_user": "${SMTP_USER}",
+				"smtp_host":     "smtp.gmail.com",
+				"smtp_port":     587,
+				"smtp_user":     "${SMTP_USER}",
 				"smtp_password": "${SMTP_PASSWORD}",
-				"from": "Beacon Alerts <alerts@example.com>",
-				"enabled": true,
+				"from":          "Beacon Alerts <alerts@example.com>",
+				"enabled":       true,
 			},
 			"discord": map[string]interface{}{
 				"webhook_url": "${DISCORD_WEBHOOK_URL}",
-				"username": "Beacon Bot",
-				"enabled": true,
+				"username":    "Beacon Bot",
+				"enabled":     true,
 			},
 		},
 		Templates: map[string]interface{}{
 			"critical": map[string]interface{}{
 				"subject": "🚨 CRITICAL: {{.Service}} is {{.Status}}",
-				"body": "🚨 **CRITICAL ALERT**\n\n**Service:** {{.Service}}\n**Status:** {{.Status}}\n**Time:** {{.Timestamp.Format \"2006-01-02 15:04:05\"}}\n\nPlease check immediately!",
+				"body":    "🚨 **CRITICAL ALERT**\n\n**Service:** {{.Service}}\n**Status:** {{.Status}}\n**Time:** {{.Timestamp.Format \"2006-01-02 15:04:05\"}}\n\nPlease check immediately!",
 			},
 			"warning": map[string]interface{}{
 				"subject": "⚠️ WARNING: {{.Service}} {{.Message}}",
-				"body": "⚠️ **WARNING**\n\n**Service:** {{.Service}}\n**Message:** {{.Message}}\n**Time:** {{.Timestamp.Format \"2006-01-02 15:04:05\"}}",
+				"body":    "⚠️ **WARNING**\n\n**Service:** {{.Service}}\n**Message:** {{.Message}}\n**Time:** {{.Timestamp.Format \"2006-01-02 15:04:05\"}}",
 			},
 			"info": map[string]interface{}{
 				"subject": "ℹ️ INFO: {{.Service}} {{.Message}}",
-				"body": "ℹ️ **INFO**\n\n**Service:** {{.Service}}\n**Message:** {{.Message}}\n**Time:** {{.Timestamp.Format \"2006-01-02 15:04:05\"}}",
+				"body":    "ℹ️ **INFO**\n\n**Service:** {{.Service}}\n**Message:** {{.Message}}\n**Time:** {{.Timestamp.Format \"2006-01-02 15:04:05\"}}",
 			},
 		},
 	}
-	
+
 	// Write configuration using hierarchy
 	if err := hierarchy.SaveConfig(config.AlertsConfig, projectName, alertConfig, false); err != nil {
 		return fmt.Errorf("failed to save config: %v", err)
 	}
-	
+
 	return nil
 }
 
@@ -270,17 +256,17 @@ func (cli *SimpleAlertingCLI) ShowSimpleStatus() error {
 	if err != nil {
 		return err
 	}
-	
+
 	activeAlerts := sam.GetActiveAlerts()
-	
+
 	if len(activeAlerts) == 0 {
 		fmt.Println("✅ No active alerts")
 		return nil
 	}
-	
+
 	fmt.Printf("📊 Active Alerts (%d)\n", len(activeAlerts))
 	fmt.Println()
-	
+
 	for alertID, alert := range activeAlerts {
 		fmt.Printf("🚨 Alert ID: %s\n", alertID)
 		fmt.Printf("   Service: %s\n", alert.Context.Service)
@@ -298,7 +284,7 @@ func (cli *SimpleAlertingCLI) ShowSimpleStatus() error {
 		}
 		fmt.Println()
 	}
-	
+
 	return nil
 }
 
@@ -308,7 +294,7 @@ func (cli *SimpleAlertingCLI) AcknowledgeSimpleAlert(alertID, acknowledgedBy str
 	if err != nil {
 		return err
 	}
-	
+
 	return sam.AcknowledgeAlert(alertID, acknowledgedBy)
 }
 
@@ -318,7 +304,7 @@ func (cli *SimpleAlertingCLI) ResolveSimpleAlert(alertID string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	return sam.ResolveAlert(alertID)
 }
 
@@ -328,10 +314,10 @@ func (cli *SimpleAlertingCLI) TestSimpleRouting() error {
 	if err != nil {
 		return err
 	}
-	
+
 	fmt.Println("🧪 Testing Simple Alert Routing")
 	fmt.Println()
-	
+
 	// Test alert contexts
 	testAlerts := []AlertContext{
 		{
@@ -374,31 +360,31 @@ func (cli *SimpleAlertingCLI) TestSimpleRouting() error {
 			},
 		},
 	}
-	
+
 	for _, alert := range testAlerts {
 		fmt.Printf("📤 Processing alert: %s (%s)\n", alert.AlertID, alert.Service)
-		
+
 		err := sam.ProcessAlert(alert)
 		if err != nil {
 			fmt.Printf("❌ Failed to process alert: %v\n", err)
 			continue
 		}
-		
+
 		fmt.Printf("✅ Alert processed successfully\n")
-		
+
 		// Show alert status
 		status, err := sam.GetAlertStatus(alert.AlertID)
 		if err != nil {
 			fmt.Printf("❌ Failed to get alert status: %v\n", err)
 			continue
 		}
-		
+
 		fmt.Printf("   Severity: %s\n", status.Context.Severity)
 		fmt.Printf("   Channels: %v\n", status.Routing.Channels)
 		fmt.Printf("   Recipients: %v\n", status.Routing.Recipients)
 		fmt.Println()
 	}
-	
+
 	fmt.Println("🎉 Simple alert routing test completed!")
 	return nil
 }
@@ -406,23 +392,23 @@ func (cli *SimpleAlertingCLI) TestSimpleRouting() error {
 // loadSimpleAlertManager loads the simple alert manager from config
 func (cli *SimpleAlertingCLI) loadSimpleAlertManager() (*SimpleAlertManager, error) {
 	sam := NewSimpleAlertManager()
-	
+
 	// Check if config file exists
 	if _, err := os.Stat(cli.configPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("alert config not found: %s\nRun 'beacon alerts init' to create it", cli.configPath)
 	}
-	
+
 	// Load configuration
 	config, err := cli.loadSimpleConfig()
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Load routing
 	if err := sam.LoadRouting(config.Routing); err != nil {
 		return nil, fmt.Errorf("failed to load routing: %v", err)
 	}
-	
+
 	return sam, nil
 }
 
@@ -432,12 +418,12 @@ func (cli *SimpleAlertingCLI) loadSimpleConfig() (*SimpleAlertConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %v", err)
 	}
-	
+
 	var config SimpleAlertConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %v", err)
 	}
-	
+
 	return &config, nil
 }
 

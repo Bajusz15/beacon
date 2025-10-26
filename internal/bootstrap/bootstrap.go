@@ -10,6 +10,7 @@ import (
 
 	"beacon/internal/config"
 	"beacon/internal/systemd"
+	"beacon/internal/util"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -197,7 +198,7 @@ func (bm *BootstrapManager) createEnvironmentFile(config *BootstrapConfig) error
 	if err != nil {
 		return fmt.Errorf("failed to create environment file: %v", err)
 	}
-	defer file.Close()
+	defer util.Close(file, "environment file")
 
 	tmpl, err := template.New("env").Parse(envTemplate)
 	if err != nil {

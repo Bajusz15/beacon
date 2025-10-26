@@ -22,17 +22,7 @@ type AlertRouting struct {
 	Recipients       []string      `yaml:"recipients"`        // specific recipients for this severity
 	BackupDelay      time.Duration `yaml:"backup_delay"`      // delay before notifying backup (0 = disabled)
 	BackupRecipients []string      `yaml:"backup_recipients"` // backup recipients
-	QuietHours       QuietHours    `yaml:"quiet_hours"`       // when to suppress non-critical alerts
 	Enabled          bool          `yaml:"enabled"`
-}
-
-// QuietHours defines when to suppress alerts
-type QuietHours struct {
-	Enabled            bool            `yaml:"enabled"`
-	StartTime          string          `yaml:"start_time"`          // "23:00"
-	EndTime            string          `yaml:"end_time"`            // "07:00"
-	Timezone           string          `yaml:"timezone"`            // "UTC"
-	SuppressSeverities []AlertSeverity `yaml:"suppress_severities"` // which severities to suppress
 }
 
 // AlertContext contains information about the alert
@@ -108,12 +98,6 @@ func (sam *SimpleAlertManager) ProcessAlert(context AlertContext) error {
 		return fmt.Errorf("no routing configured for severity: %s", context.Severity)
 	}
 
-	// Check quiet hours
-	if sam.isInQuietHours(routing) {
-		log.Printf("[ALERT] Suppressing %s alert during quiet hours: %s", context.Severity, context.Message)
-		return nil
-	}
-
 	// Check cooldown (simple per-service cooldown)
 	cooldownKey := fmt.Sprintf("%s:%s", context.Service, context.Severity)
 	if lastAlert, exists := sam.cooldowns[cooldownKey]; exists {
@@ -171,47 +155,6 @@ func (sam *SimpleAlertManager) sendToChannel(channel string, recipients []string
 	default:
 		return fmt.Errorf("unknown alert channel: %s", channel)
 	}
-}
-
-// isInQuietHours checks if current time is within quiet hours
-func (sam *SimpleAlertManager) isInQuietHours(routing *AlertRouting) bool {
-	if !routing.QuietHours.Enabled {
-		return false
-	}
-
-	now := time.Now()
-	currentHour := now.Hour()
-	currentMinute := now.Minute()
-	currentTime := currentHour*60 + currentMinute
-
-	// Parse quiet hours
-	startHour, startMin := sam.parseTime(routing.QuietHours.StartTime)
-	endHour, endMin := sam.parseTime(routing.QuietHours.EndTime)
-
-	startTime := startHour*60 + startMin
-	endTime := endHour*60 + endMin
-
-	// Check if current severity should be suppressed
-	for _, severity := range routing.QuietHours.SuppressSeverities {
-		if severity == routing.Severity {
-			// Check if we're in quiet hours
-			if startTime <= endTime {
-				// Same day (e.g., 23:00 to 07:00 next day)
-				return currentTime >= startTime || currentTime <= endTime
-			} else {
-				// Overnight (e.g., 23:00 to 07:00)
-				return currentTime >= startTime || currentTime <= endTime
-			}
-		}
-	}
-
-	return false
-}
-
-// parseTime parses a time string like "23:00" into hour and minute
-func (sam *SimpleAlertManager) parseTime(timeStr string) (hour, minute int) {
-	fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
-	return
 }
 
 // AcknowledgeAlert acknowledges an alert

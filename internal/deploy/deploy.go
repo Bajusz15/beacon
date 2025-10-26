@@ -12,6 +12,7 @@ import (
 	"beacon/internal/config"
 	"beacon/internal/keys"
 	"beacon/internal/state"
+	"beacon/internal/util"
 )
 
 func CheckForNewTag(cfg *config.Config, status *state.Status) {
@@ -58,7 +59,9 @@ func CheckForNewTag(cfg *config.Config, status *state.Status) {
 	}
 
 	log.Printf("[Beacon] New tag found: %s (prev: %s)\n", latestTag, lastTag)
-	Deploy(cfg, latestTag, status)
+	if err := Deploy(cfg, latestTag, status); err != nil {
+		log.Printf("[Beacon] Error deploying: %v\n", err)
+	}
 }
 
 func Deploy(cfg *config.Config, tag string, status *state.Status) error {
@@ -107,9 +110,13 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 		log.Printf("[Beacon] Executing deploy command: %s\n", cfg.DeployCommand)
 
 		// Change to the project directory
-		originalDir, _ := os.Getwd()
-		os.Chdir(cfg.LocalPath)
-		defer os.Chdir(originalDir)
+		originalDir, err := os.Getwd()
+		if err != nil {
+			log.Printf("[Beacon] Error getting working directory: %v\n", err)
+			return err
+		}
+		util.LogError(os.Chdir(cfg.LocalPath), "change to project directory")
+		defer util.LogError(os.Chdir(originalDir), "change back to original directory")
 
 		// Build the command with secure environment file sourcing
 		var command string
@@ -211,26 +218,26 @@ func getGitToken(cfg *config.Config) (string, error) {
 func setupGitAuth(cfg *config.Config, gitToken string) {
 	// Set up SSH key if provided
 	if cfg.SSHKeyPath != "" {
-		os.Setenv("GIT_SSH_COMMAND", "ssh -i "+cfg.SSHKeyPath+" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no")
+		util.LogError(os.Setenv("GIT_SSH_COMMAND", "ssh -i "+cfg.SSHKeyPath+" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"), "set up SSH key")
 		return
 	}
 
 	// Set up Git token authentication
 	if gitToken != "" {
 		// Configure Git to use the token for HTTPS authentication
-		os.Setenv("GIT_ASKPASS", "echo")
-		os.Setenv("GIT_USERNAME", "token")
-		os.Setenv("GIT_PASSWORD", gitToken)
+		util.LogError(os.Setenv("GIT_ASKPASS", "echo"), "set up Git token authentication")
+		util.LogError(os.Setenv("GIT_USERNAME", "token"), "set up Git token authentication")
+		util.LogError(os.Setenv("GIT_PASSWORD", gitToken), "set up Git token authentication")
 
 		// For GitHub, GitLab, etc., we need to modify the URL to include the token
 		if strings.Contains(cfg.RepoURL, "github.com") {
 			// GitHub: https://token@github.com/user/repo.git
 			modifiedURL := strings.Replace(cfg.RepoURL, "https://", fmt.Sprintf("https://%s@", gitToken), 1)
-			os.Setenv("BEACON_REPO_URL", modifiedURL)
+			util.LogError(os.Setenv("BEACON_REPO_URL", modifiedURL), "set up github repository URL")
 		} else if strings.Contains(cfg.RepoURL, "gitlab.com") {
 			// GitLab: https://oauth2:token@gitlab.com/user/repo.git
 			modifiedURL := strings.Replace(cfg.RepoURL, "https://", fmt.Sprintf("https://oauth2:%s@", gitToken), 1)
-			os.Setenv("BEACON_REPO_URL", modifiedURL)
+			util.LogError(os.Setenv("BEACON_REPO_URL", modifiedURL), "set up gitlab repository URL")
 		}
 	}
 }

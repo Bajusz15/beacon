@@ -33,12 +33,20 @@ linters:
       line-length: 140
     misspell:
       locale: US
+    errcheck:
+      exclude-functions:
+        - '(*beacon/internal/errors.BeaconError).WithTroubleshooting'
+        - '(*beacon/internal/errors.BeaconError).WithNextSteps'
+        - '(*beacon/internal/errors.BeaconError).WithDocumentation'
   exclusions:
     generated: lax
     rules:
       - linters:
           - staticcheck
         text: 'ST1000:'
+      - linters:
+          - errcheck
+        text: 'WithTroubleshooting|WithNextSteps|WithDocumentation'
     paths:
       - vendor
       - internal/testdata

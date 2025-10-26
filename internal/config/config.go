@@ -68,7 +68,10 @@ func getEnvOrPrompt(key, prompt, defaultValue string) string {
 		} else {
 			value = defaultValue
 		}
-		os.Setenv(key, value)
+		if err := os.Setenv(key, value); err != nil {
+			fmt.Fprintf(os.Stderr, "[Beacon] Failed to set environment variable %s: %v\n", key, err)
+			os.Exit(1)
+		}
 	}
 	if value == "" {
 		value = defaultValue
