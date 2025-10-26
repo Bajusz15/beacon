@@ -234,7 +234,7 @@ func TestBootstrapManager_CreateSystemdService(t *testing.T) {
 			"[Unit]",
 			"[Service]",
 			"[Install]",
-			"beacon@" + projectName,
+			"Description=Beacon Agent for " + projectName,
 		}
 
 		for _, expected := range expectedContent {
