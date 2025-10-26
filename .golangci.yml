@@ -15,11 +15,11 @@ linters-settings:
     lines: 100
     statements: 60
   depguard:
-    list-type: blacklist
-    packages:
-      - github.com/pkg/errors
-    packages-with-error-message:
-      github.com/pkg/errors: "Use stdlib errors package instead"
+    rules:
+      main:
+        deny:
+          - pkg: "github.com/pkg/errors"
+            desc: "Use stdlib errors package instead"
 
 linters:
   disable-all: true
@@ -51,12 +51,11 @@ issues:
     - vendor
     - internal/testdata
   exclude-rules:
-    # Example: allow TODO comments
     - linters:
         - stylecheck
       text: "ST1000:"
 
 output:
-  format: colored-line-number
-  print-issued-lines: true
   sort-results: true
+  print-issued-lines: true
+  show-stats: false
