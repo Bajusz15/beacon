@@ -1,27 +1,17 @@
+version: 2
+
 run:
   timeout: 5m
   issues-exit-code: 1
   tests: true
-  skip-dirs:
-    - vendor
-    - internal/testdata
 
-linters-settings:
+settings:
   goimports:
     local-prefixes: beacon
   gocyclo:
     min-complexity: 15
-  maligned:
-    suggest-new: true
   misspell:
     locale: US
-  prealloc:
-    simple: true
-    for-loops: true
-  unparam:
-    check-exported: false
-  whitespace:
-    multi-indent: false
 
 linters:
   disable-all: true
@@ -34,10 +24,7 @@ linters:
     - staticcheck
     - unused
     - gosimple
-    - structcheck
-    - varcheck
     - ineffassign
-    - deadcode
     - typecheck
     - asciicheck
     - bodyclose
@@ -67,3 +54,6 @@ issues:
   exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
+  exclude-dirs:
+    - vendor
+    - internal/testdata
