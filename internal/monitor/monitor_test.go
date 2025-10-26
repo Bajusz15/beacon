@@ -275,6 +275,7 @@ func TestReportSystemMetrics(t *testing.T) {
 					MaxRetries:        5,
 				}),
 				metricsCollector: tt.mockCollector,
+				currentToken:     tt.config.Report.Token, // Set the token from config
 			}
 
 			// Call the function

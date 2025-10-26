@@ -215,10 +215,12 @@ func TestLogManagerStartStop(t *testing.T) {
 	// Wait a bit more for final collection
 	time.Sleep(100 * time.Millisecond)
 
+	lm.logsMux.Lock()
 	// Verify that logs were collected
 	if len(lm.logs) == 0 {
 		t.Error("Expected logs to be collected, but got none")
 	}
+	lm.logsMux.Unlock()
 }
 
 // Helper function to check if Docker is available
