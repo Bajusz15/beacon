@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.21, 1.22, 1.23]
+        go-version: [1.24.4]
     
     steps:
     - uses: actions/checkout@v4
@@ -33,11 +33,11 @@ jobs:
       run: go test -v -race -coverprofile=coverage.out ./...
     
     - name: Generate coverage report
-      if: matrix.go-version == '1.23'
+      if: matrix.go-version == '1.24.4'
       run: go tool cover -html=coverage.out -o coverage.html
     
     - name: Upload coverage to Codecov
-      if: matrix.go-version == '1.23'
+      if: matrix.go-version == '1.24.4'
       uses: codecov/codecov-action@v4
       with:
         file: ./coverage.out
@@ -47,7 +47,7 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
     
     - name: Upload coverage report
-      if: matrix.go-version == '1.23'
+      if: matrix.go-version == '1.24.4'
       uses: actions/upload-artifact@v4
       with:
         name: coverage-report
@@ -64,7 +64,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.23'
+        go-version: '1.24.4'
         cache: true
     
     - name: Build Linux AMD64
@@ -109,7 +109,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.23'
+        go-version: '1.24.4'
         cache: true
     
     - name: golangci-lint
@@ -127,11 +127,15 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.23'
+        go-version: '1.24.4'
         cache: true
+        cache-dependency-path: go.sum
+    
+    - name: Clean Go module cache
+      run: go clean -modcache || true
     
     - name: Run Gosec Security Scanner
-      uses: securego/gosec@master
+      uses: securego/gosec@v2.21.4
       with:
         args: '-fmt sarif -out gosec.sarif ./...'
     
@@ -156,7 +160,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.23'
+        go-version: '1.24.4'
         cache: true
     
     - name: Download build artifacts
