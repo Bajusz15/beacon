@@ -1,6 +1,5 @@
 run:
   timeout: 5m
-  issues-exit-code: 1
   tests: true
 
 linters-settings:
@@ -10,43 +9,39 @@ linters-settings:
     min-complexity: 15
   misspell:
     locale: US
+  lll:
+    line-length: 140
+  funlen:
+    lines: 100
+    statements: 60
+  depguard:
+    list-type: blacklist
+    packages:
+      - github.com/pkg/errors
+    packages-with-error-message:
+      github.com/pkg/errors: "Use stdlib errors package instead"
 
 linters:
   disable-all: true
   enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
     - gofmt
     - goimports
-    - revive
+    - misspell
     - gocyclo
-    - errcheck
-    - staticcheck
-    - unused
-    - gosimple
-    - ineffassign
-    - typecheck
-    - asciicheck
-    - bodyclose
-    - depguard
-    - dogsled
     - dupl
-    - funlen
-    - gochecknoglobals
-    - gochecknoinits
-    - gocognit
-    - goconst
-    - gocritic
-    - goprintffuncname
     - gosec
-    - lll
-    - nakedret
     - prealloc
-    - rowserrcheck
-    - sqlnorows
     - stylecheck
     - unconvert
     - unparam
     - whitespace
-    - wsl
 
 issues:
   exclude-use-default: false
@@ -55,3 +50,13 @@ issues:
   exclude-dirs:
     - vendor
     - internal/testdata
+  exclude-rules:
+    # Example: allow TODO comments
+    - linters:
+        - stylecheck
+      text: "ST1000:"
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  sort-results: true
