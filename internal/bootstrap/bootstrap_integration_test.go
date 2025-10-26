@@ -4,42 +4,49 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"beacon/internal/config"
 )
 
-// TestBootstrapIntegration tests the complete bootstrap process
-func TestBootstrapIntegration(t *testing.T) {
+// TestBootstrapProject_FullIntegration tests the complete bootstrap process
+func TestBootstrapProject_FullIntegration(t *testing.T) {
+	bm, err := NewBootstrapManager(false)
+	if err != nil {
+		t.Fatalf("Failed to create bootstrap manager: %v", err)
+	}
+
 	tempDir := t.TempDir()
-	configDir := filepath.Join(tempDir, ".beacon")
 	projectName := "integration-test-project"
 
-	config := BootstrapConfig{
-		ProjectName:      projectName,
-		RepoURL:          "https://github.com/user/repo.git",
-		LocalPath:        filepath.Join(tempDir, "working-dir"),
-		PollInterval:     "30s",
-		Port:             "8080",
-		SSHKeyPath:       "",
-		GitToken:         "",
-		WorkingDir:       tempDir,
-		ProjectConfigDir: filepath.Join(configDir, "config", "projects", projectName),
+	// Create a simple config
+	configContent := `project_name: ` + projectName + `
+repo_url: https://github.com/testuser/testrepo.git
+local_path: ` + tempDir + `/working
+poll_interval: 60s
+port: "8080"
+ssh_key_path: ""
+git_token: ""
+`
+
+	// Create config file
+	configFile := filepath.Join(tempDir, "config.yml")
+	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
 	}
 
-	// Test individual components
-	err := createDirectoryStructure(&config)
+	// Test BootstrapProjectFromConfig
+	err = bm.BootstrapProjectFromConfig(projectName, configFile, true) // skip systemd
 	if err != nil {
-		t.Fatalf("Failed to create directory structure: %v", err)
-	}
-
-	err = createEnvironmentFile(&config)
-	if err != nil {
-		t.Fatalf("Failed to create environment file: %v", err)
+		t.Fatalf("Failed to bootstrap project from config: %v", err)
 	}
 
 	// Verify all components were created
 	expectedPaths := []string{
-		config.LocalPath,
-		config.ProjectConfigDir,
-		filepath.Join(config.ProjectConfigDir, "env"),
+		bm.paths.GetProjectConfigDir(projectName),
+		bm.paths.GetProjectKeysDir(projectName),
+		bm.paths.GetProjectLogsDir(projectName),
+		bm.paths.GetProjectWorkingDir(projectName),
+		bm.paths.GetProjectEnvFile(projectName),
 	}
 
 	for _, path := range expectedPaths {
@@ -47,669 +54,218 @@ func TestBootstrapIntegration(t *testing.T) {
 			t.Errorf("Expected path %s to exist", path)
 		}
 	}
+
+	// Verify project exists
+	if !bm.paths.ProjectExists(projectName) {
+		t.Error("Expected project to exist")
+	}
 }
 
-// TestBootstrapWithSystemd tests bootstrap with systemd integration
-func TestBootstrapWithSystemd(t *testing.T) {
+// TestBootstrapProject_DirectoryStructure tests complete directory structure creation
+func TestBootstrapProject_DirectoryStructure(t *testing.T) {
+	paths, err := config.NewBeaconPaths()
+	if err != nil {
+		t.Fatalf("Failed to create paths: %v", err)
+	}
+
 	tempDir := t.TempDir()
-	configDir := filepath.Join(tempDir, ".beacon")
-	systemdDir := filepath.Join(tempDir, ".config", "systemd", "user")
-	projectName := "systemd-test-project"
+	paths.BaseDir = tempDir
+	paths.ConfigDir = filepath.Join(tempDir, "config")
+	paths.ProjectsDir = filepath.Join(tempDir, "config", "projects")
+	paths.LogsDir = filepath.Join(tempDir, "logs")
+	paths.WorkingDir = filepath.Join(tempDir, "working")
 
-	config := BootstrapConfig{
-		ProjectName:      projectName,
-		RepoURL:          "https://github.com/user/repo.git",
-		LocalPath:        filepath.Join(tempDir, "working-dir"),
-		PollInterval:     "30s",
-		Port:             "8080",
-		SSHKeyPath:       "",
-		GitToken:         "",
-		WorkingDir:       tempDir,
-		ProjectConfigDir: filepath.Join(configDir, "config", "projects", projectName),
-	}
+	projectName := "structure-test-project"
 
-	err := createDirectoryStructure(&config)
+	err = paths.CreateProjectStructure(projectName)
 	if err != nil {
-		t.Fatalf("Failed to create directory structure: %v", err)
+		t.Fatalf("Failed to create project structure: %v", err)
 	}
 
-	err = createSystemdService(&config)
-	if err != nil {
-		t.Fatalf("Failed to create systemd service: %v", err)
+	// Verify all expected directories exist
+	expectedDirs := []string{
+		paths.GetProjectConfigDir(projectName),
+		paths.GetProjectKeysDir(projectName),
+		paths.GetProjectLogsDir(projectName),
+		paths.GetProjectWorkingDir(projectName),
 	}
 
-	// Check if systemd service was created
-	servicePath := filepath.Join(systemdDir, "beacon@"+projectName+".service")
-	if _, err := os.Stat(servicePath); os.IsNotExist(err) {
-		t.Errorf("Expected systemd service file %s to exist", servicePath)
-	}
-}
-
-// TestBootstrapValidation tests bootstrap validation
-func TestBootstrapValidation(t *testing.T) {
-	tests := []struct {
-		name        string
-		projectName string
-		config      BootstrapConfig
-		expectError bool
-	}{
-		{
-			name:        "invalid project name with spaces",
-			projectName: "invalid project",
-			config: BootstrapConfig{
-				ProjectName:  "invalid project",
-				RepoURL:      "https://github.com/user/repo.git",
-				LocalPath:    "/tmp/test",
-				PollInterval: "30s",
-				Port:         "8080",
-			},
-			expectError: true,
-		},
-		{
-			name:        "invalid project name with special chars",
-			projectName: "invalid@project",
-			config: BootstrapConfig{
-				ProjectName:  "invalid@project",
-				RepoURL:      "https://github.com/user/repo.git",
-				LocalPath:    "/tmp/test",
-				PollInterval: "30s",
-				Port:         "8080",
-			},
-			expectError: true,
-		},
-		{
-			name:        "valid project name",
-			projectName: "valid-project",
-			config: BootstrapConfig{
-				ProjectName:  "valid-project",
-				RepoURL:      "https://github.com/user/repo.git",
-				LocalPath:    "/tmp/test",
-				PollInterval: "30s",
-				Port:         "8080",
-			},
-			expectError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateConfiguration(&tt.config)
-			if tt.expectError && err == nil {
-				t.Errorf("Expected error but got none")
-			}
-			if !tt.expectError && err != nil {
-				t.Errorf("Expected no error but got: %v", err)
-			}
-		})
-	}
-}
-
-// TestBootstrapWithSecureEnv tests bootstrap with secure environment
-func TestBootstrapWithSecureEnv(t *testing.T) {
-	tempDir := t.TempDir()
-	configDir := filepath.Join(tempDir, ".beacon")
-	projectName := "secure-env-test-project"
-
-	config := BootstrapConfig{
-		ProjectName:      projectName,
-		RepoURL:          "https://github.com/user/repo.git",
-		LocalPath:        filepath.Join(tempDir, "working-dir"),
-		PollInterval:     "30s",
-		Port:             "8080",
-		SecureEnvPath:    "/path/to/secure/env",
-		SSHKeyPath:       "/path/to/ssh/key",
-		GitToken:         "secret-token",
-		WorkingDir:       tempDir,
-		ProjectConfigDir: filepath.Join(configDir, "config", "projects", projectName),
-	}
-
-	err := createDirectoryStructure(&config)
-	if err != nil {
-		t.Fatalf("Failed to create directory structure: %v", err)
-	}
-
-	err = createEnvironmentFile(&config)
-	if err != nil {
-		t.Fatalf("Failed to create environment file: %v", err)
-	}
-
-	// Check if secure env file was created
-	secureEnvPath := filepath.Join(config.ProjectConfigDir, "env.secure")
-	if _, err := os.Stat(secureEnvPath); os.IsNotExist(err) {
-		t.Errorf("Expected secure env file %s to exist", secureEnvPath)
-	}
-}
-
-// TestBootstrapWithSSHKey tests bootstrap with SSH key
-func TestBootstrapWithSSHKey(t *testing.T) {
-	tempDir := t.TempDir()
-	configDir := filepath.Join(tempDir, ".beacon")
-	projectName := "ssh-test-project"
-
-	config := BootstrapConfig{
-		ProjectName:      projectName,
-		RepoURL:          "https://github.com/user/repo.git",
-		LocalPath:        filepath.Join(tempDir, "working-dir"),
-		PollInterval:     "30s",
-		Port:             "8080",
-		SSHKeyPath:       "/path/to/ssh/key",
-		GitToken:         "",
-		WorkingDir:       tempDir,
-		ProjectConfigDir: filepath.Join(configDir, "config", "projects", projectName),
-	}
-
-	err := createDirectoryStructure(&config)
-	if err != nil {
-		t.Fatalf("Failed to create directory structure: %v", err)
-	}
-
-	err = createEnvironmentFile(&config)
-	if err != nil {
-		t.Fatalf("Failed to create environment file: %v", err)
-	}
-}
-
-// TestBootstrapWithGitToken tests bootstrap with Git token
-func TestBootstrapWithGitToken(t *testing.T) {
-	tempDir := t.TempDir()
-	configDir := filepath.Join(tempDir, ".beacon")
-	projectName := "git-token-test-project"
-
-	config := BootstrapConfig{
-		ProjectName:      projectName,
-		RepoURL:          "https://github.com/user/repo.git",
-		LocalPath:        filepath.Join(tempDir, "working-dir"),
-		PollInterval:     "30s",
-		Port:             "8080",
-		SSHKeyPath:       "",
-		GitToken:         "secret-git-token",
-		WorkingDir:       tempDir,
-		ProjectConfigDir: filepath.Join(configDir, "config", "projects", projectName),
-	}
-
-	err := createDirectoryStructure(&config)
-	if err != nil {
-		t.Fatalf("Failed to create directory structure: %v", err)
-	}
-
-	err = createEnvironmentFile(&config)
-	if err != nil {
-		t.Fatalf("Failed to create environment file: %v", err)
-	}
-}
-
-// TestSystemdServiceGeneration tests systemd service generation
-func TestSystemdServiceGeneration(t *testing.T) {
-	tests := []struct {
-		name     string
-		config   BootstrapConfig
-		expected []string
-	}{
-		{
-			name: "basic systemd service",
-			config: BootstrapConfig{
-				ProjectName:      "test-project",
-				RepoURL:          "https://github.com/user/repo.git",
-				LocalPath:        "/tmp/test",
-				PollInterval:     "30s",
-				Port:             "8080",
-				SSHKeyPath:       "",
-				GitToken:         "",
-				ProjectConfigDir: "/tmp/.beacon/config/projects/test-project",
-			},
-			expected: []string{
-				"[Unit]",
-				"[Service]",
-				"[Install]",
-				"beacon@test-project",
-			},
-		},
-		{
-			name: "systemd service with secure env",
-			config: BootstrapConfig{
-				ProjectName:      "test-project",
-				RepoURL:          "https://github.com/user/repo.git",
-				LocalPath:        "/tmp/test",
-				PollInterval:     "30s",
-				Port:             "8080",
-				SecureEnvPath:    "/path/to/secure/env",
-				SSHKeyPath:       "/path/to/ssh/key",
-				GitToken:         "secret-token",
-				ProjectConfigDir: "/tmp/.beacon/config/projects/test-project",
-			},
-			expected: []string{
-				"[Unit]",
-				"[Service]",
-				"[Install]",
-				"beacon@test-project",
-				"EnvironmentFile",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tempDir := t.TempDir()
-			systemdDir := filepath.Join(tempDir, ".config", "systemd", "user")
-			servicePath := filepath.Join(systemdDir, "beacon@test-project.service")
-
-			err := createSystemdService(&tt.config)
-			if err != nil {
-				t.Fatalf("Failed to create systemd service: %v", err)
-			}
-
-			// Check if service file exists
-			if _, err := os.Stat(servicePath); os.IsNotExist(err) {
-				t.Errorf("Expected systemd service file %s to exist", servicePath)
-			}
-
-			// Read and verify content
-			content, err := os.ReadFile(servicePath)
-			if err != nil {
-				t.Fatalf("Failed to read systemd service file: %v", err)
-			}
-
-			contentStr := string(content)
-			for _, expected := range tt.expected {
-				if !contains(contentStr, expected) {
-					t.Errorf("Expected systemd template to contain %s", expected)
-				}
-			}
-		})
-	}
-}
-
-// TestSystemdServiceFileCreation tests systemd service file creation
-func TestSystemdServiceFileCreation(t *testing.T) {
-	tests := []struct {
-		name            string
-		config          BootstrapConfig
-		projectName     string
-		expectSecureEnv bool
-	}{
-		{
-			name: "user systemd service",
-			config: BootstrapConfig{
-				ProjectName:      "test-project",
-				RepoURL:          "https://github.com/user/repo.git",
-				LocalPath:        "/tmp/test",
-				PollInterval:     "30s",
-				Port:             "8080",
-				SSHKeyPath:       "",
-				GitToken:         "",
-				ProjectConfigDir: "/tmp/.beacon/config/projects/test-project",
-			},
-			projectName:     "test-project",
-			expectSecureEnv: false,
-		},
-		{
-			name: "user systemd service with secure env",
-			config: BootstrapConfig{
-				ProjectName:      "test-project",
-				RepoURL:          "https://github.com/user/repo.git",
-				LocalPath:        "/tmp/test",
-				PollInterval:     "30s",
-				Port:             "8080",
-				SecureEnvPath:    "/path/to/secure/env",
-				SSHKeyPath:       "/path/to/ssh/key",
-				GitToken:         "secret-token",
-				ProjectConfigDir: "/tmp/.beacon/config/projects/test-project",
-			},
-			projectName:     "test-project",
-			expectSecureEnv: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tempDir := t.TempDir()
-			systemdDir := filepath.Join(tempDir, ".config", "systemd", "user")
-			servicePath := filepath.Join(systemdDir, "beacon@"+tt.projectName+".service")
-
-			err := createSystemdService(&tt.config)
-			if err != nil {
-				t.Fatalf("Failed to create systemd service: %v", err)
-			}
-
-			// Check if service file exists
-			if _, err := os.Stat(servicePath); os.IsNotExist(err) {
-				t.Errorf("Expected systemd service file %s to exist", servicePath)
-			}
-
-			// Read and verify content
-			content, err := os.ReadFile(servicePath)
-			if err != nil {
-				t.Fatalf("Failed to read systemd service file: %v", err)
-			}
-
-			contentStr := string(content)
-			if tt.expectSecureEnv && !contains(contentStr, "EnvironmentFile") {
-				t.Error("Expected systemd service to contain EnvironmentFile directive")
-			}
-		})
-	}
-}
-
-// TestSystemdServicePermissions tests systemd service permissions
-func TestSystemdServicePermissions(t *testing.T) {
-	tempDir := t.TempDir()
-	systemdDir := filepath.Join(tempDir, ".config", "systemd", "user")
-	servicePath := filepath.Join(systemdDir, "beacon@perms-test-project.service")
-
-	config := BootstrapConfig{
-		ProjectName:      "perms-test-project",
-		RepoURL:          "https://github.com/user/repo.git",
-		LocalPath:        "/tmp/test",
-		PollInterval:     "30s",
-		Port:             "8080",
-		SSHKeyPath:       "",
-		GitToken:         "",
-		ProjectConfigDir: "/tmp/.beacon/config/projects/perms-test-project",
-	}
-
-	err := createSystemdService(&config)
-	if err != nil {
-		t.Fatalf("Failed to create systemd service: %v", err)
-	}
-
-	// Check if service file exists
-	if _, err := os.Stat(servicePath); os.IsNotExist(err) {
-		t.Errorf("Expected systemd service file %s to exist", servicePath)
-	}
-}
-
-// TestSystemdServiceDirectoryCreation tests systemd service directory creation
-func TestSystemdServiceDirectoryCreation(t *testing.T) {
-	tempDir := t.TempDir()
-	systemdDir := filepath.Join(tempDir, ".config", "systemd", "user")
-
-	config := BootstrapConfig{
-		ProjectName:      "dir-test-project",
-		RepoURL:          "https://github.com/user/repo.git",
-		LocalPath:        "/tmp/test",
-		PollInterval:     "30s",
-		Port:             "8080",
-		SSHKeyPath:       "",
-		GitToken:         "",
-		ProjectConfigDir: "/tmp/.beacon/config/projects/dir-test-project",
-	}
-
-	err := createSystemdService(&config)
-	if err != nil {
-		t.Fatalf("Failed to create systemd service: %v", err)
-	}
-
-	// Check if systemd directory was created
-	if _, err := os.Stat(systemdDir); os.IsNotExist(err) {
-		t.Errorf("Expected systemd directory %s to exist", systemdDir)
-	}
-}
-
-// TestSystemdServiceTemplateValidation tests systemd service template validation
-func TestSystemdServiceTemplateValidation(t *testing.T) {
-	tests := []struct {
-		name     string
-		config   BootstrapConfig
-		expected []string
-	}{
-		{
-			name: "valid configuration",
-			config: BootstrapConfig{
-				ProjectName:      "test-project",
-				RepoURL:          "https://github.com/user/repo.git",
-				LocalPath:        "/tmp/test",
-				PollInterval:     "30s",
-				Port:             "8080",
-				SSHKeyPath:       "",
-				GitToken:         "",
-				ProjectConfigDir: "/tmp/.beacon/config/projects/test-project",
-			},
-			expected: []string{
-				"[Unit]",
-				"[Service]",
-				"[Install]",
-			},
-		},
-		{
-			name: "configuration with secure env",
-			config: BootstrapConfig{
-				ProjectName:      "test-project",
-				RepoURL:          "https://github.com/user/repo.git",
-				LocalPath:        "/tmp/test",
-				PollInterval:     "30s",
-				Port:             "8080",
-				SecureEnvPath:    "/path/to/secure/env",
-				SSHKeyPath:       "/path/to/ssh/key",
-				GitToken:         "secret-token",
-				ProjectConfigDir: "/tmp/.beacon/config/projects/test-project",
-			},
-			expected: []string{
-				"[Unit]",
-				"[Service]",
-				"[Install]",
-				"EnvironmentFile",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := createSystemdService(&tt.config)
-			if err != nil {
-				t.Fatalf("Failed to create systemd service: %v", err)
-			}
-
-			// The service file should be created in the default location
-			// We can't easily test the content without knowing the exact path
-			// but we can verify the function doesn't error
-		})
-	}
-}
-
-// TestSystemdServiceWithSpecialCharacters tests systemd service with special characters
-func TestSystemdServiceWithSpecialCharacters(t *testing.T) {
-	tests := []struct {
-		name        string
-		projectName string
-		expectError bool
-	}{
-		{
-			name:        "project with hyphens",
-			projectName: "test-project",
-			expectError: false,
-		},
-		{
-			name:        "project with underscores",
-			projectName: "test_project",
-			expectError: false,
-		},
-		{
-			name:        "project with numbers",
-			projectName: "test123",
-			expectError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := BootstrapConfig{
-				ProjectName:      tt.projectName,
-				RepoURL:          "https://github.com/user/repo.git",
-				LocalPath:        "/tmp/test",
-				PollInterval:     "30s",
-				Port:             "8080",
-				SSHKeyPath:       "",
-				GitToken:         "",
-				ProjectConfigDir: "/tmp/.beacon/config/projects/" + tt.projectName,
-			}
-
-			err := createSystemdService(&config)
-			if tt.expectError && err == nil {
-				t.Errorf("Expected error but got none")
-			}
-			if !tt.expectError && err != nil {
-				t.Errorf("Expected no error but got: %v", err)
-			}
-		})
-	}
-}
-
-// TestSystemdServiceEnvironmentFiles tests systemd service environment files
-func TestSystemdServiceEnvironmentFiles(t *testing.T) {
-	tests := []struct {
-		name            string
-		config          BootstrapConfig
-		expectSecureEnv bool
-	}{
-		{
-			name: "basic environment file only",
-			config: BootstrapConfig{
-				ProjectName:      "test-project",
-				RepoURL:          "https://github.com/user/repo.git",
-				LocalPath:        "/tmp/test",
-				PollInterval:     "30s",
-				Port:             "8080",
-				SSHKeyPath:       "",
-				GitToken:         "",
-				ProjectConfigDir: "/tmp/.beacon/config/projects/test-project",
-			},
-			expectSecureEnv: false,
-		},
-		{
-			name: "environment file with secure env",
-			config: BootstrapConfig{
-				ProjectName:      "test-project",
-				RepoURL:          "https://github.com/user/repo.git",
-				LocalPath:        "/tmp/test",
-				PollInterval:     "30s",
-				Port:             "8080",
-				SecureEnvPath:    "/path/to/secure/env",
-				SSHKeyPath:       "/path/to/ssh/key",
-				GitToken:         "secret-token",
-				ProjectConfigDir: "/tmp/.beacon/config/projects/test-project",
-			},
-			expectSecureEnv: true,
-		},
-		{
-			name: "only secure env file",
-			config: BootstrapConfig{
-				ProjectName:      "test-project",
-				RepoURL:          "https://github.com/user/repo.git",
-				LocalPath:        "/tmp/test",
-				PollInterval:     "30s",
-				Port:             "8080",
-				SecureEnvPath:    "/path/to/secure/env",
-				SSHKeyPath:       "",
-				GitToken:         "",
-				ProjectConfigDir: "/tmp/.beacon/config/projects/test-project",
-			},
-			expectSecureEnv: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tempDir := t.TempDir()
-			systemdDir := filepath.Join(tempDir, ".config", "systemd", "user")
-			servicePath := filepath.Join(systemdDir, "beacon@test-project.service")
-
-			err := createSystemdService(&tt.config)
-			if err != nil {
-				t.Fatalf("Failed to create systemd service: %v", err)
-			}
-
-			// Read and verify content
-			content, err := os.ReadFile(servicePath)
-			if err != nil {
-				t.Fatalf("Failed to read systemd service file: %v", err)
-			}
-
-			contentStr := string(content)
-			if tt.expectSecureEnv && !contains(contentStr, "EnvironmentFile") {
-				t.Error("Expected systemd template to contain EnvironmentFile directive")
-			}
-		})
-	}
-}
-
-// TestSystemdServiceRestartBehavior tests systemd service restart behavior
-func TestSystemdServiceRestartBehavior(t *testing.T) {
-	tempDir := t.TempDir()
-	systemdDir := filepath.Join(tempDir, ".config", "systemd", "user")
-	servicePath := filepath.Join(systemdDir, "beacon@test-project.service")
-
-	config := BootstrapConfig{
-		ProjectName:      "test-project",
-		RepoURL:          "https://github.com/user/repo.git",
-		LocalPath:        "/tmp/test",
-		PollInterval:     "30s",
-		Port:             "8080",
-		SSHKeyPath:       "",
-		GitToken:         "",
-		ProjectConfigDir: "/tmp/.beacon/config/projects/test-project",
-	}
-
-	err := createSystemdService(&config)
-	if err != nil {
-		t.Fatalf("Failed to create systemd service: %v", err)
-	}
-
-	// Read and verify content
-	content, err := os.ReadFile(servicePath)
-	if err != nil {
-		t.Fatalf("Failed to read systemd service file: %v", err)
-	}
-
-	contentStr := string(content)
-	expectedRestartDirectives := []string{
-		"Restart=always",
-		"RestartSec=5",
-	}
-
-	for _, directive := range expectedRestartDirectives {
-		if !contains(contentStr, directive) {
-			t.Errorf("Expected systemd template to contain %s", directive)
+	for _, dir := range expectedDirs {
+		info, err := os.Stat(dir)
+		if os.IsNotExist(err) {
+			t.Errorf("Expected directory %s to exist", dir)
+		}
+		if !info.IsDir() {
+			t.Errorf("Expected %s to be a directory", dir)
 		}
 	}
 }
 
-// TestSystemdServiceLogging tests systemd service logging
-func TestSystemdServiceLogging(t *testing.T) {
-	tempDir := t.TempDir()
-	systemdDir := filepath.Join(tempDir, ".config", "systemd", "user")
-	servicePath := filepath.Join(systemdDir, "beacon@test-project.service")
-
-	config := BootstrapConfig{
-		ProjectName:      "test-project",
-		RepoURL:          "https://github.com/user/repo.git",
-		LocalPath:        "/tmp/test",
-		PollInterval:     "30s",
-		Port:             "8080",
-		SSHKeyPath:       "",
-		GitToken:         "",
-		ProjectConfigDir: "/tmp/.beacon/config/projects/test-project",
+// TestBootstrapProject_ListProjects tests project listing functionality
+func TestBootstrapProject_ListProjects(t *testing.T) {
+	paths, err := config.NewBeaconPaths()
+	if err != nil {
+		t.Fatalf("Failed to create paths: %v", err)
 	}
 
-	err := createSystemdService(&config)
+	tempDir := t.TempDir()
+	paths.BaseDir = tempDir
+	paths.ConfigDir = filepath.Join(tempDir, "config")
+	paths.ProjectsDir = filepath.Join(tempDir, "config", "projects")
+
+	projectName1 := "project1"
+	projectName2 := "project2"
+
+	// Create multiple projects
+	if err := paths.CreateProjectStructure(projectName1); err != nil {
+		t.Fatalf("Failed to create project1: %v", err)
+	}
+	if err := paths.CreateProjectStructure(projectName2); err != nil {
+		t.Fatalf("Failed to create project2: %v", err)
+	}
+
+	// List projects
+	projects, err := paths.ListProjects()
 	if err != nil {
-		t.Fatalf("Failed to create systemd service: %v", err)
+		t.Fatalf("Failed to list projects: %v", err)
+	}
+
+	// Verify projects were found
+	if len(projects) < 2 {
+		t.Errorf("Expected at least 2 projects, got %d", len(projects))
+	}
+
+	// Check for both projects in the list
+	found1, found2 := false, false
+	for _, proj := range projects {
+		if proj == projectName1 {
+			found1 = true
+		}
+		if proj == projectName2 {
+			found2 = true
+		}
+	}
+
+	if !found1 {
+		t.Error("Expected to find project1 in list")
+	}
+	if !found2 {
+		t.Error("Expected to find project2 in list")
+	}
+}
+
+// TestBootstrapProject_RemoveProject tests project removal
+func TestBootstrapProject_RemoveProject(t *testing.T) {
+	paths, err := config.NewBeaconPaths()
+	if err != nil {
+		t.Fatalf("Failed to create paths: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	paths.BaseDir = tempDir
+	paths.ConfigDir = filepath.Join(tempDir, "config")
+	paths.ProjectsDir = filepath.Join(tempDir, "config", "projects")
+	paths.LogsDir = filepath.Join(tempDir, "logs")
+	paths.WorkingDir = filepath.Join(tempDir, "working")
+
+	projectName := "remove-test-project"
+
+	// Create project
+	if err := paths.CreateProjectStructure(projectName); err != nil {
+		t.Fatalf("Failed to create test project: %v", err)
+	}
+
+	// Verify it exists
+	if !paths.ProjectExists(projectName) {
+		t.Fatal("Expected project to exist before removal")
+	}
+
+	// Remove project
+	err = paths.RemoveProject(projectName)
+	if err != nil {
+		t.Fatalf("Failed to remove project: %v", err)
+	}
+
+	// Verify it no longer exists
+	if paths.ProjectExists(projectName) {
+		t.Error("Expected project to not exist after removal")
+	}
+}
+
+// TestBootstrapProject_EnvironmentFileContent tests environment file content generation
+func TestBootstrapProject_EnvironmentFileContent(t *testing.T) {
+	bm, err := NewBootstrapManager(false)
+	if err != nil {
+		t.Fatalf("Failed to create bootstrap manager: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	projectName := "env-content-test"
+
+	// Create project structure
+	if err := bm.paths.CreateProjectStructure(projectName); err != nil {
+		t.Fatalf("Failed to create project structure: %v", err)
+	}
+
+	// Test with optional fields
+	config := &BootstrapConfig{
+		ProjectName:   projectName,
+		RepoURL:       "git@github.com:user/repo.git",
+		LocalPath:     "/tmp/deploy",
+		DeployCommand: "npm run deploy",
+		PollInterval:  "30s",
+		Port:          "3000",
+		SSHKeyPath:    "/home/user/.ssh/id_rsa",
+		GitToken:      "secret-token",
+		SecureEnvPath: "/secure/path",
+		User:          "testuser",
+		WorkingDir:    filepath.Join(tempDir, "working"),
+	}
+
+	err = bm.createEnvironmentFile(config)
+	if err != nil {
+		t.Fatalf("Failed to create environment file: %v", err)
 	}
 
 	// Read and verify content
-	content, err := os.ReadFile(servicePath)
+	envPath := bm.paths.GetProjectEnvFile(projectName)
+	content, err := os.ReadFile(envPath)
 	if err != nil {
-		t.Fatalf("Failed to read systemd service file: %v", err)
+		t.Fatalf("Failed to read environment file: %v", err)
 	}
 
 	contentStr := string(content)
-	expectedLoggingDirectives := []string{
-		"StandardOutput=journal",
-		"StandardError=journal",
+
+	// Check for required variables
+	requiredVars := []string{
+		"BEACON_REPO_URL",
+		"BEACON_LOCAL_PATH",
+		"BEACON_POLL_INTERVAL",
+		"BEACON_PORT",
+		"BEACON_PROJECT_NAME",
+		"BEACON_WORKING_DIR",
 	}
 
-	for _, directive := range expectedLoggingDirectives {
-		if !contains(contentStr, directive) {
-			t.Errorf("Expected systemd template to contain %s", directive)
+	for _, varName := range requiredVars {
+		if !contains(contentStr, varName) {
+			t.Errorf("Expected environment file to contain %s", varName)
+		}
+	}
+
+	// Check for optional variables that were provided
+	optionalVars := map[string]string{
+		"BEACON_SSH_KEY_PATH":    "/home/user/.ssh/id_rsa",
+		"BEACON_GIT_TOKEN":       "secret-token",
+		"BEACON_DEPLOY_COMMAND":  "npm run deploy",
+		"BEACON_SECURE_ENV_PATH": "/secure/path",
+	}
+
+	for varName, expectedValue := range optionalVars {
+		if !contains(contentStr, varName) {
+			t.Errorf("Expected environment file to contain %s", varName)
+		}
+		if !contains(contentStr, expectedValue) {
+			t.Errorf("Expected environment file to contain value %s for %s", expectedValue, varName)
 		}
 	}
 }

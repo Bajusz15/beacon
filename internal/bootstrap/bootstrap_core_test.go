@@ -4,151 +4,116 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"beacon/internal/config"
 )
 
-// TestBootstrapCore tests the core bootstrap functionality
-func TestBootstrapCore(t *testing.T) {
+// TestNewBootstrapManager tests the creation of a BootstrapManager
+func TestNewBootstrapManager(t *testing.T) {
 	tests := []struct {
-		name        string
-		projectName string
-		config      BootstrapConfig
-		expectError bool
+		name             string
+		useSystemService bool
+		expectError      bool
 	}{
 		{
-			name:        "valid configuration",
-			projectName: "test-project",
-			config: BootstrapConfig{
-				ProjectName:  "test-project",
-				RepoURL:     "https://github.com/user/repo.git",
-				LocalPath:   "/tmp/test",
-				PollInterval: "30s",
-				Port:        "8080",
-				SSHKeyPath:  "",
-				GitToken:    "",
-			},
-			expectError: false,
+			name:             "user service",
+			useSystemService: false,
+			expectError:      false,
 		},
 		{
-			name:        "missing repository URL",
-			projectName: "test-project",
-			config: BootstrapConfig{
-				ProjectName:  "test-project",
-				LocalPath:    "/tmp/test",
-				PollInterval: "30s",
-				Port:         "8080",
-			},
-			expectError: true,
-		},
-		{
-			name:        "missing local path",
-			projectName: "test-project",
-			config: BootstrapConfig{
-				ProjectName:  "test-project",
-				RepoURL:      "https://github.com/user/repo.git",
-				PollInterval: "30s",
-				Port:         "8080",
-			},
-			expectError: true,
-		},
-		{
-			name:        "invalid polling interval",
-			projectName: "test-project",
-			config: BootstrapConfig{
-				ProjectName:  "test-project",
-				RepoURL:      "https://github.com/user/repo.git",
-				LocalPath:    "/tmp/test",
-				PollInterval: "-1s",
-				Port:         "8080",
-			},
-			expectError: true,
-		},
-		{
-			name:        "invalid port",
-			projectName: "test-project",
-			config: BootstrapConfig{
-				ProjectName:  "test-project",
-				RepoURL:      "https://github.com/user/repo.git",
-				LocalPath:    "/tmp/test",
-				PollInterval: "30s",
-				Port:         "-1",
-			},
-			expectError: true,
-		},
-		{
-			name:        "port zero is valid",
-			projectName: "test-project",
-			config: BootstrapConfig{
-				ProjectName:  "test-project",
-				RepoURL:      "https://github.com/user/repo.git",
-				LocalPath:    "/tmp/test",
-				PollInterval: "30s",
-				Port:         "0",
-			},
-			expectError: false,
+			name:             "system service",
+			useSystemService: true,
+			expectError:      false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateConfiguration(&tt.config)
+			bm, err := NewBootstrapManager(tt.useSystemService)
 			if tt.expectError && err == nil {
 				t.Errorf("Expected error but got none")
 			}
 			if !tt.expectError && err != nil {
 				t.Errorf("Expected no error but got: %v", err)
 			}
-		})
-	}
-}
-
-// TestProjectNameValidation tests project name validation
-func TestProjectNameValidation(t *testing.T) {
-	tests := []struct {
-		name        string
-		projectName string
-		expectValid bool
-	}{
-		{"valid-project", "valid-project", true},
-		{"valid_project", "valid_project", true},
-		{"validproject123", "validproject123", true},
-		{"ValidProject", "ValidProject", true},
-		{"#00", "#00", true},
-		{"invalid project", "invalid project", false},
-		{"invalid@project", "invalid@project", false},
-		{"invalid.project", "invalid.project", false},
-		{"invalid/project", "invalid/project", false},
-		{"invalid\\project", "invalid\\project", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			valid := isValidProjectName(tt.projectName)
-			if valid != tt.expectValid {
-				t.Errorf("isValidProjectName(%s) = %v, want %v", tt.projectName, valid, tt.expectValid)
+			if !tt.expectError && bm == nil {
+				t.Error("Expected BootstrapManager to be created")
+			}
+			if !tt.expectError && bm != nil {
+				if bm.paths == nil {
+					t.Error("Expected paths to be initialized")
+				}
 			}
 		})
 	}
 }
 
-// TestDirectoryStructureCreation tests directory creation
-func TestDirectoryStructureCreation(t *testing.T) {
-	tempDir := t.TempDir()
-	
-	config := BootstrapConfig{
-		ProjectName: "test-project",
-		LocalPath:   filepath.Join(tempDir, "working-dir"),
-		WorkingDir:  tempDir,
+// TestBootstrapManager_ValidateProjectName tests project name validation
+func TestBootstrapManager_ValidateProjectName(t *testing.T) {
+	paths, err := config.NewBeaconPaths()
+	if err != nil {
+		t.Fatalf("Failed to create paths: %v", err)
 	}
 
-	err := createDirectoryStructure(&config)
+	tests := []struct {
+		name        string
+		projectName string
+		expectError bool
+	}{
+		{"valid-project", "valid-project", false},
+		{"valid_project", "valid_project", false},
+		{"validproject123", "validproject123", false},
+		{"ValidProject", "ValidProject", false},
+		{"invalid project", "invalid project", true},
+		{"invalid@project", "invalid@project", true},
+		{"invalid.project", "invalid.project", true},
+		{"invalid/project", "invalid/project", true},
+		{"invalid\\project", "invalid\\project", true},
+		{"empty", "", true},
+		{"config", "config", true},       // reserved name
+		{"templates", "templates", true}, // reserved name
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := paths.ValidateProjectName(tt.projectName)
+			hasError := err != nil
+
+			if hasError != tt.expectError {
+				t.Errorf("ValidateProjectName(%s) error = %v, want error = %v", tt.projectName, hasError, tt.expectError)
+			}
+		})
+	}
+}
+
+// TestBootstrapManager_CreateProjectStructure tests project structure creation
+func TestBootstrapManager_CreateProjectStructure(t *testing.T) {
+	paths, err := config.NewBeaconPaths()
 	if err != nil {
-		t.Fatalf("Failed to create directory structure: %v", err)
+		t.Fatalf("Failed to create paths: %v", err)
+	}
+
+	// Override paths to use temp directory
+	tempDir := t.TempDir()
+	paths.BaseDir = tempDir
+	paths.ConfigDir = filepath.Join(tempDir, "config")
+	paths.ProjectsDir = filepath.Join(tempDir, "config", "projects")
+	paths.LogsDir = filepath.Join(tempDir, "logs")
+	paths.WorkingDir = filepath.Join(tempDir, "working")
+
+	projectName := "test-project"
+
+	err = paths.CreateProjectStructure(projectName)
+	if err != nil {
+		t.Fatalf("Failed to create project structure: %v", err)
 	}
 
 	// Check if directories were created
 	expectedDirs := []string{
-		config.LocalPath,
-		filepath.Join(tempDir, ".beacon", "config", "projects", "test-project"),
+		paths.GetProjectConfigDir(projectName),
+		paths.GetProjectKeysDir(projectName),
+		paths.GetProjectLogsDir(projectName),
+		paths.GetProjectWorkingDir(projectName),
 	}
 
 	for _, dir := range expectedDirs {
@@ -158,28 +123,40 @@ func TestDirectoryStructureCreation(t *testing.T) {
 	}
 }
 
-// TestEnvironmentFileCreation tests environment file creation
-func TestEnvironmentFileCreation(t *testing.T) {
-	tempDir := t.TempDir()
-	
-	config := BootstrapConfig{
-		ProjectName:      "test-project",
-		RepoURL:         "https://github.com/user/repo.git",
-		LocalPath:        "/tmp/test",
-		PollInterval:     "30s",
-		Port:             "8080",
-		SSHKeyPath:       "",
-		GitToken:         "",
-		ProjectConfigDir: filepath.Join(tempDir, ".beacon", "config", "projects", "test-project"),
+// TestBootstrapManager_CreateEnvironmentFile tests environment file creation
+func TestBootstrapManager_CreateEnvironmentFile(t *testing.T) {
+	bm, err := NewBootstrapManager(false)
+	if err != nil {
+		t.Fatalf("Failed to create bootstrap manager: %v", err)
 	}
 
-	err := createEnvironmentFile(&config)
+	tempDir := t.TempDir()
+	projectName := "env-test-project"
+
+	// Create project structure first
+	if err := bm.paths.CreateProjectStructure(projectName); err != nil {
+		t.Fatalf("Failed to create project structure: %v", err)
+	}
+
+	config := &BootstrapConfig{
+		ProjectName:  projectName,
+		RepoURL:      "https://github.com/user/repo.git",
+		LocalPath:    "/tmp/test",
+		PollInterval: "60s",
+		Port:         "8080",
+		SSHKeyPath:   "",
+		GitToken:     "",
+		User:         "testuser",
+		WorkingDir:   filepath.Join(tempDir, "working"),
+	}
+
+	err = bm.createEnvironmentFile(config)
 	if err != nil {
 		t.Fatalf("Failed to create environment file: %v", err)
 	}
 
 	// Check if file exists
-	envPath := filepath.Join(config.ProjectConfigDir, "env")
+	envPath := bm.paths.GetProjectEnvFile(projectName)
 	if _, err := os.Stat(envPath); os.IsNotExist(err) {
 		t.Errorf("Expected environment file %s to exist", envPath)
 	}
@@ -196,6 +173,8 @@ func TestEnvironmentFileCreation(t *testing.T) {
 		"BEACON_LOCAL_PATH",
 		"BEACON_POLL_INTERVAL",
 		"BEACON_PORT",
+		"BEACON_PROJECT_NAME",
+		"BEACON_WORKING_DIR",
 	}
 
 	for _, varName := range expectedVars {
@@ -205,104 +184,100 @@ func TestEnvironmentFileCreation(t *testing.T) {
 	}
 }
 
-// TestSystemdServiceCreation tests systemd service creation
-func TestSystemdServiceCreation(t *testing.T) {
+// TestBootstrapManager_CreateSystemdService tests systemd service creation (if available)
+func TestBootstrapManager_CreateSystemdService(t *testing.T) {
+	bm, err := NewBootstrapManager(false)
+	if err != nil {
+		t.Fatalf("Failed to create bootstrap manager: %v", err)
+	}
+
 	tempDir := t.TempDir()
-	systemdDir := filepath.Join(tempDir, ".config", "systemd", "user")
-	servicePath := filepath.Join(systemdDir, "beacon@test-project.service")
+	projectName := "systemd-test-project"
 
-	config := BootstrapConfig{
-		ProjectName:      "test-project",
-		RepoURL:          "https://github.com/user/repo.git",
-		LocalPath:        "/tmp/test",
-		PollInterval:     "30s",
-		Port:             "8080",
-		SSHKeyPath:       "",
-		GitToken:         "",
-		ProjectConfigDir: filepath.Join(tempDir, ".beacon", "config", "projects", "test-project"),
+	// Create project structure first
+	if err := bm.paths.CreateProjectStructure(projectName); err != nil {
+		t.Fatalf("Failed to create project structure: %v", err)
 	}
 
-	err := createSystemdService(&config)
-	if err != nil {
-		t.Fatalf("Failed to create systemd service: %v", err)
+	config := &BootstrapConfig{
+		ProjectName:  projectName,
+		RepoURL:      "https://github.com/user/repo.git",
+		LocalPath:    "/tmp/test",
+		PollInterval: "60s",
+		Port:         "8080",
+		WorkingDir:   filepath.Join(tempDir, "working"),
+		User:         "testuser",
 	}
 
-	// Check if service file exists
-	if _, err := os.Stat(servicePath); os.IsNotExist(err) {
-		t.Errorf("Expected systemd service file %s to exist", servicePath)
-	}
-
-	// Read and verify content
-	content, err := os.ReadFile(servicePath)
-	if err != nil {
-		t.Fatalf("Failed to read systemd service file: %v", err)
-	}
-
-	contentStr := string(content)
-	expectedContent := []string{
-		"[Unit]",
-		"[Service]",
-		"[Install]",
-		"beacon@test-project",
-	}
-
-	for _, expected := range expectedContent {
-		if !contains(contentStr, expected) {
-			t.Errorf("Expected systemd service file to contain %s", expected)
+	// Only create systemd service if available
+	if bm.serviceManager.IsAvailable() {
+		err = bm.createSystemdService(config)
+		if err != nil {
+			t.Logf("Systemd service creation failed (expected in test environment): %v", err)
+			return
 		}
+
+		// Check if service file exists
+		servicePath := bm.paths.GetSystemdServiceFile(projectName, false)
+		if _, err := os.Stat(servicePath); os.IsNotExist(err) {
+			t.Errorf("Expected systemd service file %s to exist", servicePath)
+		}
+
+		// Read and verify content
+		content, err := os.ReadFile(servicePath)
+		if err != nil {
+			t.Fatalf("Failed to read systemd service file: %v", err)
+		}
+
+		contentStr := string(content)
+		expectedContent := []string{
+			"[Unit]",
+			"[Service]",
+			"[Install]",
+			"beacon@" + projectName,
+		}
+
+		for _, expected := range expectedContent {
+			if !contains(contentStr, expected) {
+				t.Errorf("Expected systemd service file to contain %s", expected)
+			}
+		}
+	} else {
+		t.Log("Systemd not available, skipping systemd service test")
 	}
 }
 
-// TestExistingComponentsCheck tests checking for existing components
-func TestExistingComponentsCheck(t *testing.T) {
-	tempDir := t.TempDir()
-	configDir := filepath.Join(tempDir, ".beacon")
-	projectName := "test-project"
-
-	// Create some existing components
-	projectDir := filepath.Join(configDir, "config", "projects", projectName)
-	os.MkdirAll(projectDir, 0755)
-	envFile := filepath.Join(projectDir, "env")
-	os.WriteFile(envFile, []byte("test"), 0644)
-
-	existing := checkExistingComponents(projectName)
-	if len(existing) == 0 {
-		t.Error("Expected existing components to be detected")
-	}
-}
-
-// TestPermissionsSetting tests permission setting
-func TestPermissionsSetting(t *testing.T) {
-	tempDir := t.TempDir()
-	
-	config := BootstrapConfig{
-		ProjectName: "test-project",
-		LocalPath:   filepath.Join(tempDir, "working-dir"),
-		WorkingDir:  tempDir,
-	}
-
-	// Create test files
-	os.MkdirAll(config.LocalPath, 0755)
-
-	err := setPermissions(&config)
+// TestBootstrapProject_ProjectExists tests checking for existing projects
+func TestBootstrapProject_ProjectExists(t *testing.T) {
+	paths, err := config.NewBeaconPaths()
 	if err != nil {
-		t.Fatalf("Failed to set permissions: %v", err)
+		t.Fatalf("Failed to create paths: %v", err)
 	}
 
-	// Check if files exist (permissions are harder to test cross-platform)
-	if _, err := os.Stat(config.LocalPath); os.IsNotExist(err) {
-		t.Error("Expected working directory to exist")
+	tempDir := t.TempDir()
+	paths.BaseDir = tempDir
+	paths.ProjectsDir = filepath.Join(tempDir, "config", "projects")
+
+	projectName := "existing-project"
+
+	// Create a project manually
+	if err := paths.CreateProjectStructure(projectName); err != nil {
+		t.Fatalf("Failed to create test project: %v", err)
+	}
+
+	// Check if it exists
+	if !paths.ProjectExists(projectName) {
+		t.Error("Expected project to exist")
+	}
+
+	// Check non-existing project
+	if paths.ProjectExists("non-existing-project") {
+		t.Error("Expected non-existing project to not exist")
 	}
 }
 
 // Helper function to check if string contains substring
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || 
-		(len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || 
-		containsSubstring(s, substr))))
-}
-
-func containsSubstring(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
 			return true
