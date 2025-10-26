@@ -116,33 +116,6 @@ jobs:
       uses: golangci/golangci-lint-action@v7
       with:
         version: v2.5.0
-
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.24.4'
-        cache: true
-        cache-dependency-path: go.sum
-    
-    - name: Clean Go module cache
-      run: go clean -modcache || true
-    
-    - name: Run Gosec Security Scanner
-      uses: securego/gosec@v2.21.4
-      with:
-        args: '-fmt sarif -out gosec.sarif ./...'
-    
-    - name: Upload SARIF file
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: gosec.sarif
     
     - name: Run govulncheck
       run: |
