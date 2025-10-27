@@ -45,15 +45,16 @@ func TestSimpleAlertingCLI_Comprehensive(t *testing.T) {
 		hasTest := false
 
 		for _, name := range subcommandNames {
-			if name == "init" {
+			switch name {
+			case "init":
 				hasInit = true
-			} else if name == "status" {
+			case "status":
 				hasStatus = true
-			} else if name == "acknowledge [alert-id]" {
+			case "acknowledge [alert-id]":
 				hasAcknowledge = true
-			} else if name == "resolve [alert-id]" {
+			case "resolve [alert-id]":
 				hasResolve = true
-			} else if name == "test" {
+			case "test":
 				hasTest = true
 			}
 		}
