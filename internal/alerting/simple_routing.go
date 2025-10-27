@@ -3,6 +3,7 @@ package alerting
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -37,8 +38,9 @@ type AlertContext struct {
 	Environment string            `json:"environment"` // prod, staging, dev
 }
 
-// SimpleAlertManager manages simple alert routing
+// SimpleAlertManager manages simple alert routing (concurrency-safe)
 type SimpleAlertManager struct {
+	mu           sync.RWMutex
 	routing      map[AlertSeverity]*AlertRouting
 	activeAlerts map[string]*ActiveAlert
 	cooldowns    map[string]time.Time
@@ -69,6 +71,9 @@ func NewSimpleAlertManager() *SimpleAlertManager {
 
 // LoadRouting loads alert routing configuration
 func (sam *SimpleAlertManager) LoadRouting(routing []AlertRouting) error {
+	sam.mu.Lock()
+	defer sam.mu.Unlock()
+
 	for _, route := range routing {
 		if route.Severity == "" {
 			return fmt.Errorf("alert routing severity cannot be empty")
@@ -76,8 +81,11 @@ func (sam *SimpleAlertManager) LoadRouting(routing []AlertRouting) error {
 
 		// Validate channels
 		validChannels := map[string]bool{
-			"email": true, "discord": true, "telegram": true,
-			"webhook": true, "slack": true,
+			"email":    true,
+			"discord":  true,
+			"telegram": true,
+			"webhook":  true,
+			"slack":    true,
 		}
 		for _, channel := range route.Channels {
 			if !validChannels[channel] {
@@ -85,7 +93,9 @@ func (sam *SimpleAlertManager) LoadRouting(routing []AlertRouting) error {
 			}
 		}
 
-		sam.routing[route.Severity] = &route
+		// Copy the loop variable before taking address to avoid pointing to the same variable.
+		r := route
+		sam.routing[r.Severity] = &r
 	}
 	return nil
 }
@@ -93,15 +103,20 @@ func (sam *SimpleAlertManager) LoadRouting(routing []AlertRouting) error {
 // ProcessAlert processes a new alert and routes it appropriately
 func (sam *SimpleAlertManager) ProcessAlert(context AlertContext) error {
 	// Check if we have routing for this severity
+	sam.mu.RLock()
 	routing, exists := sam.routing[context.Severity]
+	sam.mu.RUnlock()
 	if !exists || !routing.Enabled {
 		return fmt.Errorf("no routing configured for severity: %s", context.Severity)
 	}
 
 	// Check cooldown (simple per-service cooldown)
 	cooldownKey := fmt.Sprintf("%s:%s", context.Service, context.Severity)
-	if lastAlert, exists := sam.cooldowns[cooldownKey]; exists {
-		if time.Since(lastAlert) < 5*time.Minute { // 5 minute cooldown
+	sam.mu.RLock()
+	lastAlert, exists := sam.cooldowns[cooldownKey]
+	sam.mu.RUnlock()
+	if exists {
+		if time.Since(lastAlert) < 5*time.Minute { // 5 minute cooldown (consider making configurable)
 			log.Printf("[ALERT] Alert in cooldown for %s", cooldownKey)
 			return nil
 		}
@@ -117,8 +132,10 @@ func (sam *SimpleAlertManager) ProcessAlert(context AlertContext) error {
 		Resolved:     false,
 	}
 
+	sam.mu.Lock()
 	sam.activeAlerts[context.AlertID] = activeAlert
 	sam.cooldowns[cooldownKey] = time.Now()
+	sam.mu.Unlock()
 
 	// Send alert to configured channels
 	return sam.sendAlert(routing, context)
@@ -128,15 +145,17 @@ func (sam *SimpleAlertManager) ProcessAlert(context AlertContext) error {
 func (sam *SimpleAlertManager) sendAlert(routing *AlertRouting, context AlertContext) error {
 	recipients := routing.Recipients
 
+	var sendErr error
 	for _, channel := range routing.Channels {
 		err := sam.sendToChannel(channel, recipients, context)
 		if err != nil {
 			log.Printf("[ALERT] Failed to send via %s: %v", channel, err)
-			// Continue with other channels even if one fails
+			// collect the last error; continue other channels
+			sendErr = err
 		}
 	}
 
-	return nil
+	return sendErr
 }
 
 // sendToChannel sends an alert via a specific channel
@@ -159,6 +178,9 @@ func (sam *SimpleAlertManager) sendToChannel(channel string, recipients []string
 
 // AcknowledgeAlert acknowledges an alert
 func (sam *SimpleAlertManager) AcknowledgeAlert(alertID, acknowledgedBy string) error {
+	sam.mu.Lock()
+	defer sam.mu.Unlock()
+
 	activeAlert, exists := sam.activeAlerts[alertID]
 	if !exists {
 		return fmt.Errorf("alert %s not found", alertID)
@@ -173,6 +195,9 @@ func (sam *SimpleAlertManager) AcknowledgeAlert(alertID, acknowledgedBy string) 
 
 // ResolveAlert resolves an alert
 func (sam *SimpleAlertManager) ResolveAlert(alertID string) error {
+	sam.mu.Lock()
+	defer sam.mu.Unlock()
+
 	activeAlert, exists := sam.activeAlerts[alertID]
 	if !exists {
 		return fmt.Errorf("alert %s not found", alertID)
@@ -186,11 +211,22 @@ func (sam *SimpleAlertManager) ResolveAlert(alertID string) error {
 
 // GetActiveAlerts returns all active alerts
 func (sam *SimpleAlertManager) GetActiveAlerts() map[string]*ActiveAlert {
-	return sam.activeAlerts
+	sam.mu.RLock()
+	defer sam.mu.RUnlock()
+
+	// Return a copy to avoid callers mutating internal state
+	out := make(map[string]*ActiveAlert, len(sam.activeAlerts))
+	for k, v := range sam.activeAlerts {
+		out[k] = v
+	}
+	return out
 }
 
 // GetAlertStatus returns the status of a specific alert
 func (sam *SimpleAlertManager) GetAlertStatus(alertID string) (*ActiveAlert, error) {
+	sam.mu.RLock()
+	defer sam.mu.RUnlock()
+
 	activeAlert, exists := sam.activeAlerts[alertID]
 	if !exists {
 		return nil, fmt.Errorf("alert %s not found", alertID)
