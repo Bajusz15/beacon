@@ -122,7 +122,7 @@ func TestSimpleAlertingCLI_Comprehensive(t *testing.T) {
 			Routing: []AlertRouting{
 				{
 					Severity:         SeverityCritical,
-					Channels:         []string{"email", "discord"},
+					Channels:         []string{"email", "webhook"},
 					Recipients:       []string{"admin@example.com", "#alerts"},
 					BackupDelay:      10 * time.Minute,
 					BackupRecipients: []string{"backup@example.com"},
@@ -130,7 +130,7 @@ func TestSimpleAlertingCLI_Comprehensive(t *testing.T) {
 				},
 				{
 					Severity:         SeverityWarning,
-					Channels:         []string{"discord"},
+					Channels:         []string{"webhook"},
 					Recipients:       []string{"#alerts"},
 					BackupDelay:      30 * time.Minute,
 					BackupRecipients: []string{"backup@example.com"},
@@ -138,7 +138,7 @@ func TestSimpleAlertingCLI_Comprehensive(t *testing.T) {
 				},
 				{
 					Severity:    SeverityInfo,
-					Channels:    []string{"discord"},
+					Channels:    []string{"webhook"},
 					Recipients:  []string{"#logs"},
 					BackupDelay: 0,
 					Enabled:     true,
@@ -149,9 +149,9 @@ func TestSimpleAlertingCLI_Comprehensive(t *testing.T) {
 					"smtp_host": "smtp.gmail.com",
 					"enabled":   true,
 				},
-				"discord": map[string]interface{}{
-					"webhook_url": "${DISCORD_WEBHOOK_URL}",
-					"enabled":     true,
+				"webhook": map[string]interface{}{
+					"url":     "${WEBHOOK_URL}",
+					"enabled": true,
 				},
 			},
 			Templates: map[string]interface{}{
@@ -201,21 +201,21 @@ func TestSimpleAlertingCLI_Comprehensive(t *testing.T) {
 
 		require.NotNil(t, criticalRouting)
 		assert.Contains(t, criticalRouting.Channels, "email")
-		assert.Contains(t, criticalRouting.Channels, "discord")
+		assert.Contains(t, criticalRouting.Channels, "webhook")
 		assert.True(t, criticalRouting.Enabled)
 		assert.Equal(t, 10*time.Minute, criticalRouting.BackupDelay) // Actual value from implementation
 
 		require.NotNil(t, warningRouting)
-		assert.Contains(t, warningRouting.Channels, "discord")
+		assert.Contains(t, warningRouting.Channels, "webhook")
 		assert.True(t, warningRouting.Enabled)
 
 		require.NotNil(t, infoRouting)
-		assert.Contains(t, infoRouting.Channels, "discord")
+		assert.Contains(t, infoRouting.Channels, "webhook")
 		assert.True(t, infoRouting.Enabled)
 
 		// Verify channels and templates exist
 		assert.Contains(t, config.Channels, "email")
-		assert.Contains(t, config.Channels, "discord")
+		assert.Contains(t, config.Channels, "webhook")
 		assert.Contains(t, config.Templates, "critical")
 		assert.Contains(t, config.Templates, "warning")
 		assert.Contains(t, config.Templates, "info")
@@ -391,7 +391,7 @@ alert_routing:
 				},
 				{
 					Severity:   SeverityInfo,
-					Channels:   []string{"discord"},
+					Channels:   []string{"webhook"},
 					Recipients: []string{"#info"},
 					Enabled:    true,
 				},

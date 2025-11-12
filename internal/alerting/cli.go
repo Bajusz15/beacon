@@ -36,7 +36,7 @@ Perfect for self-hosted IoT monitoring and homelab setups.
 
 Features:
 - Severity-based routing (critical, warning, info)
-- Multiple channels (email, Discord, Telegram, Slack)
+- Multiple channels (email, webhook, Slack)
 - Simple backup notification after delay
 - Quiet hours to suppress non-critical alerts
 - Clean, simple configuration`,
@@ -76,7 +76,7 @@ func createSimpleInitCommand(cli *SimpleAlertingCLI) *cobra.Command {
 			fmt.Println()
 			fmt.Println("Next steps:")
 			fmt.Println("1. Edit the configuration file to match your needs")
-			fmt.Println("2. Set up your alert channels (email, Discord, etc.)")
+			fmt.Println("2. Set up your alert channels (email, webhook, slack, etc.)")
 			fmt.Println("3. Configure quiet hours if desired")
 			fmt.Println("4. Test your configuration with: beacon alerts test --project " + projectName)
 			fmt.Println()
@@ -189,7 +189,7 @@ func (cli *SimpleAlertingCLI) InitSimpleConfig(projectName string) error {
 		Routing: []AlertRouting{
 			{
 				Severity:         SeverityCritical,
-				Channels:         []string{"email", "discord"},
+				Channels:         []string{"email", "webhook"},
 				Recipients:       []string{"admin@example.com", "#alerts"},
 				BackupDelay:      10 * time.Minute,
 				BackupRecipients: []string{"backup@example.com"},
@@ -197,7 +197,7 @@ func (cli *SimpleAlertingCLI) InitSimpleConfig(projectName string) error {
 			},
 			{
 				Severity:         SeverityWarning,
-				Channels:         []string{"discord"},
+				Channels:         []string{"webhook"},
 				Recipients:       []string{"#alerts"},
 				BackupDelay:      30 * time.Minute,
 				BackupRecipients: []string{"backup@example.com"},
@@ -205,7 +205,7 @@ func (cli *SimpleAlertingCLI) InitSimpleConfig(projectName string) error {
 			},
 			{
 				Severity:    SeverityInfo,
-				Channels:    []string{"discord"},
+				Channels:    []string{"webhook"},
 				Recipients:  []string{"#logs"},
 				BackupDelay: 0,
 				Enabled:     true,
@@ -220,10 +220,9 @@ func (cli *SimpleAlertingCLI) InitSimpleConfig(projectName string) error {
 				"from":          "Beacon Alerts <alerts@example.com>",
 				"enabled":       true,
 			},
-			"discord": map[string]interface{}{
-				"webhook_url": "${DISCORD_WEBHOOK_URL}",
-				"username":    "Beacon Bot",
-				"enabled":     true,
+			"webhook": map[string]interface{}{
+				"url":     "${WEBHOOK_URL}",
+				"enabled": true,
 			},
 		},
 		Templates: map[string]interface{}{

@@ -30,7 +30,7 @@ func TestSimpleAlertManager_Comprehensive(t *testing.T) {
 		validRouting := []AlertRouting{
 			{
 				Severity:         SeverityCritical,
-				Channels:         []string{"email", "discord"},
+				Channels:         []string{"email", "webhook"},
 				Recipients:       []string{"admin@example.com", "#alerts"},
 				BackupDelay:      30 * time.Minute,
 				BackupRecipients: []string{"backup@example.com"},
@@ -53,7 +53,7 @@ func TestSimpleAlertManager_Comprehensive(t *testing.T) {
 		warningRouting := sam.routing[SeverityWarning]
 
 		assert.Equal(t, SeverityCritical, criticalRouting.Severity)
-		assert.Equal(t, []string{"email", "discord"}, criticalRouting.Channels)
+		assert.Equal(t, []string{"email", "webhook"}, criticalRouting.Channels)
 		assert.Equal(t, []string{"admin@example.com", "#alerts"}, criticalRouting.Recipients)
 
 		assert.Equal(t, SeverityWarning, warningRouting.Severity)
@@ -94,7 +94,7 @@ func TestSimpleAlertManager_Comprehensive(t *testing.T) {
 		allChannelsRouting := []AlertRouting{
 			{
 				Severity: SeverityInfo,
-				Channels: []string{"email", "discord", "telegram", "webhook", "slack"},
+				Channels: []string{"email", "webhook", "slack"},
 				Enabled:  true,
 			},
 		}
@@ -319,7 +319,7 @@ func TestSimpleAlertManager_Comprehensive(t *testing.T) {
 		recipients := []string{"admin@example.com"}
 
 		// Test all valid channels
-		validChannels := []string{"email", "discord", "telegram", "slack", "webhook"}
+		validChannels := []string{"email", "slack", "webhook"}
 		for _, channel := range validChannels {
 			err := sam.sendToChannel(channel, recipients, context)
 			assert.NoError(t, err, "Channel %s should be valid", channel)

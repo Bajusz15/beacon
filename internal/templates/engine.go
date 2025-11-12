@@ -74,71 +74,6 @@ func CreateDefaultTemplates(templateDir string) error {
 		return fmt.Errorf("failed to create template directory: %w", err)
 	}
 
-	// Discord template
-	discordTemplate := `{
-  "content": "🚨 **{{.Title}}**",
-  "embeds": [
-    {
-      "title": "{{.Title}}",
-      "description": "{{.Message}}",
-      "color": {{if eq .Severity "critical"}}15158332{{else if eq .Severity "warning"}}16776960{{else}}3066993{{end}},
-      "fields": [
-        {
-          "name": "Device",
-          "value": "{{.Device.Name}}",
-          "inline": true
-        },
-        {
-          "name": "Severity",
-          "value": "{{.Severity}}",
-          "inline": true
-        },
-        {
-          "name": "Time",
-          "value": "{{.Timestamp.Format "2006-01-02 15:04:05 MST"}}",
-          "inline": true
-        }
-        {{if .Check}}
-        ,{
-          "name": "Check",
-          "value": "{{.Check.Name}} ({{.Check.Type}})",
-          "inline": true
-        }
-        ,{
-          "name": "Status",
-          "value": "{{.Check.Status}}",
-          "inline": true
-        }
-        {{if .Check.Error}}
-        ,{
-          "name": "Error",
-          "value": "{{.Check.Error}}",
-          "inline": false
-        }
-        {{end}}
-        {{end}}
-      ],
-      "timestamp": "{{.Timestamp.Format "2006-01-02T15:04:05Z07:00"}}"
-    }
-  ]
-}`
-
-	// Telegram template
-	telegramTemplate := `🚨 *{{.Title}}*
-
-{{.Message}}
-
-*Device:* {{.Device.Name}}
-*Severity:* {{.Severity}}
-*Time:* {{.Timestamp.Format "2006-01-02 15:04:05 MST"}}
-
-{{if .Check}}*Check Details:*
-• Name: {{.Check.Name}}
-• Type: {{.Check.Type}}
-• Status: {{.Check.Status}}
-{{if .Check.Error}}• Error: {{.Check.Error}}{{end}}
-{{end}}`
-
 	// Email template
 	emailTemplate := `<!DOCTYPE html>
 <html>
@@ -223,8 +158,6 @@ func CreateDefaultTemplates(templateDir string) error {
 
 	// Write template files
 	templates := map[string]string{
-		"discord.json": discordTemplate,
-		"telegram.txt": telegramTemplate,
 		"email.html":   emailTemplate,
 		"webhook.json": webhookTemplate,
 	}

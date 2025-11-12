@@ -29,7 +29,7 @@ checks:
     host: 127.0.0.1
     port: 5432
     interval: 60s
-    alert_command: "curl -X POST https://api.telegram.org/bot<TOKEN>/sendMessage -d 'chat_id=<CHAT_ID>&text=Database connection failed on $BEACON_DEVICE_NAME'"
+    alert_command: "curl -X POST ${WEBHOOK_URL} -H 'Content-Type: application/json' -d '{\"text\":\"Database connection failed on $BEACON_DEVICE_NAME\"}'"
 
   - name: "Redis Port"
     type: port
@@ -43,13 +43,13 @@ checks:
     type: command
     command: "df -h / | awk 'NR==2 {print $5}' | sed 's/%//'"
     interval: 60s
-    alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 90 ]; then echo 'Disk space critical: $BEACON_CHECK_OUTPUT%' | telegram-send --stdin; fi"
+    alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 90 ]; then curl -X POST ${WEBHOOK_URL} -H 'Content-Type: application/json' -d '{\"text\":\"Disk space critical: $BEACON_CHECK_OUTPUT%\"}'; fi"
 
   - name: "Process Check"
     type: command
     command: "pgrep nginx > /dev/null && echo 'running' || echo 'stopped'"
     interval: 60s
-    alert_command: "if [ '$BEACON_CHECK_OUTPUT' = 'stopped' ]; then echo 'Nginx process stopped!' | curl -X POST -H 'Content-Type: application/json' -d '{\"text\":\"Nginx is down!\"}' ${DISCORD_WEBHOOK_URL}; fi"
+    alert_command: "if [ '$BEACON_CHECK_OUTPUT' = 'stopped' ]; then curl -X POST ${WEBHOOK_URL} -H 'Content-Type: application/json' -d '{\"text\":\"Nginx is down!\"}'; fi"
 
   - name: "Memory Usage"
     type: command
@@ -85,24 +85,12 @@ system_metrics:
 #   $BEACON_DEVICE_NAME    - Device name
 #
 # Example alert commands:
-#   - Send to Telegram: "echo 'Alert: $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS' | telegram-send --stdin"
-#   - Send to Discord: "curl -X POST -H 'Content-Type: application/json' -d '{\"text\":\"$BEACON_CHECK_NAME: $BEACON_CHECK_STATUS\"}' ${DISCORD_WEBHOOK_URL}"
+#   - Send to Webhook: "curl -X POST ${WEBHOOK_URL} -H 'Content-Type: application/json' -d '{\"text\":\"$BEACON_CHECK_NAME: $BEACON_CHECK_STATUS\"}'"
 #   - Send email: "echo 'Check $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS' | mail -s 'Beacon Alert' admin@example.com"
 #   - Log to syslog: "logger -p local0.err 'Beacon Alert: $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS'"
 
 # Plugin configuration for alerts (Modern approach)
 plugins:
-  # Discord webhook plugin
-  - name: discord
-    enabled: true
-    webhook_url: "${DISCORD_WEBHOOK_URL}"
-  
-  # Telegram bot plugin
-  - name: telegram
-    enabled: true
-    bot_token: "${TELEGRAM_BOT_TOKEN}"
-    chat_id: "${TELEGRAM_CHAT_ID}"
-  
   # SMTP email plugin
   - name: email
     enabled: true
@@ -140,13 +128,13 @@ alert_rules:
   # Critical alerts - send to all channels
   - check: "Homepage"
     severity: critical
-    plugins: ["discord", "telegram", "email"]
+    plugins: ["email", "webhook"]
     cooldown: "5m"
   
-  # Warning alerts - send to Discord and Telegram only
+  # Warning alerts - send to webhook only
   - check: "API Health"
     severity: warning
-    plugins: ["discord", "telegram"]
+    plugins: ["webhook"]
     cooldown: "10m"
   
   # Database alerts - email only
@@ -387,8 +375,8 @@ report:
 # 2. Email Alert:
 # alert_command: "echo 'Alert: $BEACON_CHECK_NAME failed on $BEACON_DEVICE_NAME' | mail -s 'Beacon Alert' admin@example.com"
 
-# 3. Telegram Bot Alert:
-# alert_command: "curl -X POST https://api.telegram.org/bot<TOKEN>/sendMessage -d 'chat_id=<CHAT_ID>&text=Alert: $BEACON_CHECK_NAME failed'"
+# 3. Webhook Alert:
+# alert_command: "curl -X POST ${WEBHOOK_URL} -H 'Content-Type: application/json' -d '{\"text\":\"Alert: $BEACON_CHECK_NAME failed\"}'"
 
 # 4. System Log Alert:
 # alert_command: "logger -p local0.err 'Beacon Alert: $BEACON_CHECK_NAME failed on $BEACON_DEVICE_NAME'"
@@ -396,8 +384,8 @@ report:
 # 5. Custom Script Alert:
 # alert_command: "/usr/local/bin/my-alert-script.sh '$BEACON_CHECK_NAME' '$BEACON_CHECK_ERROR' '$BEACON_DEVICE_NAME'"
 
-# 6. Discord Webhook Alert:
-# alert_command: "curl -H 'Content-Type: application/json' -d '{\"content\":\"🚨 $BEACON_CHECK_NAME is down on $BEACON_DEVICE_NAME\"}' https://discord.com/api/webhooks/YOUR/WEBHOOK"
+# 6. Slack Webhook Alert:
+# alert_command: "curl -X POST ${SLACK_WEBHOOK_URL} -H 'Content-Type: application/json' -d '{\"text\":\"🚨 $BEACON_CHECK_NAME is down on $BEACON_DEVICE_NAME\"}'"
 
 # 7. SMS Alert (via Twilio):
 # alert_command: "curl -X POST https://api.twilio.com/2010-04-01/Accounts/YOUR_ACCOUNT/Messages.json --data-urlencode 'To=+1234567890' --data-urlencode 'From=+0987654321' --data-urlencode 'Body=Alert: $BEACON_CHECK_NAME failed' -u YOUR_ACCOUNT:YOUR_TOKEN"

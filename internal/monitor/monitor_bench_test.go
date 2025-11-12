@@ -188,10 +188,10 @@ func BenchmarkMonitor_PluginIntegration(b *testing.B) {
 		},
 		Plugins: []plugins.PluginConfig{
 			{
-				Name:    "discord",
+				Name:    "webhook",
 				Enabled: true,
 				Config: map[string]interface{}{
-					"webhook_url": "https://discord.com/api/webhooks/test",
+					"url": "https://example.com/webhook",
 				},
 			},
 		},
@@ -199,7 +199,7 @@ func BenchmarkMonitor_PluginIntegration(b *testing.B) {
 			{
 				Check:    "test-check",
 				Severity: "critical",
-				Plugins:  []string{"discord"},
+				Plugins:  []string{"webhook"},
 			},
 		},
 		Report: ReportConfig{

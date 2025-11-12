@@ -6,8 +6,8 @@ on:
       - 'v*'
 
 jobs:
-  release:
-    name: Release
+  build:
+    name: Build Release Binaries
     runs-on: ubuntu-latest
     
     steps:
@@ -18,41 +18,55 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.23'
+        go-version: '1.24.6'
         cache: true
     
-    - name: Build Linux AMD64
-      run: GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o beacon-linux_amd64 ./cmd/beacon
-    
-    - name: Build Linux ARM64
-      run: GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o beacon-linux_arm64 ./cmd/beacon
-    
-    - name: Build Linux ARM
-      run: GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="-s -w" -o beacon-linux_arm ./cmd/beacon
-    
-    - name: Build macOS AMD64
-      run: GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o beacon-darwin_amd64 ./cmd/beacon
-    
-    - name: Build macOS ARM64
-      run: GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o beacon-darwin_arm64 ./cmd/beacon
+    - name: Build binaries with version info
+      run: |
+        # Get version info using Makefile variables
+        VERSION=$(date +%Y%m%d)-$(git rev-parse --short HEAD)
+        COMMIT=$(git rev-parse --short HEAD)
+        BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        
+        echo "Building version: $VERSION"
+        echo "Commit: $COMMIT"
+        echo "Build Date: $BUILD_DATE"
+        
+        # Build with version injection
+        GOOS=linux GOARCH=amd64 go build \
+          -ldflags="-s -w -X beacon/internal/version.Version=$VERSION -X beacon/internal/version.Commit=$COMMIT -X beacon/internal/version.BuildDate=$BUILD_DATE" \
+          -o beacon-linux_amd64 ./cmd/beacon
+        
+        GOOS=linux GOARCH=arm64 go build \
+          -ldflags="-s -w -X beacon/internal/version.Version=$VERSION -X beacon/internal/version.Commit=$COMMIT -X beacon/internal/version.BuildDate=$BUILD_DATE" \
+          -o beacon-linux_arm64 ./cmd/beacon
+        
+        GOOS=linux GOARCH=arm GOARM=7 go build \
+          -ldflags="-s -w -X beacon/internal/version.Version=$VERSION -X beacon/internal/version.Commit=$COMMIT -X beacon/internal/version.BuildDate=$BUILD_DATE" \
+          -o beacon-linux_arm ./cmd/beacon
+        
+        GOOS=darwin GOARCH=amd64 go build \
+          -ldflags="-s -w -X beacon/internal/version.Version=$VERSION -X beacon/internal/version.Commit=$COMMIT -X beacon/internal/version.BuildDate=$BUILD_DATE" \
+          -o beacon-darwin_amd64 ./cmd/beacon
+        
+        GOOS=darwin GOARCH=arm64 go build \
+          -ldflags="-s -w -X beacon/internal/version.Version=$VERSION -X beacon/internal/version.Commit=$COMMIT -X beacon/internal/version.BuildDate=$BUILD_DATE" \
+          -o beacon-darwin_arm64 ./cmd/beacon
     
     - name: Generate checksums
       run: |
         sha256sum beacon-linux_amd64 beacon-linux_arm64 beacon-linux_arm beacon-darwin_amd64 beacon-darwin_arm64 > SHA256SUMS.txt
         cat SHA256SUMS.txt
     
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
       with:
-        files: |
+        name: release-binaries
+        path: |
           beacon-linux_amd64
           beacon-linux_arm64
           beacon-linux_arm
           beacon-darwin_amd64
           beacon-darwin_arm64
           SHA256SUMS.txt
-        generate_release_notes: true
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        retention-days: 30

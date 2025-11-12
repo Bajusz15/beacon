@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"beacon/internal/util"
+
 	"golang.org/x/term"
 )
 
@@ -25,6 +27,16 @@ type Config struct {
 }
 
 func Load() *Config {
+	// First, check if BEACON_SECURE_ENV_PATH is set in environment (from systemd or bootstrap env file)
+	// If it is, load the secure env file before reading other config values
+	secureEnvPath := os.Getenv("BEACON_SECURE_ENV_PATH")
+	if secureEnvPath != "" {
+		secureEnvPath = os.ExpandEnv(secureEnvPath)
+		if err := util.LoadEnvFile(secureEnvPath); err != nil {
+			fmt.Fprintf(os.Stderr, "[Beacon] Warning: Failed to load secure environment file %s: %v\n", secureEnvPath, err)
+		}
+	}
+
 	cfg := &Config{
 		RepoURL:       getEnvOrPrompt("BEACON_REPO_URL", "Enter the Git repo URL", "https://github.com/yourusername/yourrepo.git"),
 		LocalPath:     os.ExpandEnv(getEnvOrPrompt("BEACON_LOCAL_PATH", "Enter the local path for the project", "$HOME/beacon/project")),

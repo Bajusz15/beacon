@@ -187,7 +187,7 @@ func (ch *ConfigHierarchy) ExplainHierarchy() string {
 	return `Beacon Configuration Hierarchy:
 
 🔧 SHARED (Global) - Used by all projects:
-   • ~/.beacon/templates/      - Alert templates (Discord, Email, etc.)
+   • ~/.beacon/templates/      - Alert templates (Email, Webhook, etc.)
 
 📁 PER-PROJECT - Each project has its own:
    • ~/.beacon/config/projects/{project}/env        - Environment variables
@@ -207,6 +207,6 @@ func (ch *ConfigHierarchy) ExplainHierarchy() string {
 💡 EXAMPLES:
    • Project "home-server" → Own keys, alerts, logs
    • Project "iot-sensors" → Different keys, different alerts
-   • Shared templates → Same Discord/Email formatting across projects
+   • Shared templates → Same Email/Webhook formatting across projects
    • Multiple devices per project → Multiple keys in project/keys/`
 }

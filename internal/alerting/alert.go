@@ -19,7 +19,7 @@ const (
 // AlertRouting defines simple alert routing rules
 type AlertRouting struct {
 	Severity         AlertSeverity `yaml:"severity"`
-	Channels         []string      `yaml:"channels"`          // email, discord, telegram, webhook
+	Channels         []string      `yaml:"channels"`          // email, webhook, slack
 	Recipients       []string      `yaml:"recipients"`        // specific recipients for this severity
 	BackupDelay      time.Duration `yaml:"backup_delay"`      // delay before notifying backup (0 = disabled)
 	BackupRecipients []string      `yaml:"backup_recipients"` // backup recipients
@@ -81,11 +81,9 @@ func (sam *SimpleAlertManager) LoadRouting(routing []AlertRouting) error {
 
 		// Validate channels
 		validChannels := map[string]bool{
-			"email":    true,
-			"discord":  true,
-			"telegram": true,
-			"webhook":  true,
-			"slack":    true,
+			"email":   true,
+			"webhook": true,
+			"slack":   true,
 		}
 		for _, channel := range route.Channels {
 			if !validChannels[channel] {
@@ -163,10 +161,6 @@ func (sam *SimpleAlertManager) sendToChannel(channel string, recipients []string
 	switch channel {
 	case "email":
 		return sam.sendEmailAlert(recipients, context)
-	case "discord":
-		return sam.sendDiscordAlert(recipients, context)
-	case "telegram":
-		return sam.sendTelegramAlert(recipients, context)
 	case "slack":
 		return sam.sendSlackAlert(recipients, context)
 	case "webhook":
@@ -240,17 +234,7 @@ func (sam *SimpleAlertManager) sendEmailAlert(recipients []string, context Alert
 	return nil
 }
 
-func (sam *SimpleAlertManager) sendDiscordAlert(recipients []string, context AlertContext) error {
-	fmt.Printf("[ALERT] 💬 Discord alert to %v: %s (%s)\n", recipients, context.Message, context.Severity)
-	return nil
-}
-
-func (sam *SimpleAlertManager) sendTelegramAlert(recipients []string, context AlertContext) error {
-	fmt.Printf("[ALERT] 📱 Telegram alert to %v: %s (%s)\n", recipients, context.Message, context.Severity)
-	return nil
-}
-
-func (sam *SimpleAlertManager) sendSlackAlert(recipients []string, context AlertContext) error {
+	func (sam *SimpleAlertManager) sendSlackAlert(recipients []string, context AlertContext) error {
 	fmt.Printf("[ALERT] 💬 Slack alert to %v: %s (%s)\n", recipients, context.Message, context.Severity)
 	return nil
 }

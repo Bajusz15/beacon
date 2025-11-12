@@ -18,18 +18,18 @@ import (
 
 // BootstrapConfig holds configuration for bootstrapping a new Beacon project
 type BootstrapConfig struct {
-	ProjectName      string
-	RepoURL          string
-	LocalPath        string
-	DeployCommand    string
-	PollInterval     string
-	Port             string
-	SSHKeyPath       string
-	GitToken         string
-	SecureEnvPath    string
-	User             string
-	WorkingDir       string
-	UseSystemService bool
+	ProjectName      string `yaml:"project_name"`
+	RepoURL          string `yaml:"repo_url"`
+	LocalPath        string `yaml:"local_path"`
+	DeployCommand    string `yaml:"deploy_command"`
+	PollInterval     string `yaml:"poll_interval"`
+	Port             string `yaml:"port"`
+	SSHKeyPath       string `yaml:"ssh_key_path"`
+	GitToken         string `yaml:"git_token"`
+	SecureEnvPath    string `yaml:"secure_env_path"`
+	User             string `yaml:"user"`
+	WorkingDir       string `yaml:"working_dir"`
+	UseSystemService bool   `yaml:"use_system_service"`
 }
 
 // BootstrapManager manages the bootstrap process using unified configuration
@@ -94,14 +94,17 @@ func (bm *BootstrapManager) BootstrapProject(projectName string, skipSystemd boo
 	}
 
 	// Create systemd service if requested and available
+	systemdCreated := false
 	if !skipSystemd && bm.serviceManager.IsAvailable() {
 		if err := bm.createSystemdService(config); err != nil {
 			fmt.Printf("Warning: Failed to create systemd service: %v\n", err)
+		} else {
+			systemdCreated = true
 		}
 	}
 
 	// Display success message
-	bm.displaySuccessMessage(config)
+	bm.displaySuccessMessage(config, systemdCreated)
 
 	return nil
 }
@@ -138,14 +141,17 @@ func (bm *BootstrapManager) BootstrapProjectFromConfig(projectName, configFile s
 	}
 
 	// Create systemd service if requested and available
+	systemdCreated := false
 	if !skipSystemd && bm.serviceManager.IsAvailable() {
 		if err := bm.createSystemdService(config); err != nil {
 			fmt.Printf("Warning: Failed to create systemd service: %v\n", err)
+		} else {
+			systemdCreated = true
 		}
 	}
 
 	// Display success message
-	bm.displaySuccessMessage(config)
+	bm.displaySuccessMessage(config, systemdCreated)
 
 	return nil
 }
@@ -210,6 +216,11 @@ func (bm *BootstrapManager) createEnvironmentFile(config *BootstrapConfig) error
 	}
 
 	fmt.Printf("✅ Created environment file: %s\n", envPath)
+	if config.GitToken != "" {
+		fmt.Printf("✅ Git token configured in environment file\n")
+	} else {
+		fmt.Printf("⚠️  Warning: No Git token configured (will use SSH key if provided)\n")
+	}
 	return nil
 }
 
@@ -236,7 +247,7 @@ func (bm *BootstrapManager) createSystemdService(config *BootstrapConfig) error 
 }
 
 // displaySuccessMessage displays a success message with next steps
-func (bm *BootstrapManager) displaySuccessMessage(config *BootstrapConfig) {
+func (bm *BootstrapManager) displaySuccessMessage(config *BootstrapConfig, systemdCreated bool) {
 	fmt.Println("\n🎉 Project bootstrapped successfully!")
 	fmt.Println()
 	fmt.Printf("📁 Project: %s\n", config.ProjectName)
@@ -246,12 +257,32 @@ func (bm *BootstrapManager) displaySuccessMessage(config *BootstrapConfig) {
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Println("1. Review and edit the environment file if needed")
-	fmt.Println("2. Set up monitoring configuration:")
-	fmt.Printf("   cp beacon.monitor.example.yml %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
-	fmt.Println("3. Set up alert routing:")
-	fmt.Printf("   beacon alerts init --project %s\n", config.ProjectName)
-	fmt.Println("4. Start the service:")
-	fmt.Printf("   systemctl --user start beacon@%s\n", config.ProjectName)
+	if systemdCreated {
+		fmt.Println("2. Start the deployment service (this will clone the repo and run your deploy command):")
+		fmt.Printf("   systemctl --user start beacon@%s\n", config.ProjectName)
+		fmt.Println("3. Check if deployment succeeded:")
+		fmt.Printf("   # Verify the repository was cloned to: %s\n", config.WorkingDir)
+		if config.DeployCommand != "" {
+			fmt.Printf("   # Check if deploy command ran: %s\n", config.DeployCommand)
+		}
+		fmt.Printf("   systemctl --user status beacon@%s\n", config.ProjectName)
+		fmt.Println("4. Set up monitoring configuration:")
+		fmt.Printf("   cp beacon.monitor.example.yml %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
+		fmt.Println("   # Or use the wizard BEFORE bootstrap: beacon setup-wizard")
+		fmt.Println("5. Start monitoring:")
+		fmt.Printf("   beacon monitor -f %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
+	} else {
+		fmt.Println("2. Verify deployment succeeded:")
+		fmt.Printf("   # Check if repository was cloned to: %s\n", config.WorkingDir)
+		if config.DeployCommand != "" {
+			fmt.Printf("   # Verify deploy command completed: %s\n", config.DeployCommand)
+		}
+		fmt.Println("3. Set up monitoring configuration:")
+		fmt.Printf("   cp beacon.monitor.example.yml %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
+		fmt.Println("   # Or use the wizard BEFORE bootstrap: beacon setup-wizard")
+		fmt.Println("4. Start monitoring:")
+		fmt.Printf("   beacon monitor -f %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
+	}
 	fmt.Println()
 	fmt.Println("💡 Tip: Use 'beacon --help' to see all available commands")
 }

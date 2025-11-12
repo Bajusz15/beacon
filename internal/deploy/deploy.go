@@ -88,6 +88,7 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 	}
 
 	// Clone the repository
+	// Set working directory to parentDir to avoid "Unable to read current working directory" errors
 	var cloneCmd *exec.Cmd
 	var stderr strings.Builder
 	if tag == "" {
@@ -97,6 +98,7 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 		// Clone specific tag
 		cloneCmd = exec.Command("git", "clone", "--branch", tag, repoURL, cfg.LocalPath)
 	}
+	cloneCmd.Dir = parentDir // Set working directory to parent to avoid CWD issues
 	cloneCmd.Stderr = &stderr
 
 	if err := cloneCmd.Run(); err != nil {
@@ -108,15 +110,6 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 	// Execute deploy command if specified
 	if cfg.DeployCommand != "" {
 		log.Printf("[Beacon] Executing deploy command: %s\n", cfg.DeployCommand)
-
-		// Change to the project directory
-		originalDir, err := os.Getwd()
-		if err != nil {
-			log.Printf("[Beacon] Error getting working directory: %v\n", err)
-			return err
-		}
-		util.LogError(os.Chdir(cfg.LocalPath), "change to project directory")
-		defer util.LogError(os.Chdir(originalDir), "change back to original directory")
 
 		// Build the command with secure environment file sourcing
 		var command string
@@ -134,8 +127,9 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 			command = cfg.DeployCommand
 		}
 
-		// Execute the command
+		// Execute the command - set working directory to avoid CWD issues
 		cmd := exec.Command("sh", "-c", command)
+		cmd.Dir = cfg.LocalPath // Set working directory to project directory
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
@@ -163,22 +157,23 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 }
 
 func getLatestTagFromRepo(cfg *config.Config) string {
-	// Change to the project directory
-	originalDir, _ := os.Getwd()
-	util.LogError(os.Chdir(cfg.LocalPath), "change to project directory")
-	defer func() { util.LogError(os.Chdir(originalDir), "change back to original directory") }()
+	// Check if repository exists
+	if _, err := os.Stat(cfg.LocalPath); os.IsNotExist(err) {
+		log.Printf("[Beacon] Repository path does not exist: %s\n", cfg.LocalPath)
+		return ""
+	}
 
-	// Fetch latest tags
+	// Fetch latest tags - set working directory to avoid CWD issues
 	fetchCmd := exec.Command("git", "fetch", "--tags")
+	fetchCmd.Dir = cfg.LocalPath
 	if err := fetchCmd.Run(); err != nil {
 		log.Printf("[Beacon] Error fetching tags: %v\n", err)
 		return ""
 	}
 
-	// Get the latest tag
-	// describeCmd := exec.Command("git", "describe", "--tags", "--abbrev=0")
-	// output, err := describeCmd.Output()
+	// Get the latest tag - set working directory to avoid CWD issues
 	forEachCmd := exec.Command("sh", "-c", "git for-each-ref --sort=-creatordate --format='%(refname:short)' refs/tags | head -n 1")
+	forEachCmd.Dir = cfg.LocalPath
 	output, err := forEachCmd.Output()
 	if err != nil {
 		log.Printf("[Beacon] Error getting latest tag: %v\n", err)

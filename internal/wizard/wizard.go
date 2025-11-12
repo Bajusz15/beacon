@@ -15,17 +15,32 @@ import (
 
 // Wizard handles interactive configuration setup
 type Wizard struct {
-	configPath string
-	envPath    string
-	deviceName string
-	deviceType string
+	configPath    string
+	envPath       string
+	bootstrapPath string
+	deviceName    string
+	deviceType    string
 }
 
 // NewWizard creates a new configuration wizard
 func NewWizard(configPath, envPath string) *Wizard {
+	// Generate bootstrap config path from monitor config path
+	// Default to current directory
+	bootstrapPath := "beacon.bootstrap.yml"
+	if configPath != "" {
+		// Use same directory as monitor config
+		dir := filepath.Dir(configPath)
+		if dir != "." && dir != "" && dir != configPath {
+			// If configPath has a directory component, use it
+			bootstrapPath = filepath.Join(dir, "beacon.bootstrap.yml")
+		}
+		// If dir is "." or same as configPath, bootstrapPath stays as "beacon.bootstrap.yml"
+	}
+
 	return &Wizard{
-		configPath: configPath,
-		envPath:    envPath,
+		configPath:    configPath,
+		envPath:       envPath,
+		bootstrapPath: bootstrapPath,
 	}
 }
 
@@ -73,11 +88,14 @@ func (w *Wizard) Run() error {
 	fmt.Println("✅ Configuration complete!")
 	fmt.Printf("📁 Monitor config: %s\n", w.configPath)
 	fmt.Printf("🔧 Environment file: %s\n", w.envPath)
+	fmt.Printf("🚀 Bootstrap config: %s\n", w.bootstrapPath)
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Println("1. Review the generated configuration files")
-	fmt.Println("2. Set up your environment variables")
-	fmt.Println("3. Run: beacon monitor")
+	fmt.Println("2. Set up your environment variables in the .env file")
+	fmt.Println("3. Customize bootstrap config for your project (repo URL, deploy command, etc.)")
+	fmt.Println("4. Run: beacon bootstrap myproject -f " + w.bootstrapPath)
+	fmt.Println("5. Run: beacon monitor -f " + w.configPath)
 	fmt.Println()
 
 	return nil
@@ -434,29 +452,6 @@ func (w *Wizard) configurePlugins() ([]plugins.PluginConfig, []plugins.AlertRule
 
 	response = strings.TrimSpace(strings.ToLower(response))
 	if response == "" || response == "y" || response == "yes" {
-		// Configure Discord
-		if w.configureDiscord() {
-			pluginConfigs = append(pluginConfigs, plugins.PluginConfig{
-				Name:    "discord",
-				Enabled: true,
-				Config: map[string]interface{}{
-					"webhook_url": "${DISCORD_WEBHOOK_URL}",
-				},
-			})
-		}
-
-		// Configure Telegram
-		if w.configureTelegram() {
-			pluginConfigs = append(pluginConfigs, plugins.PluginConfig{
-				Name:    "telegram",
-				Enabled: true,
-				Config: map[string]interface{}{
-					"bot_token": "${TELEGRAM_BOT_TOKEN}",
-					"chat_id":   "${TELEGRAM_CHAT_ID}",
-				},
-			})
-		}
-
 		// Configure Email
 		if w.configureEmail() {
 			pluginConfigs = append(pluginConfigs, plugins.PluginConfig{
@@ -488,30 +483,6 @@ func (w *Wizard) configurePlugins() ([]plugins.PluginConfig, []plugins.AlertRule
 
 	fmt.Println()
 	return pluginConfigs, alertRules, nil
-}
-
-// configureDiscord asks user if they want to configure Discord
-func (w *Wizard) configureDiscord() bool {
-	fmt.Print("Configure Discord webhook? (y/n) [n]: ")
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		return false
-	}
-	response = strings.TrimSpace(strings.ToLower(response))
-	return response == "y" || response == "yes"
-}
-
-// configureTelegram asks user if they want to configure Telegram
-func (w *Wizard) configureTelegram() bool {
-	fmt.Print("Configure Telegram bot? (y/n) [n]: ")
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		return false
-	}
-	response = strings.TrimSpace(strings.ToLower(response))
-	return response == "y" || response == "yes"
 }
 
 // configureEmail asks user if they want to configure Email
@@ -600,6 +571,11 @@ func (w *Wizard) generateConfig(checks []monitor.CheckConfig, pluginConfigs []pl
 		return err
 	}
 
+	// Write bootstrap config file
+	if err := w.writeBootstrapConfig(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -622,18 +598,32 @@ func (w *Wizard) writeMonitorConfig(config monitor.Config) error {
 func (w *Wizard) writeEnvFile(pluginConfigs []plugins.PluginConfig, reportConfig monitor.ReportConfig) error {
 	var content strings.Builder
 	content.WriteString("# Beacon Environment Configuration\n")
-	content.WriteString("# Copy this file to .env and fill in your values\n\n")
+	content.WriteString("# Fill in your actual values below. Never commit this file with real credentials!\n\n")
+
+	// Add bootstrap/deployment environment variables
+	content.WriteString("# Bootstrap and Deployment Configuration\n")
+	content.WriteString("# These are used by 'beacon bootstrap' and 'beacon deploy'\n\n")
+	content.WriteString("# Repository URL (supports both HTTPS and SSH)\n")
+	content.WriteString("BEACON_REPO_URL=https://github.com/username/my-repo.git\n\n")
+	content.WriteString("# Authentication (choose one or both)\n")
+	content.WriteString("# Path to SSH private key (optional, for SSH URLs)\n")
+	content.WriteString("# BEACON_SSH_KEY_PATH=$HOME/.ssh/id_rsa\n\n")
+	content.WriteString("# Personal access token (optional, for HTTPS URLs)\n")
+	content.WriteString("# BEACON_GIT_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx\n\n")
+	content.WriteString("# Local deployment path\n")
+	content.WriteString("BEACON_LOCAL_PATH=$HOME/beacon/my-project\n\n")
+	content.WriteString("# Deploy command (optional)\n")
+	content.WriteString("# BEACON_DEPLOY_COMMAND=./deploy.sh\n\n")
+	content.WriteString("# Polling interval\n")
+	content.WriteString("BEACON_POLL_INTERVAL=60s\n\n")
+	content.WriteString("# HTTP server port\n")
+	content.WriteString("BEACON_PORT=8080\n\n")
 
 	// Add plugin environment variables
+	content.WriteString("# Plugin Configuration\n")
+	content.WriteString("# ====================\n\n")
 	for _, pluginConfig := range pluginConfigs {
 		switch pluginConfig.Name {
-		case "discord":
-			content.WriteString("# Discord Webhook\n")
-			content.WriteString("DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR/WEBHOOK\n\n")
-		case "telegram":
-			content.WriteString("# Telegram Bot\n")
-			content.WriteString("TELEGRAM_BOT_TOKEN=your-bot-token\n")
-			content.WriteString("TELEGRAM_CHAT_ID=your-chat-id\n\n")
 		case "email":
 			content.WriteString("# Email SMTP\n")
 			content.WriteString("SMTP_HOST=smtp.gmail.com\n")
@@ -652,6 +642,48 @@ func (w *Wizard) writeEnvFile(pluginConfigs []plugins.PluginConfig, reportConfig
 	}
 
 	return os.WriteFile(w.envPath, []byte(content.String()), 0644)
+}
+
+// writeBootstrapConfig writes a generic bootstrap configuration file
+func (w *Wizard) writeBootstrapConfig() error {
+	var content strings.Builder
+	content.WriteString("# Beacon Bootstrap Configuration\n")
+	content.WriteString("# Generated by Beacon Configuration Wizard\n")
+	content.WriteString("# \n")
+	content.WriteString("# Customize this file with your project details:\n")
+	content.WriteString("#   - repo_url: Your Git repository URL\n")
+	content.WriteString("#   - deploy_command: Command to run on deployment\n")
+	content.WriteString("#   - Authentication: SSH key or Git token\n")
+	content.WriteString("# \n")
+	content.WriteString("# Usage: beacon bootstrap myproject -f beacon.bootstrap.yml\n\n")
+
+	content.WriteString("# Project configuration\n")
+	content.WriteString("project_name: \"my-project\"  # Will be overridden by bootstrap command\n")
+	content.WriteString("repo_url: \"https://github.com/username/my-repo.git\"\n")
+	content.WriteString("local_path: \"$HOME/beacon/my-project\"\n")
+	content.WriteString("deploy_command: \"./deploy.sh\"  # Or: docker compose up --build -d\n")
+	content.WriteString("poll_interval: \"60s\"\n")
+	content.WriteString("port: \"8080\"\n\n")
+
+	content.WriteString("# Authentication (choose one or both)\n")
+	content.WriteString("# For SSH URLs:\n")
+	content.WriteString("ssh_key_path: \"$HOME/.ssh/id_rsa\"  # Path to your SSH private key\n")
+	content.WriteString("# For HTTPS URLs:\n")
+	content.WriteString("#git_token: \"ghp_xxxxxxxxxxxxxxxxxxxx\"  # GitHub Personal Access Token\n\n")
+
+	content.WriteString("# Security and environment\n")
+	content.WriteString("secure_env_path: \"$HOME/.beacon/config/projects/my-project/env\"\n")
+	content.WriteString("user: \"$USER\"  # User to run the service as\n")
+	content.WriteString("working_dir: \"$HOME/beacon/my-project\"\n")
+	content.WriteString("use_system_service: false  # Set to true for system-wide service\n")
+
+	// Create directory if it doesn't exist
+	dir := filepath.Dir(w.bootstrapPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	return os.WriteFile(w.bootstrapPath, []byte(content.String()), 0644)
 }
 
 // generateYAMLConfig creates a YAML configuration string

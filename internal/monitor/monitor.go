@@ -20,9 +20,7 @@ import (
 	"beacon/internal/errors"
 	"beacon/internal/keys"
 	"beacon/internal/plugins"
-	"beacon/internal/plugins/discord"
 	"beacon/internal/plugins/email"
-	"beacon/internal/plugins/telegram"
 	"beacon/internal/plugins/webhook"
 	"beacon/internal/ratelimit"
 	"beacon/internal/util"
@@ -298,16 +296,6 @@ func getCurrentToken(cfg *Config, keyManager *keys.KeyManager) (string, error) {
 
 // registerBuiltinPlugins registers all built-in plugins with the manager
 func registerBuiltinPlugins(manager *plugins.Manager) error {
-	// Register Discord plugin
-	if err := manager.RegisterPlugin(discord.NewDiscordPlugin()); err != nil {
-		return fmt.Errorf("failed to register Discord plugin: %w", err)
-	}
-
-	// Register Telegram plugin
-	if err := manager.RegisterPlugin(telegram.NewTelegramPlugin()); err != nil {
-		return fmt.Errorf("failed to register Telegram plugin: %w", err)
-	}
-
 	// Register Email plugin
 	if err := manager.RegisterPlugin(email.NewEmailPlugin()); err != nil {
 		return fmt.Errorf("failed to register Email plugin: %w", err)

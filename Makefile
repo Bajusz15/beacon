@@ -1,7 +1,7 @@
 .PHONY: release clean build version
 
 # Version information
-VERSION ?= $(shell git describe --tags --always --dirty)
+VERSION ?= $(shell date +%Y%m%d)-$(shell git rev-parse --short HEAD)
 COMMIT ?= $(shell git rev-parse --short HEAD)
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 BUILD_USER ?= $(shell git config user.email | sed 's/@.*//' | sed 's/[0-9]*+//' || echo "Unknown")
