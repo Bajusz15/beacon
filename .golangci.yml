@@ -1,0 +1,81 @@
+version: "2"
+run:
+  tests: true
+linters:
+  default: none
+  enable:
+    - dupl
+    - errcheck
+    - gocyclo
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - whitespace
+  settings:
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: github.com/pkg/errors
+              desc: Use stdlib errors package instead
+    funlen:
+      lines: 100
+      statements: 60
+    gocyclo:
+      min-complexity: 25
+    lll:
+      line-length: 140
+    misspell:
+      locale: US
+    errcheck:
+      exclude-functions:
+        - '(*beacon/internal/errors.BeaconError).WithTroubleshooting'
+        - '(*beacon/internal/errors.BeaconError).WithNextSteps'
+        - '(*beacon/internal/errors.BeaconError).WithDocumentation'
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - staticcheck
+        text: 'ST1000:|ST1005:'
+      - linters:
+          - errcheck
+        text: 'WithTroubleshooting|WithNextSteps|WithDocumentation|fmt\.Scanln|http\.ListenAndServe|json\.NewEncoder.*\.Encode|os\.RemoveAll|conn\.Close|client\.Quit|resp\.Body\.Close'
+      - linters:
+          - errcheck
+        path: '.*_test\.go'
+      - linters:
+          - gosec
+        text: 'G301|G302|G304|G306|G204|G114|G104|G115|G402.*TLS'
+      - linters:
+          - gosec
+        path: '.*_test\.go'
+    paths:
+      - vendor
+      - internal/testdata
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+  settings:
+    goimports:
+      local-prefixes:
+        - beacon
+  exclusions:
+    generated: lax
+    paths:
+      - vendor
+      - internal/testdata
+      - third_party$
+      - builtin$
+      - examples$

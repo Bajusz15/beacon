@@ -24,7 +24,13 @@ func StartHTTPServer(cfg *config.Config, status *state.Status) {
 			LastDeployed: deployed.Format(time.RFC3339),
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		err := json.NewEncoder(w).Encode(resp)
+		if err != nil {
+			log.Printf("[Beacon] Failed to encode status response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to encode status response"))
+			return
+		}
 	})
 
 	log.Printf("[Beacon] Status server listening on :%s\n", cfg.Port)

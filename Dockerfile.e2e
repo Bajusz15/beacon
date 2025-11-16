@@ -1,0 +1,31 @@
+FROM golang:1.24.9-alpine
+
+# Install dependencies including expect for wizard testing
+RUN apk add --no-cache git bash curl expect
+
+# Set working directory
+WORKDIR /app
+
+# Copy source code
+COPY . .
+
+# Build beacon binary
+RUN go build -o beacon cmd/beacon/main.go
+
+# Install beacon to /usr/local/bin so it's in PATH
+RUN cp beacon /usr/local/bin/beacon && chmod +x /usr/local/bin/beacon
+
+# Copy E2E test scripts
+COPY scripts/test-e2e-cli.sh /app/test-e2e-cli.sh
+COPY scripts/git-http-server.sh /app/git-http-server.sh
+RUN chmod +x /app/test-e2e-cli.sh /app/git-http-server.sh
+
+# Set environment variables
+ENV CI=true
+ENV BEACON_E2E_TEST=1
+
+# Expose Git HTTP server port
+EXPOSE 8080
+
+# Run the E2E test
+CMD ["/app/test-e2e-cli.sh"]

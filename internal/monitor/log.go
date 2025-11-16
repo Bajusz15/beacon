@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"beacon/internal/util"
 	"bufio"
 	"context"
 	"crypto/sha256"
@@ -230,7 +231,7 @@ func (lm *LogManager) runFileLogCollection(collector *LogCollector) {
 		lm.runFileLogCollectionWithTail(collector)
 		return
 	}
-	defer file.Close()
+	defer util.DeferClose(file, "log file")()
 
 	collector.fileHandle = file
 
@@ -241,11 +242,12 @@ func (lm *LogManager) runFileLogCollection(collector *LogCollector) {
 		lm.runFileLogCollectionWithTail(collector)
 		return
 	}
-	collector.lastPosition = stat.Size()
 
-	// If following file, start from the end
+	// If following file, start from the end; otherwise start from beginning
 	if source.FollowFile {
 		collector.lastPosition = stat.Size()
+	} else {
+		collector.lastPosition = 0 // Start from beginning to read existing content
 	}
 
 	log.Printf("[Beacon] Using direct file access for %s", source.FilePath)
@@ -343,7 +345,7 @@ func (lm *LogManager) canAccessFileDirectly(filePath string) bool {
 	if err != nil {
 		return false
 	}
-	file.Close()
+	util.LogError(file.Close(), "close log file")
 	return true
 }
 
@@ -870,7 +872,7 @@ func (lm *LogManager) reportLogs(logs []LogEntry) {
 		log.Printf("[Beacon] Failed to send logs report: %v", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer util.DeferClose(resp.Body, "HTTP response body")()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		log.Printf("[Beacon] Successfully reported %d log entries", len(logs))

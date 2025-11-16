@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"beacon/internal/util"
+
 	"golang.org/x/term"
 )
 
@@ -18,12 +20,22 @@ type Config struct {
 	Port          string
 	SSHKeyPath    string
 	GitToken      string
+	GitTokenName  string // Name of stored Git token
 	DeployCommand string
 	SecureEnvPath string // Path to secure environment file for deploy command
 	ProjectDir    string
 }
 
 func Load() *Config {
+	// First, check if BEACON_SECURE_ENV_PATH is set in environment (from systemd or bootstrap env file)
+	// If it is, load the secure env file before reading other config values
+	secureEnvPath := os.Getenv("BEACON_SECURE_ENV_PATH")
+	if secureEnvPath != "" {
+		secureEnvPath = os.ExpandEnv(secureEnvPath)
+		if err := util.LoadEnvFile(secureEnvPath); err != nil {
+			fmt.Fprintf(os.Stderr, "[Beacon] Warning: Failed to load secure environment file %s: %v\n", secureEnvPath, err)
+		}
+	}
 
 	cfg := &Config{
 		RepoURL:       getEnvOrPrompt("BEACON_REPO_URL", "Enter the Git repo URL", "https://github.com/yourusername/yourrepo.git"),
@@ -33,7 +45,7 @@ func Load() *Config {
 		SSHKeyPath:    getEnvOrPrompt("BEACON_SSH_KEY_PATH", "Enter the SSH key path (optional)", ""),
 		GitToken:      getEnvOrPrompt("BEACON_GIT_TOKEN", "Enter the Git token (optional)", ""),
 		DeployCommand: getEnvOrPrompt("BEACON_DEPLOY_CMD", "Enter the deploy command to run after update (optional)", ""),
-		SecureEnvPath: getEnvOrPrompt("BEACON_SECURE_ENV_PATH", "Enter secure environment file path (optional)", ""),
+		SecureEnvPath: getEnvOrPrompt("BEACON_SECURE_ENV_PATH", "Enter secure environment file path (optional)", "$HOME/beacon/project/.env"),
 	}
 	cfg.ProjectDir = filepath.Base(cfg.LocalPath)
 
@@ -67,7 +79,10 @@ func getEnvOrPrompt(key, prompt, defaultValue string) string {
 		} else {
 			value = defaultValue
 		}
-		os.Setenv(key, value)
+		if err := os.Setenv(key, value); err != nil {
+			fmt.Fprintf(os.Stderr, "[Beacon] Failed to set environment variable %s: %v\n", key, err)
+			os.Exit(1)
+		}
 	}
 	if value == "" {
 		value = defaultValue

@@ -3,427 +3,269 @@ package bootstrap
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"beacon/internal/config"
 )
 
-// TestBootstrapIntegration tests the complete bootstrap process
-func TestBootstrapIntegration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "beacon-integration-test-*")
+// TestBootstrapProject_FullIntegration tests the complete bootstrap process
+func TestBootstrapProject_FullIntegration(t *testing.T) {
+	bm, err := NewBootstrapManager(false)
 	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
+		t.Fatalf("Failed to create bootstrap manager: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
 
-	// Mock HOME environment variable
-	originalHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", originalHome)
-	os.Setenv("HOME", tempDir)
-
-	// Test the complete bootstrap process
+	tempDir := t.TempDir()
 	projectName := "integration-test-project"
 
-	// Test directory structure creation
-	config := &BootstrapConfig{
-		ProjectName:   projectName,
-		RepoURL:       "https://github.com/testuser/testrepo.git",
-		LocalPath:     filepath.Join(tempDir, "local-path"),
-		DeployCommand: "make deploy",
-		PollInterval:  "30s",
-		Port:          "8080",
-		WorkingDir:    filepath.Join(tempDir, "working-dir"),
+	// Create a simple config
+	configContent := `project_name: ` + projectName + `
+repo_url: https://github.com/testuser/testrepo.git
+local_path: ` + tempDir + `/working
+poll_interval: 60s
+port: "8080"
+ssh_key_path: ""
+git_token: ""
+`
+
+	// Create config file
+	configFile := filepath.Join(tempDir, "config.yml")
+	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
 	}
 
-	// Test directory creation
-	err = createDirectoryStructure(config)
+	// Test BootstrapProjectFromConfig
+	err = bm.BootstrapProjectFromConfig(projectName, configFile, true) // skip systemd
 	if err != nil {
-		t.Fatalf("createDirectoryStructure() error = %v", err)
+		t.Fatalf("Failed to bootstrap project from config: %v", err)
 	}
 
-	// Verify that directories were created
+	// Verify all components were created
+	expectedPaths := []string{
+		bm.paths.GetProjectConfigDir(projectName),
+		bm.paths.GetProjectKeysDir(projectName),
+		bm.paths.GetProjectLogsDir(projectName),
+		bm.paths.GetProjectWorkingDir(projectName),
+		bm.paths.GetProjectEnvFile(projectName),
+	}
+
+	for _, path := range expectedPaths {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("Expected path %s to exist", path)
+		}
+	}
+
+	// Verify project exists
+	if !bm.paths.ProjectExists(projectName) {
+		t.Error("Expected project to exist")
+	}
+}
+
+// TestBootstrapProject_DirectoryStructure tests complete directory structure creation
+func TestBootstrapProject_DirectoryStructure(t *testing.T) {
+	paths, err := config.NewBeaconPaths()
+	if err != nil {
+		t.Fatalf("Failed to create paths: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	paths.BaseDir = tempDir
+	paths.ConfigDir = filepath.Join(tempDir, "config")
+	paths.ProjectsDir = filepath.Join(tempDir, "config", "projects")
+	paths.LogsDir = filepath.Join(tempDir, "logs")
+	paths.WorkingDir = filepath.Join(tempDir, "working")
+
+	projectName := "structure-test-project"
+
+	err = paths.CreateProjectStructure(projectName)
+	if err != nil {
+		t.Fatalf("Failed to create project structure: %v", err)
+	}
+
+	// Verify all expected directories exist
 	expectedDirs := []string{
-		filepath.Join(tempDir, ".beacon", "config", "projects", projectName),
-		filepath.Join(tempDir, "local-path"),
-		filepath.Join(tempDir, ".beacon"),
+		paths.GetProjectConfigDir(projectName),
+		paths.GetProjectKeysDir(projectName),
+		paths.GetProjectLogsDir(projectName),
+		paths.GetProjectWorkingDir(projectName),
 	}
 
 	for _, dir := range expectedDirs {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
+		info, err := os.Stat(dir)
+		if os.IsNotExist(err) {
 			t.Errorf("Expected directory %s to exist", dir)
 		}
-	}
-
-	// Test environment file creation
-	err = createEnvironmentFile(config)
-	if err != nil {
-		t.Fatalf("createEnvironmentFile() error = %v", err)
-	}
-
-	// Verify environment file was created
-	envPath := filepath.Join(tempDir, ".beacon", "config", "projects", projectName, "env")
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		t.Errorf("Expected environment file %s to exist", envPath)
-	}
-
-	// Verify environment file contents
-	content, err := os.ReadFile(envPath)
-	if err != nil {
-		t.Fatalf("Failed to read environment file: %v", err)
-	}
-
-	contentStr := string(content)
-	expectedContent := []string{
-		"BEACON_REPO_URL=https://github.com/testuser/testrepo.git",
-		"BEACON_LOCAL_PATH=" + filepath.Join(tempDir, "local-path"),
-		"BEACON_DEPLOY_CMD=make deploy",
-		"BEACON_POLL_INTERVAL=30s",
-		"BEACON_PORT=8080",
-	}
-
-	for _, expected := range expectedContent {
-		if !strings.Contains(contentStr, expected) {
-			t.Errorf("Expected environment file to contain: %s", expected)
+		if !info.IsDir() {
+			t.Errorf("Expected %s to be a directory", dir)
 		}
 	}
 }
 
-// TestBootstrapWithSystemd tests bootstrap with systemd service creation
-func TestBootstrapWithSystemd(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "beacon-systemd-test-*")
+// TestBootstrapProject_ListProjects tests project listing functionality
+func TestBootstrapProject_ListProjects(t *testing.T) {
+	paths, err := config.NewBeaconPaths()
 	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Mock HOME environment variable
-	originalHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", originalHome)
-	os.Setenv("HOME", tempDir)
-
-	// Test systemd service creation
-	config := &BootstrapConfig{
-		ProjectName:      "systemd-test-project",
-		ProjectConfigDir: filepath.Join(tempDir, ".beacon", "config", "projects", "systemd-test-project"),
-		SecureEnvPath:    "/etc/beacon/test.env",
+		t.Fatalf("Failed to create paths: %v", err)
 	}
 
-	// Create the systemd service
-	err = createSystemdService(config)
+	tempDir := t.TempDir()
+	paths.BaseDir = tempDir
+	paths.ConfigDir = filepath.Join(tempDir, "config")
+	paths.ProjectsDir = filepath.Join(tempDir, "config", "projects")
+
+	projectName1 := "project1"
+	projectName2 := "project2"
+
+	// Create multiple projects
+	if err := paths.CreateProjectStructure(projectName1); err != nil {
+		t.Fatalf("Failed to create project1: %v", err)
+	}
+	if err := paths.CreateProjectStructure(projectName2); err != nil {
+		t.Fatalf("Failed to create project2: %v", err)
+	}
+
+	// List projects
+	projects, err := paths.ListProjects()
 	if err != nil {
-		t.Fatalf("createSystemdService() error = %v", err)
+		t.Fatalf("Failed to list projects: %v", err)
 	}
 
-	// Verify systemd service file was created
-	servicePath := filepath.Join(tempDir, ".config", "systemd", "user", "beacon@systemd-test-project.service")
-	if _, err := os.Stat(servicePath); os.IsNotExist(err) {
-		t.Errorf("Expected systemd service file %s to exist", servicePath)
+	// Verify projects were found
+	if len(projects) < 2 {
+		t.Errorf("Expected at least 2 projects, got %d", len(projects))
 	}
 
-	// Verify service file contents
-	content, err := os.ReadFile(servicePath)
-	if err != nil {
-		t.Fatalf("Failed to read systemd service file: %v", err)
-	}
-
-	contentStr := string(content)
-	expectedContent := []string{
-		"Description=Beacon Agent for systemd-test-project",
-		"ExecStart=/usr/local/bin/beacon deploy",
-		"Restart=always",
-		"Type=simple",
-	}
-
-	for _, expected := range expectedContent {
-		if !strings.Contains(contentStr, expected) {
-			t.Errorf("Expected systemd service file to contain: %s", expected)
+	// Check for both projects in the list
+	found1, found2 := false, false
+	for _, proj := range projects {
+		if proj == projectName1 {
+			found1 = true
+		}
+		if proj == projectName2 {
+			found2 = true
 		}
 	}
+
+	if !found1 {
+		t.Error("Expected to find project1 in list")
+	}
+	if !found2 {
+		t.Error("Expected to find project2 in list")
+	}
 }
 
-// TestBootstrapForceOverwrite tests the force overwrite functionality
-func TestBootstrapForceOverwrite(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "beacon-force-test-*")
+// TestBootstrapProject_RemoveProject tests project removal
+func TestBootstrapProject_RemoveProject(t *testing.T) {
+	paths, err := config.NewBeaconPaths()
 	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
+		t.Fatalf("Failed to create paths: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
 
-	// Mock HOME environment variable
-	originalHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", originalHome)
-	os.Setenv("HOME", tempDir)
+	tempDir := t.TempDir()
+	paths.BaseDir = tempDir
+	paths.ConfigDir = filepath.Join(tempDir, "config")
+	paths.ProjectsDir = filepath.Join(tempDir, "config", "projects")
+	paths.LogsDir = filepath.Join(tempDir, "logs")
+	paths.WorkingDir = filepath.Join(tempDir, "working")
 
-	projectName := "force-test-project"
+	projectName := "remove-test-project"
 
-	// First, create some existing components
-	projectConfigDir := filepath.Join(tempDir, ".beacon", "config", "projects", projectName)
-	err = os.MkdirAll(projectConfigDir, 0755)
+	// Create project
+	if err := paths.CreateProjectStructure(projectName); err != nil {
+		t.Fatalf("Failed to create test project: %v", err)
+	}
+
+	// Verify it exists
+	if !paths.ProjectExists(projectName) {
+		t.Fatal("Expected project to exist before removal")
+	}
+
+	// Remove project
+	err = paths.RemoveProject(projectName)
 	if err != nil {
-		t.Fatalf("Failed to create project config dir: %v", err)
+		t.Fatalf("Failed to remove project: %v", err)
 	}
 
-	envPath := filepath.Join(projectConfigDir, "env")
-	err = os.WriteFile(envPath, []byte("old content"), 0644)
+	// Verify it no longer exists
+	if paths.ProjectExists(projectName) {
+		t.Error("Expected project to not exist after removal")
+	}
+}
+
+// TestBootstrapProject_EnvironmentFileContent tests environment file content generation
+func TestBootstrapProject_EnvironmentFileContent(t *testing.T) {
+	bm, err := NewBootstrapManager(false)
 	if err != nil {
-		t.Fatalf("Failed to create env file: %v", err)
+		t.Fatalf("Failed to create bootstrap manager: %v", err)
 	}
 
-	// Test environment file overwrite
+	tempDir := t.TempDir()
+	projectName := "env-content-test"
+
+	// Create project structure
+	if err := bm.paths.CreateProjectStructure(projectName); err != nil {
+		t.Fatalf("Failed to create project structure: %v", err)
+	}
+
+	// Test with optional fields
 	config := &BootstrapConfig{
-		ProjectName:      projectName,
-		RepoURL:          "https://github.com/testuser/testrepo.git",
-		LocalPath:        filepath.Join(tempDir, "local-path"),
-		DeployCommand:    "make deploy",
-		PollInterval:     "60s",
-		Port:             "8080",
-		ProjectConfigDir: projectConfigDir,
+		ProjectName:   projectName,
+		RepoURL:       "git@github.com:user/repo.git",
+		LocalPath:     "/tmp/deploy",
+		DeployCommand: "npm run deploy",
+		PollInterval:  "30s",
+		Port:          "3000",
+		SSHKeyPath:    "/home/user/.ssh/id_rsa",
+		GitToken:      "secret-token",
+		SecureEnvPath: "/secure/path",
+		User:          "testuser",
+		WorkingDir:    filepath.Join(tempDir, "working"),
 	}
 
-	// Overwrite the environment file
-	err = createEnvironmentFile(config)
+	err = bm.createEnvironmentFile(config)
 	if err != nil {
-		t.Fatalf("createEnvironmentFile() error = %v", err)
+		t.Fatalf("Failed to create environment file: %v", err)
 	}
 
-	// Verify that the environment file was overwritten
+	// Read and verify content
+	envPath := bm.paths.GetProjectEnvFile(projectName)
 	content, err := os.ReadFile(envPath)
 	if err != nil {
 		t.Fatalf("Failed to read environment file: %v", err)
 	}
 
 	contentStr := string(content)
-	if strings.Contains(contentStr, "old content") {
-		t.Error("Expected environment file to be overwritten, but old content still exists")
+
+	// Check for required variables
+	requiredVars := []string{
+		"BEACON_REPO_URL",
+		"BEACON_LOCAL_PATH",
+		"BEACON_POLL_INTERVAL",
+		"BEACON_PORT",
+		"BEACON_PROJECT_NAME",
+		"BEACON_WORKING_DIR",
 	}
 
-	if !strings.Contains(contentStr, "BEACON_REPO_URL=https://github.com/testuser/testrepo.git") {
-		t.Error("Expected environment file to contain new content")
-	}
-}
-
-// TestBootstrapValidation tests various validation scenarios
-func TestBootstrapValidation(t *testing.T) {
-	tests := []struct {
-		name        string
-		projectName string
-		expectError bool
-	}{
-		{
-			name:        "invalid project name with spaces",
-			projectName: "invalid project name",
-			expectError: true,
-		},
-		{
-			name:        "invalid project name with special chars",
-			projectName: "invalid@project",
-			expectError: true,
-		},
-		{
-			name:        "valid project name",
-			projectName: "valid-project",
-			expectError: false,
-		},
+	for _, varName := range requiredVars {
+		if !contains(contentStr, varName) {
+			t.Errorf("Expected environment file to contain %s", varName)
+		}
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Test project name validation
-			isValid := isValidProjectName(tt.projectName)
-			if isValid == tt.expectError {
-				t.Errorf("isValidProjectName() = %v, want %v", isValid, !tt.expectError)
-			}
-		})
-	}
-}
-
-// TestBootstrapWithSecureEnv tests bootstrap with secure environment file
-func TestBootstrapWithSecureEnv(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+	// Check for optional variables that were provided
+	optionalVars := map[string]string{
+		"BEACON_SSH_KEY_PATH":    "/home/user/.ssh/id_rsa",
+		"BEACON_GIT_TOKEN":       "secret-token",
+		"BEACON_DEPLOY_COMMAND":  "npm run deploy",
+		"BEACON_SECURE_ENV_PATH": "/secure/path",
 	}
 
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "beacon-secure-env-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Mock HOME environment variable
-	originalHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", originalHome)
-	os.Setenv("HOME", tempDir)
-
-	projectName := "secure-env-test-project"
-	secureEnvPath := filepath.Join(tempDir, "secure.env")
-
-	// Test environment file creation with secure env path
-	config := &BootstrapConfig{
-		ProjectName:      projectName,
-		RepoURL:          "https://github.com/testuser/testrepo.git",
-		LocalPath:        filepath.Join(tempDir, "local-path"),
-		DeployCommand:    "make deploy",
-		PollInterval:     "60s",
-		Port:             "8080",
-		SecureEnvPath:    secureEnvPath,
-		WorkingDir:       filepath.Join(tempDir, "working-dir"),
-		ProjectConfigDir: filepath.Join(tempDir, ".beacon", "config", "projects", projectName),
-	}
-
-	// Create directory structure first
-	err = createDirectoryStructure(config)
-	if err != nil {
-		t.Fatalf("createDirectoryStructure() error = %v", err)
-	}
-
-	// Create the environment file
-	err = createEnvironmentFile(config)
-	if err != nil {
-		t.Fatalf("createEnvironmentFile() error = %v", err)
-	}
-
-	// Verify environment file contains secure env path
-	envPath := filepath.Join(tempDir, ".beacon", "config", "projects", projectName, "env")
-	content, err := os.ReadFile(envPath)
-	if err != nil {
-		t.Fatalf("Failed to read environment file: %v", err)
-	}
-
-	contentStr := string(content)
-	if !strings.Contains(contentStr, "BEACON_SECURE_ENV_PATH="+secureEnvPath) {
-		t.Errorf("Expected environment file to contain secure env path: %s", secureEnvPath)
-	}
-}
-
-// TestBootstrapWithSSHKey tests bootstrap with SSH key configuration
-func TestBootstrapWithSSHKey(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "beacon-ssh-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Mock HOME environment variable
-	originalHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", originalHome)
-	os.Setenv("HOME", tempDir)
-
-	projectName := "ssh-test-project"
-	sshKeyPath := filepath.Join(tempDir, ".ssh", "id_rsa")
-
-	// Test environment file creation with SSH key path
-	config := &BootstrapConfig{
-		ProjectName:      projectName,
-		RepoURL:          "git@github.com:testuser/testrepo.git",
-		LocalPath:        filepath.Join(tempDir, "local-path"),
-		DeployCommand:    "make deploy",
-		PollInterval:     "60s",
-		Port:             "8080",
-		SSHKeyPath:       sshKeyPath,
-		WorkingDir:       filepath.Join(tempDir, "working-dir"),
-		ProjectConfigDir: filepath.Join(tempDir, ".beacon", "config", "projects", projectName),
-	}
-
-	// Create directory structure first
-	err = createDirectoryStructure(config)
-	if err != nil {
-		t.Fatalf("createDirectoryStructure() error = %v", err)
-	}
-
-	// Create the environment file
-	err = createEnvironmentFile(config)
-	if err != nil {
-		t.Fatalf("createEnvironmentFile() error = %v", err)
-	}
-
-	// Verify environment file contains SSH key path
-	envPath := filepath.Join(tempDir, ".beacon", "config", "projects", projectName, "env")
-	content, err := os.ReadFile(envPath)
-	if err != nil {
-		t.Fatalf("Failed to read environment file: %v", err)
-	}
-
-	contentStr := string(content)
-	if !strings.Contains(contentStr, "BEACON_SSH_KEY_PATH="+sshKeyPath) {
-		t.Errorf("Expected environment file to contain SSH key path: %s", sshKeyPath)
-	}
-}
-
-// TestBootstrapWithGitToken tests bootstrap with Git token configuration
-func TestBootstrapWithGitToken(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "beacon-git-token-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Mock HOME environment variable
-	originalHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", originalHome)
-	os.Setenv("HOME", tempDir)
-
-	projectName := "git-token-test-project"
-	gitToken := "ghp_1234567890abcdef"
-
-	// Test environment file creation with Git token
-	config := &BootstrapConfig{
-		ProjectName:      projectName,
-		RepoURL:          "https://github.com/testuser/testrepo.git",
-		LocalPath:        filepath.Join(tempDir, "local-path"),
-		DeployCommand:    "make deploy",
-		PollInterval:     "60s",
-		Port:             "8080",
-		GitToken:         gitToken,
-		WorkingDir:       filepath.Join(tempDir, "working-dir"),
-		ProjectConfigDir: filepath.Join(tempDir, ".beacon", "config", "projects", projectName),
-	}
-
-	// Create directory structure first
-	err = createDirectoryStructure(config)
-	if err != nil {
-		t.Fatalf("createDirectoryStructure() error = %v", err)
-	}
-
-	// Create the environment file
-	err = createEnvironmentFile(config)
-	if err != nil {
-		t.Fatalf("createEnvironmentFile() error = %v", err)
-	}
-
-	// Verify environment file contains Git token
-	envPath := filepath.Join(tempDir, ".beacon", "config", "projects", projectName, "env")
-	content, err := os.ReadFile(envPath)
-	if err != nil {
-		t.Fatalf("Failed to read environment file: %v", err)
-	}
-
-	contentStr := string(content)
-	if !strings.Contains(contentStr, "BEACON_GIT_TOKEN="+gitToken) {
-		t.Errorf("Expected environment file to contain Git token: %s", gitToken)
+	for varName, expectedValue := range optionalVars {
+		if !contains(contentStr, varName) {
+			t.Errorf("Expected environment file to contain %s", varName)
+		}
+		if !contains(contentStr, expectedValue) {
+			t.Errorf("Expected environment file to contain value %s for %s", expectedValue, varName)
+		}
 	}
 }

@@ -9,6 +9,7 @@ release/
 *.so
 *.dylib
 # Beacon binary
+beacon
 beacon-linux_amd64
 beacon-linux_arm64
 beacon-linux_arm
