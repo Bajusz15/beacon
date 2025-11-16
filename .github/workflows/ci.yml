@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.24.6]
+        go-version: [1.24.9]
     
     steps:
     - uses: actions/checkout@v4
@@ -33,11 +33,11 @@ jobs:
       run: go test -v -race -coverprofile=coverage.out ./...
     
     - name: Generate coverage report
-      if: matrix.go-version == '1.24.6'
+      if: matrix.go-version == '1.24.9'
       run: go tool cover -html=coverage.out -o coverage.html
     
     - name: Upload coverage to Codecov
-      if: matrix.go-version == '1.24.6'
+      if: matrix.go-version == '1.24.9'
       uses: codecov/codecov-action@v4
       with:
         file: ./coverage.out
@@ -47,7 +47,7 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
     
     - name: Upload coverage report
-      if: matrix.go-version == '1.24.6'
+      if: matrix.go-version == '1.24.9'
       uses: actions/upload-artifact@v4
       with:
         name: coverage-report
@@ -64,7 +64,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24.6'
+        go-version: '1.24.9'
         cache: true
     
     - name: Build Linux AMD64
@@ -109,7 +109,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24.6'
+        go-version: '1.24.9'
         cache: true
     
     - name: golangci-lint
@@ -133,7 +133,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24.6'
+        go-version: '1.24.9'
         cache: true
     
     - name: Download build artifacts
