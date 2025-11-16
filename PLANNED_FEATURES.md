@@ -150,12 +150,6 @@ plugins:
 
 ### 10. Community Infrastructure
 
-**Create Discord server:**
-
-- Channels: #general, #support, #showcase, #development
-- Bot for issue notifications
-- Community guidelines
-
 **GitHub Discussions:**
 
 - Enable Discussions on repo
@@ -186,42 +180,8 @@ plugins:
 **Integration guides:**
 
 - Home Assistant integration
-- Grafana dashboard templates
 - Prometheus exporter setup
 - Docker Compose examples
-
-## Breaking Changes & Migration
-
-### Version 2.0 Changes
-
-**Configuration schema changes:**
-
-- Add `plugins:` section (new)
-- Deprecate `alert_command` in favor of plugins
-- Add `alert_rules:` for threshold-based alerting
-
-**Migration guide:**
-
-```yaml
-# Old (v1.x)
-checks:
-  - name: "Web"
-    alert_command: "curl https://hooks.slack.com/..."
-
-# New (v2.0)
-checks:
-  - name: "Web"
-    # No alert_command needed
-
-plugins:
-  - name: slack
-    webhook_url: "https://hooks.slack.com/..."
-
-alert_rules:
-  - check: "Web"
-    severity: critical
-    plugins: ["slack", "email"]
-```
 
 ## Implementation Order
 
