@@ -234,7 +234,7 @@ func (sam *SimpleAlertManager) sendEmailAlert(recipients []string, context Alert
 	return nil
 }
 
-	func (sam *SimpleAlertManager) sendSlackAlert(recipients []string, context AlertContext) error {
+func (sam *SimpleAlertManager) sendSlackAlert(recipients []string, context AlertContext) error {
 	fmt.Printf("[ALERT] 💬 Slack alert to %v: %s (%s)\n", recipients, context.Message, context.Severity)
 	return nil
 }

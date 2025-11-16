@@ -16,7 +16,7 @@ func LoadEnvFile(filePath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open env file: %w", err)
 	}
-	defer file.Close()
+	defer DeferClose(file, "env file")()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -48,7 +48,9 @@ func LoadEnvFile(filePath string) error {
 		value = os.ExpandEnv(value)
 
 		// Set environment variable (secure env file overrides bootstrap env file)
-		os.Setenv(key, value)
+		if err := os.Setenv(key, value); err != nil {
+			return fmt.Errorf("failed to set environment variable %s: %w", key, err)
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
