@@ -1,7 +1,7 @@
 FROM golang:1.24.9-alpine
 
 # Install dependencies including expect for wizard testing
-RUN apk add --no-cache git bash curl expect
+RUN apk add --no-cache git bash curl expect docker-cli
 
 # Set working directory
 WORKDIR /app
@@ -17,8 +17,9 @@ RUN cp beacon /usr/local/bin/beacon && chmod +x /usr/local/bin/beacon
 
 # Copy E2E test scripts
 COPY scripts/test-e2e-cli.sh /app/test-e2e-cli.sh
+COPY scripts/test-e2e-docker.sh /app/test-e2e-docker.sh
 COPY scripts/git-http-server.sh /app/git-http-server.sh
-RUN chmod +x /app/test-e2e-cli.sh /app/git-http-server.sh
+RUN chmod +x /app/test-e2e-cli.sh /app/test-e2e-docker.sh /app/git-http-server.sh
 
 # Set environment variables
 ENV CI=true
@@ -27,5 +28,5 @@ ENV BEACON_E2E_TEST=1
 # Expose Git HTTP server port
 EXPOSE 8080
 
-# Run the E2E test
+# Default to the CLI E2E test; can be overridden by docker-compose command
 CMD ["/app/test-e2e-cli.sh"]

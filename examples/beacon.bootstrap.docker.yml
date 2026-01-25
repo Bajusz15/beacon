@@ -1,0 +1,69 @@
+# Beacon Bootstrap Configuration Example - Docker Registry Deployment
+# This file can be used with: beacon bootstrap myproject -f examples/beacon.bootstrap.docker.yml
+
+# Project configuration
+project_name: "my-docker-app"
+deployment_type: "docker"  # Use Docker registry instead of Git
+
+# Docker images configuration (array of images to monitor individually)
+docker_images:
+  # Example 1: Single image with Docker Compose (single file)
+  - image: "username/web-app"
+    registry: "docker.io"  # Optional, auto-detected
+    deploy_command: "docker compose up -d"
+    docker_compose_files:
+      - "docker-compose.yml"  # Relative to local_path
+
+  # Example 1b: Single image with multiple Docker Compose files (base + override)
+  - image: "username/api"
+    deploy_command: "docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d"
+    docker_compose_files:
+      - "docker-compose.yml"
+      - "docker-compose.prod.yml"  # Production overrides
+
+  # Example 2: Image from GitHub Container Registry with custom command
+  - image: "ghcr.io/username/api-server"
+    registry: "ghcr.io"
+    username: "myusername"  # Optional, for private registries
+    password: "mypassword"  # Optional, for private registries
+    deploy_command: "docker stop api && docker rm api && docker run -d --name api -p 8080:8080 ${BEACON_DOCKER_IMAGE}"
+
+  # Example 3: Image with Docker Compose service update (using environment variable)
+  - image: "username/worker"
+    deploy_command: "docker compose -f ${BEACON_DOCKER_COMPOSE_FILES// / -f } pull worker && docker compose -f ${BEACON_DOCKER_COMPOSE_FILES// / -f } up -d worker"
+    docker_compose_files:
+      - "docker-compose.yml"
+      - "docker-compose.workers.yml"
+
+  # Example 4: Private registry with token authentication
+  - image: "registry.example.com/namespace/app"
+    registry: "registry.example.com"
+    token: "mytoken"  # Alternative to username/password
+    deploy_command: "./deploy.sh ${BEACON_DOCKER_IMAGE}"
+
+# Common configuration
+local_path: "$HOME/beacon/my-docker-app"
+poll_interval: "60s"
+port: "8080"
+
+# Security and environment
+secure_env_path: "/etc/beacon/my-docker-app.env"
+user: "deploy-user"
+working_dir: "$HOME/beacon/my-docker-app"
+use_system_service: false  # Set to true for system-wide service
+
+# Notes:
+# - Images are monitored independently for new tags
+# - When a new tag is found for an image, only that image's deploy_command is executed
+# - Environment variables available in deploy commands:
+#   - BEACON_DOCKER_IMAGE: Full image name with tag (e.g., "username/app:v1.2.3")
+#   - BEACON_DOCKER_TAG: Just the tag (e.g., "v1.2.3")
+#   - BEACON_DOCKER_COMPOSE_FILES: Space-separated list of all compose files
+# - For Docker Compose deployments, ensure compose files exist in local_path
+# - The deploy command runs from the directory containing the first compose file
+# - Multiple compose files are useful for:
+#   * Base + Override: docker-compose.yml + docker-compose.override.yml
+#   * Environment-specific: docker-compose.yml + docker-compose.prod.yml
+#   * Service separation: docker-compose.web.yml + docker-compose.worker.yml
+# - Use docker compose -f file1.yml -f file2.yml ... to use multiple files
+

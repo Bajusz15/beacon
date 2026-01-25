@@ -1,0 +1,400 @@
+# Beacon Comprehensive Monitoring Configuration Example
+# This file demonstrates all monitoring, metrics, and log forwarding features
+
+# Device configuration  
+device:
+  name: "My Raspberry Pi"
+  location: "Living room"
+  tags: ["raspberry-pi", "homelab", "monitor"]
+  environment: "production"
+
+# Health checks (HTTP, port, command)
+checks:
+  # HTTP endpoint monitoring
+  - name: "Homepage"
+    type: http
+    url: https://example.com
+    interval: 30s
+    alert_command: "curl -X POST https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK -d '{\"text\":\"🚨 Website is down! Check: $BEACON_CHECK_NAME, Error: $BEACON_CHECK_ERROR\"}'"
+
+  - name: "API Health"
+    type: http
+    url: https://api.example.com/health
+    interval: 60s
+    alert_command: "echo 'API is down!' | mail -s 'Alert: API Down' admin@example.com"
+
+  # Port connectivity checks
+  - name: "Database Port"
+    type: port
+    host: 127.0.0.1
+    port: 5432
+    interval: 60s
+    alert_command: "curl -X POST ${WEBHOOK_URL} -H 'Content-Type: application/json' -d '{\"text\":\"Database connection failed on $BEACON_DEVICE_NAME\"}'"
+
+  - name: "Redis Port"
+    type: port
+    host: 127.0.0.1
+    port: 6379
+    interval: 60s
+    alert_command: "logger -p local0.err 'Redis port check failed on $BEACON_DEVICE_NAME'"
+
+  # Command-based checks with alert_command
+  - name: "Disk Space"
+    type: command
+    command: "df -h / | awk 'NR==2 {print $5}' | sed 's/%//'"
+    interval: 60s
+    alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 90 ]; then curl -X POST ${WEBHOOK_URL} -H 'Content-Type: application/json' -d '{\"text\":\"Disk space critical: $BEACON_CHECK_OUTPUT%\"}'; fi"
+
+  - name: "Process Check"
+    type: command
+    command: "pgrep nginx > /dev/null && echo 'running' || echo 'stopped'"
+    interval: 60s
+    alert_command: "if [ '$BEACON_CHECK_OUTPUT' = 'stopped' ]; then curl -X POST ${WEBHOOK_URL} -H 'Content-Type: application/json' -d '{\"text\":\"Nginx is down!\"}'; fi"
+
+  - name: "Memory Usage"
+    type: command
+    command: "free | awk 'NR==2{printf \"%.0f\", $3*100/$2}'"
+    interval: 30s
+    alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 85 ]; then echo 'Memory usage high: $BEACON_CHECK_OUTPUT%' | mail -s 'Memory Alert' admin@example.com; fi"
+
+  - name: "Log File Size"
+    type: command
+    command: "du -m /var/log/syslog | cut -f1"
+    interval: 300s
+    alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 100 ]; then echo 'Log file size: ${BEACON_CHECK_OUTPUT}MB' | logger -t beacon-alert; fi"
+
+# System metrics collection
+system_metrics:
+  enabled: true
+  interval: 60s
+  cpu: true
+  memory: true
+  disk: true
+  load_average: true
+  disk_path: "/"
+
+# Alert Commands (Legacy but still supported)
+# For command-type checks, alert_command always runs regardless of check status
+# Available variables in alert commands:
+#   $BEACON_CHECK_NAME     - Name of the check
+#   $BEACON_CHECK_TYPE     - Type of check (command, http, port)
+#   $BEACON_CHECK_STATUS   - Status (up, down, error)
+#   $BEACON_CHECK_OUTPUT   - Command output (for command checks only)
+#   $BEACON_CHECK_ERROR    - Error message if any
+#   $BEACON_CHECK_DURATION - Check duration in seconds
+#   $BEACON_DEVICE_NAME    - Device name
+#
+# Example alert commands:
+#   - Send to Webhook: "curl -X POST ${WEBHOOK_URL} -H 'Content-Type: application/json' -d '{\"text\":\"$BEACON_CHECK_NAME: $BEACON_CHECK_STATUS\"}'"
+#   - Send email: "echo 'Check $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS' | mail -s 'Beacon Alert' admin@example.com"
+#   - Log to syslog: "logger -p local0.err 'Beacon Alert: $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS'"
+
+# Plugin configuration for alerts (Modern approach)
+plugins:
+  # SMTP email plugin
+  - name: email
+    enabled: true
+    smtp_host: "smtp.gmail.com"
+    smtp_port: "587"
+    smtp_user: "${SMTP_USER}"
+    smtp_pass: "${SMTP_PASSWORD}"
+    from: "beacon@example.com"
+    to: ["admin@example.com"]
+    use_tls: true
+  
+  # Generic webhook plugin
+  - name: webhook
+    enabled: true
+    url: "${WEBHOOK_URL}"
+    method: "POST"
+    content_type: "application/json"
+    headers:
+      Authorization: "Bearer ${WEBHOOK_TOKEN}"
+      X-Custom-Header: "Beacon-Alert"
+    template: |
+      {
+        "alert": {
+          "title": "{{.Title}}",
+          "message": "{{.Message}}",
+          "severity": "{{.Severity}}",
+          "device": "{{.Device.Name}}",
+          "check": "{{.Check.Name}}",
+          "status": "{{.Check.Status}}"
+        }
+      }
+
+# Alert rules - define when and how alerts are sent
+alert_rules:
+  # Critical alerts - send to all channels
+  - check: "Homepage"
+    severity: critical
+    plugins: ["email", "webhook"]
+    cooldown: "5m"
+  
+  # Warning alerts - send to webhook only
+  - check: "API Health"
+    severity: warning
+    plugins: ["webhook"]
+    cooldown: "10m"
+  
+  # Database alerts - email only
+  - check: "Database Port"
+    severity: critical
+    plugins: ["email"]
+    cooldown: "15m"
+
+# Comprehensive Log Sources Configuration
+log_sources:
+  # 1. FILE-BASED LOG FORWARDING
+  # Monitor application log files
+  - name: "Application Logs"
+    type: file
+    enabled: true
+    file_path: "/var/log/myapp/app.log"
+    follow_file: true
+    interval: 30s
+    max_lines: 100
+    deduplicate: true  # Enable deduplication for this source
+    include_patterns:
+      - "ERROR"
+      - "WARN" 
+      - "FATAL"
+    exclude_patterns:
+      - "DEBUG.*noise"
+
+  - name: "Nginx Access Logs"
+    type: file
+    enabled: true
+    file_path: "/var/log/nginx/access.log"
+    follow_file: true
+    interval: 60s
+    max_lines: 50
+    exclude_patterns:
+      - "GET.*\\.(css|js|png|jpg|ico)"  # Exclude static assets
+
+  - name: "Nginx Error Logs"
+    type: file
+    enabled: true
+    file_path: "/var/log/nginx/error.log"
+    follow_file: true
+    interval: 30s
+    max_lines: 50
+
+  # 2. DOCKER LOG FORWARDING
+  # Monitor specific containers
+  - name: "Web Container Logs"
+    type: docker
+    enabled: false
+    containers: ["myapp-web", "myapp-api"]
+    interval: 30s
+    max_lines: 50
+    docker_options: "--since 5m"
+    exclude_patterns:
+      - "health.*check"
+
+  # Monitor ALL running containers
+  - name: "All Docker Logs"
+    type: docker
+    enabled: true  # Disabled by default to avoid noise
+    all_containers: true
+    interval: 60s
+    max_lines: 20
+    deduplicate: true  # Enable deduplication for Docker logs
+    docker_options: "--since 2m"
+    include_patterns:
+      - "ERROR"
+      - "FATAL"
+      - "PANIC"
+
+
+  # 3. DEPLOY LOG FORWARDING
+  # Capture deployment command output to a file
+  - name: "Deploy Logs"
+    type: deploy
+    enabled: true
+    deploy_log_file: "/tmp/beacon-deploy.log"
+    interval: 60s
+    max_lines: 200
+
+  # 4. COMMAND-BASED LOG FORWARDING
+  # System logs via journalctl
+  - name: "System Logs"
+    type: command
+    enabled: true
+    command: "journalctl --since '10 minutes ago' --no-pager -n 50 -p err"
+    interval: 300s  # Every 5 minutes
+    max_lines: 50
+
+  # Application service logs
+  - name: "Application Service"
+    type: command
+    enabled: true
+    command: "journalctl -u myapp.service --since '5 minutes ago' --no-pager -n 30"
+    interval: 180s
+    max_lines: 30
+
+
+  - name: "Disk Usage Alerts"
+    type: command
+    enabled: true
+    command: "df -h | awk '$5 > 80 {print $0}'"  # Report filesystems > 80% full
+    interval: 1800s  # Every 30 minutes
+    max_lines: 10
+
+  # Docker system information
+  - name: "Docker System Info"
+    type: command
+    enabled: true
+    command: "docker system df && echo '---' && docker ps --format 'table {{.Names}}\t{{.Status}}'"
+    interval: 600s
+    max_lines: 50
+
+# Reporting configuration
+report:
+  send_to: https://beaconwatch.dev/api
+  token: YOUR_BEACONWATCH_API_KEY
+  prometheus_metrics: true
+  prometheus_port: 9100
+  
+  # Heartbeat configuration
+  heartbeat:
+    enabled: true
+    interval: 30s
+
+# -------------------------------------------
+# DEPLOY COMMAND LOG REDIRECTION EXAMPLES
+# -------------------------------------------
+
+# When using beacon deploy, redirect output to the deploy log file:
+# 
+# Example 1: Docker Compose deployment with logging
+# BEACON_DEPLOY_CMD="docker compose up --build -d 2>&1 | tee /tmp/beacon-deploy.log"
+#
+# Example 2: Custom script with logging
+# BEACON_DEPLOY_CMD="./deploy.sh 2>&1 | tee /tmp/beacon-deploy.log"
+#
+# Example 3: Systemd service restart with logging
+# BEACON_DEPLOY_CMD="sudo systemctl restart myapp.service 2>&1 | tee /tmp/beacon-deploy.log"
+#
+# Example 4: Multi-step deployment with logging
+# BEACON_DEPLOY_CMD="{ echo 'Starting deployment...'; git pull; npm install; npm run build; pm2 restart all; echo 'Deployment complete.'; } 2>&1 | tee /tmp/beacon-deploy.log"
+
+# -------------------------------------------
+# DOCKER-SPECIFIC LOG EXAMPLES
+# -------------------------------------------
+
+# Monitor web application stack:
+# log_sources:
+#   - name: "Web Stack Logs"
+#     type: docker
+#     enabled: true
+#     containers: ["nginx", "app", "redis", "postgres"]
+#     interval: 30s
+#     max_lines: 50
+
+# Monitor all containers but filter for errors only:
+# log_sources:
+#   - name: "Docker Error Logs"
+#     type: docker
+#     enabled: true
+#     all_containers: true
+#     interval: 60s
+#     max_lines: 100
+#     include_patterns:
+#       - "(?i)(error|fatal|panic|exception|fail)"
+
+# -------------------------------------------
+# FILE LOG EXAMPLES FOR DIFFERENT APPS
+# -------------------------------------------
+
+# Laravel application logs:
+# log_sources:
+#   - name: "Laravel Logs"
+#     type: file
+#     enabled: true
+#     file_path: "/var/www/app/storage/logs/laravel.log"
+#     follow_file: true
+#     use_tail: false  # try direct file access first, fallback to tail if needed
+#     interval: 30s
+#     include_patterns:
+#       - "ERROR"
+
+# System logs (requires elevated permissions - use tail):
+# log_sources:
+#   - name: "System Logs"
+#     type: file
+#     enabled: true
+#     file_path: "/var/log/syslog"
+#     follow_file: true
+#     use_tail: true  # force tail command for permission-restricted files
+#     interval: 30s
+#     max_lines: 200
+#       - "CRITICAL"
+#       - "EMERGENCY"
+
+# Node.js PM2 logs:
+# log_sources:
+#   - name: "PM2 Error Logs"
+#     type: file
+#     enabled: true
+#     file_path: "/home/app/.pm2/logs/app-error.log"
+#     follow_file: true
+#     interval: 30s
+
+# Apache access logs with filtering:
+# log_sources:
+#   - name: "Apache Errors"
+#     type: file
+#     enabled: true
+#     file_path: "/var/log/apache2/error.log"
+#     follow_file: true
+#     interval: 60s
+#     include_patterns:
+#       - "\\[error\\]"
+#       - "\\[crit\\]"
+
+# -------------------------------------------
+# ALERT COMMAND EXAMPLES
+# -------------------------------------------
+
+# Beacon supports alert_command for each check. When a check fails, the command is executed.
+# The following environment variables are available in the alert command:
+#
+# BEACON_CHECK_NAME    - Name of the failed check
+# BEACON_CHECK_TYPE    - Type of check (http, port, command)
+# BEACON_CHECK_STATUS  - Status of the check (down, error)
+# BEACON_CHECK_ERROR   - Error message from the check
+# BEACON_CHECK_DURATION - Duration of the check in seconds
+# BEACON_DEVICE_NAME   - Name of the device running the check
+#
+# Example alert commands:
+
+# 1. Slack Webhook Alert:
+# alert_command: "curl -X POST https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK -d '{\"text\":\"🚨 $BEACON_CHECK_NAME is down on $BEACON_DEVICE_NAME: $BEACON_CHECK_ERROR\"}'"
+
+# 2. Email Alert:
+# alert_command: "echo 'Alert: $BEACON_CHECK_NAME failed on $BEACON_DEVICE_NAME' | mail -s 'Beacon Alert' admin@example.com"
+
+# 3. Webhook Alert:
+# alert_command: "curl -X POST ${WEBHOOK_URL} -H 'Content-Type: application/json' -d '{\"text\":\"Alert: $BEACON_CHECK_NAME failed\"}'"
+
+# 4. System Log Alert:
+# alert_command: "logger -p local0.err 'Beacon Alert: $BEACON_CHECK_NAME failed on $BEACON_DEVICE_NAME'"
+
+# 5. Custom Script Alert:
+# alert_command: "/usr/local/bin/my-alert-script.sh '$BEACON_CHECK_NAME' '$BEACON_CHECK_ERROR' '$BEACON_DEVICE_NAME'"
+
+# 6. Slack Webhook Alert:
+# alert_command: "curl -X POST ${SLACK_WEBHOOK_URL} -H 'Content-Type: application/json' -d '{\"text\":\"🚨 $BEACON_CHECK_NAME is down on $BEACON_DEVICE_NAME\"}'"
+
+# 7. SMS Alert (via Twilio):
+# alert_command: "curl -X POST https://api.twilio.com/2010-04-01/Accounts/YOUR_ACCOUNT/Messages.json --data-urlencode 'To=+1234567890' --data-urlencode 'From=+0987654321' --data-urlencode 'Body=Alert: $BEACON_CHECK_NAME failed' -u YOUR_ACCOUNT:YOUR_TOKEN"
+
+# 8. Auto-remediation (restart service):
+# alert_command: "systemctl restart nginx && echo 'Nginx restarted due to check failure' | logger -p local0.warn"
+
+# 9. Multiple alerts (chain commands):
+# alert_command: "curl -X POST https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK -d '{\"text\":\"Alert: $BEACON_CHECK_NAME failed\"}' && echo 'Alert sent to Slack' | logger -p local0.info"
+
+# 10. Conditional alerting (only alert on specific errors):
+# alert_command: "if [[ '$BEACON_CHECK_ERROR' == *'connection refused'* ]]; then curl -X POST https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK -d '{\"text\":\"Critical: $BEACON_CHECK_NAME connection refused\"}'; fi"

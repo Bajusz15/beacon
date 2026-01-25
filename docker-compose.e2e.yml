@@ -15,3 +15,42 @@ services:
       - "8081:8081"  # Beacon HTTP server
     # Run the e2e test script
     command: /app/test-e2e-cli.sh
+
+  beacon-e2e-docker:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    container_name: beacon-e2e-docker-test
+    depends_on:
+      - docker-dind
+      - registry
+    environment:
+      - CI=true
+      - BEACON_E2E_TEST=1
+      - DOCKER_HOST=tcp://docker-dind:2375
+      - BEACON_E2E_REGISTRY=registry:5000
+      - BEACON_E2E_SKIP_REGISTRY_START=1
+    volumes:
+      - ./test-results:/app/test-results
+    command: /app/test-e2e-docker.sh
+
+  docker-dind:
+    image: docker:24-dind
+    privileged: true
+    environment:
+      - DOCKER_TLS_CERTDIR=
+    command:
+      - dockerd-entrypoint.sh
+      - --host=tcp://0.0.0.0:2375
+      - --insecure-registry=registry:5000
+    volumes:
+      - docker-dind-storage:/var/lib/docker
+
+  registry:
+    image: registry:2
+    container_name: beacon-e2e-registry
+    ports:
+      - "5055:5000"
+
+volumes:
+  docker-dind-storage:

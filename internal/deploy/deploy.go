@@ -16,6 +16,23 @@ import (
 )
 
 func CheckForNewTag(cfg *config.Config, status *state.Status) {
+	// Determine deployment type (default to "git" for backward compatibility)
+	deploymentType := cfg.DeploymentType
+	if deploymentType == "" {
+		deploymentType = "git"
+	}
+
+	switch deploymentType {
+	case "docker":
+		CheckForNewImageTag(cfg, status)
+	case "git":
+		fallthrough
+	default:
+		CheckForNewGitTag(cfg, status)
+	}
+}
+
+func CheckForNewGitTag(cfg *config.Config, status *state.Status) {
 	// Get Git token from key manager if token name is specified
 	gitToken, err := getGitToken(cfg)
 	if err != nil {
