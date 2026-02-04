@@ -4,6 +4,8 @@
 
 **Lightweight deployment and monitoring agent for self-hosted IoT devices**
 
+Beacon is a **deployment and monitoring agent**: one binary that deploys (Git tags or Docker image polling), runs your deploy command (e.g. `docker compose up`), and monitors health. Local-first, optional SaaS; no plugin ecosystem.
+
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20-lightgrey)](https://github.com/Bajusz15/beacon/releases)
@@ -13,7 +15,7 @@
 [![Security](https://github.com/Bajusz15/beacon/workflows/CI/badge.svg?label=security)](https://github.com/Bajusz15/beacon/security)
 [![Release](https://github.com/Bajusz15/beacon/workflows/Release/badge.svg)](https://github.com/Bajusz15/beacon/releases)
 
-Beacon polls a Git repository for new tags and deploys code when a new tag appears, while providing comprehensive infrastructure monitoring and log forwarding. Future proof your IoT or self-hosted deployments with automated monitoring and deployment. 
+Beacon polls a Git repository (or Docker registry) for new tags and deploys when a new tag appears, while providing infrastructure monitoring and log forwarding. List projects and view health from the CLI (`beacon projects list`, `beacon projects status`). Future proof your IoT or self-hosted deployments with one agent. 
 
 ## 🚀 **5-Minute Quick Start**
 

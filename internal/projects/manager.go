@@ -1,12 +1,15 @@
 package projects
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"beacon/internal/config"
+	"beacon/internal/state"
 
 	"github.com/spf13/cobra"
 )
@@ -44,11 +47,14 @@ func CreateProjectCommand() *cobra.Command {
 This command provides utilities for listing, removing, and managing
 Beacon projects in a consistent way.`,
 		Example: `  beacon projects list
+  beacon projects status
+  beacon projects status myapp
   beacon projects remove myapp
   beacon projects info myapp`,
 	}
 
 	projectCmd.AddCommand(createListCommand(pm))
+	projectCmd.AddCommand(createStatusCommand(pm))
 	projectCmd.AddCommand(createRemoveCommand(pm))
 	projectCmd.AddCommand(createInfoCommand(pm))
 	projectCmd.AddCommand(createCleanCommand(pm))
@@ -110,6 +116,21 @@ func createRemoveCommand(pm *ProjectManager) *cobra.Command {
 	return cmd
 }
 
+func createStatusCommand(pm *ProjectManager) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status [project-name]",
+		Short: "Show project health status",
+		Long:  `Show check health status (up/down) from last monitor run. With no project name, show all projects.`,
+		Args:  cobra.MaximumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := pm.ShowStatus(args); err != nil {
+				fmt.Printf("❌ Failed to show status: %v\n", err)
+				return
+			}
+		},
+	}
+}
+
 func createInfoCommand(pm *ProjectManager) *cobra.Command {
 	return &cobra.Command{
 		Use:   "info [project-name]",
@@ -141,7 +162,43 @@ func createCleanCommand(pm *ProjectManager) *cobra.Command {
 	}
 }
 
-// ListProjects lists all configured projects
+// readChecksState reads ~/.beacon/state/<project>/checks.json if present
+func (pm *ProjectManager) readChecksState(projectName string) (*state.ChecksState, error) {
+	path := filepath.Join(pm.paths.StateDir, projectName, "checks.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var st state.ChecksState
+	if err := json.Unmarshal(data, &st); err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+// healthSummary returns a short health summary from checks state (e.g. "3 up, 1 down", "all up", "degraded")
+func healthSummary(st *state.ChecksState) string {
+	if st == nil || len(st.Checks) == 0 {
+		return "—"
+	}
+	var up, down int
+	for _, c := range st.Checks {
+		if c.Status == "up" {
+			up++
+		} else {
+			down++
+		}
+	}
+	if down == 0 {
+		return "all up"
+	}
+	if up == 0 {
+		return "degraded"
+	}
+	return fmt.Sprintf("%d up, %d down", up, down)
+}
+
+// ListProjects lists all configured projects with health summary when available
 func (pm *ProjectManager) ListProjects() error {
 	projects, err := pm.paths.ListProjects()
 	if err != nil {
@@ -168,15 +225,67 @@ func (pm *ProjectManager) ListProjects() error {
 		fmt.Printf("   Config: %s\n", pm.paths.GetRelativePath(configDir))
 		fmt.Printf("   Working: %s\n", pm.paths.GetRelativePath(workingDir))
 
-		// Check if files exist
 		if _, err := os.Stat(envFile); err == nil {
-			fmt.Printf("   Status: ✅ Configured\n")
+			fmt.Printf("   Config status: ✅ Configured\n")
 		} else {
-			fmt.Printf("   Status: ⚠️  Missing env file\n")
+			fmt.Printf("   Config status: ⚠️  Missing env file\n")
+		}
+
+		st, err := pm.readChecksState(project)
+		if err == nil {
+			fmt.Printf("   Health: %s\n", healthSummary(st))
+		} else {
+			fmt.Printf("   Health: —\n")
 		}
 		fmt.Println()
 	}
 
+	return nil
+}
+
+// ShowStatus prints health status for one or all projects (per-check detail)
+func (pm *ProjectManager) ShowStatus(args []string) error {
+	if len(args) == 1 {
+		return pm.showStatusOne(args[0])
+	}
+	projects, err := pm.paths.ListProjects()
+	if err != nil {
+		return err
+	}
+	if len(projects) == 0 {
+		fmt.Println("📭 No projects configured")
+		return nil
+	}
+	for _, project := range projects {
+		if err := pm.showStatusOne(project); err != nil {
+			fmt.Printf("🔹 %s: no health data\n", project)
+		}
+		fmt.Println()
+	}
+	return nil
+}
+
+func (pm *ProjectManager) showStatusOne(projectName string) error {
+	st, err := pm.readChecksState(projectName)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("📊 %s (updated %s)\n", projectName, st.UpdatedAt.Format(time.RFC3339))
+	if len(st.Checks) == 0 {
+		fmt.Println("   No checks")
+		return nil
+	}
+	for _, c := range st.Checks {
+		icon := "✅"
+		if c.Status != "up" {
+			icon = "❌"
+		}
+		line := fmt.Sprintf("   %s %s %s", icon, c.Name, c.Status)
+		if c.Error != "" {
+			line += fmt.Sprintf(" — %s", c.Error)
+		}
+		fmt.Println(line)
+	}
 	return nil
 }
 

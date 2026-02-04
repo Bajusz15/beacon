@@ -136,7 +136,21 @@ Beacon can automatically filter out duplicate log entries to reduce noise and ba
 - Automatically cleans up old hash entries every 6 hours
 - Only affects logs from sources with `deduplicate: true`
 
-## 📊 Configuration Options
+## No duplication and cursor persistence
+
+Beacon avoids re-sending the same log lines after restarts by persisting a **read cursor** per source in `~/.beacon/state/log_positions.json`:
+
+- **File sources:** Last byte offset (and timestamp for tail) per file path. After restart, reading continues from that position.
+- **Docker sources:** Last timestamp per log source. `docker logs --since <cursor>` is used so only new lines are sent. Cursor is saved after each collect.
+
+**You cannot delete Docker’s log buffer.** Docker owns container log files (e.g. under `/var/lib/docker/containers/`). Truncating or deleting them would break the daemon. Beacon only tracks what it has already read and sends only new data.
+
+## Batching and shutdown flush
+
+- **Batching:** Logs are sent in batches. Under `report` you can set `log_batch_size` (max entries per HTTP request, default 50) and `log_flush_interval` (max time before sending a partial batch, default 15s). When the batch is full or the interval elapses, logs are sent.
+- **Shutdown:** On SIGINT/SIGTERM, Beacon performs a final collect from each source, sends any remaining logs **synchronously**, then exits. No last logs are dropped on shutdown.
+
+## Configuration Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
@@ -149,6 +163,13 @@ Beacon can automatically filter out duplicate log entries to reduce noise and ba
 | `include_patterns` | Regex patterns to include | - |
 | `exclude_patterns` | Regex patterns to exclude | - |
 | `deduplicate` | Enable log deduplication | `false` |
+
+Under `report` (global):
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `log_batch_size` | Max log entries per HTTP request | `50` |
+| `log_flush_interval` | Max time before sending partial batch | `15s` |
 
 ## 🐳 Docker Examples
 

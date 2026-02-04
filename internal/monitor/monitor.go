@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -17,9 +18,12 @@ import (
 	"syscall"
 	"time"
 
+	"beacon/internal/config"
+	"beacon/internal/deploy"
 	"beacon/internal/errors"
 	"beacon/internal/keys"
 	"beacon/internal/plugins"
+	"beacon/internal/state"
 	"beacon/internal/plugins/email"
 	"beacon/internal/plugins/webhook"
 	"beacon/internal/ratelimit"
@@ -73,17 +77,35 @@ type SystemMetricsConfig struct {
 }
 
 type ReportConfig struct {
-	SendTo           string          `yaml:"send_to"`
-	Token            string          `yaml:"token,omitempty"`
-	TokenName        string          `yaml:"token_name,omitempty"`
-	PrometheusEnable bool            `yaml:"prometheus_metrics"`
-	PrometheusPort   int             `yaml:"prometheus_port"`
-	Heartbeat        HeartbeatConfig `yaml:"heartbeat,omitempty"`
+	SendTo            string          `yaml:"send_to"`
+	Token             string          `yaml:"token,omitempty"`
+	TokenName         string          `yaml:"token_name,omitempty"`
+	PrometheusEnable  bool            `yaml:"prometheus_metrics"`
+	PrometheusPort    int             `yaml:"prometheus_port"`
+	PrometheusFilePath string         `yaml:"prometheus_file_path,omitempty"` // write metrics to file (node_exporter textfile, local-only)
+	Heartbeat          HeartbeatConfig `yaml:"heartbeat,omitempty"`
+	DeployOnRequest    bool            `yaml:"deploy_on_request,omitempty"` // run deploy when BeaconWatch sets deploy_requested
+	// Log batching: flush when batch full or interval elapsed
+	LogBatchSize     int             `yaml:"log_batch_size,omitempty"`     // max entries per HTTP request (default 50)
+	LogFlushInterval time.Duration   `yaml:"log_flush_interval,omitempty"` // max time before sending partial batch (default 15s)
 }
 
 type HeartbeatConfig struct {
 	Enabled  bool          `yaml:"enabled"`
 	Interval time.Duration `yaml:"interval,omitempty"`
+}
+
+// heartbeatResponse is the server response to /agent/heartbeat (may include deploy_requested)
+type heartbeatResponse struct {
+	DeviceID       string `json:"device_id,omitempty"`
+	DeployRequested bool   `json:"deploy_requested,omitempty"`
+}
+
+// deployResultPayload is sent to POST /agent/deploy-result after running deploy
+type deployResultPayload struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+	Log     string `json:"log,omitempty"`
 }
 
 type CheckResult struct {
@@ -275,6 +297,59 @@ func getConfigDir() string {
 	return filepath.Join(homeDir, ".beacon")
 }
 
+// getProjectNameFromConfigPath derives project name from config path (e.g. .../projects/myapp/monitor.yml -> myapp)
+func (m *Monitor) getProjectNameFromConfigPath() string {
+	dir := filepath.Dir(m.configPath)
+	parent := filepath.Base(filepath.Dir(dir))
+	if parent == "projects" {
+		return filepath.Base(dir)
+	}
+	if m.config.Device.Name != "" {
+		return m.config.Device.Name
+	}
+	return "default"
+}
+
+// persistCheckResults writes current check results to ~/.beacon/state/<project>/checks.json for CLI
+func (m *Monitor) persistCheckResults() {
+	projectName := m.getProjectNameFromConfigPath()
+	stateDir := filepath.Join(getConfigDir(), "state")
+	projectDir := filepath.Join(stateDir, projectName)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		log.Printf("[Beacon] Failed to create state dir: %v", err)
+		return
+	}
+	path := filepath.Join(projectDir, "checks.json")
+
+	m.resultsMux.RLock()
+	checks := make([]state.CheckState, 0, len(m.results))
+	for _, r := range m.results {
+		checks = append(checks, state.CheckState{
+			Name:      r.Name,
+			Status:    r.Status,
+			Timestamp: r.Timestamp,
+			Error:     r.Error,
+		})
+	}
+	m.resultsMux.RUnlock()
+
+	st := state.ChecksState{UpdatedAt: time.Now().UTC(), Checks: checks}
+	data, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		log.Printf("[Beacon] Failed to marshal checks state: %v", err)
+		return
+	}
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		log.Printf("[Beacon] Failed to write checks state: %v", err)
+		return
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		log.Printf("[Beacon] Failed to rename checks state: %v", err)
+		_ = os.Remove(tmpPath)
+	}
+}
+
 // getCurrentToken retrieves the current API token from config or key manager
 func getCurrentToken(cfg *Config, keyManager *keys.KeyManager) (string, error) {
 	// If token is directly specified in config, use it
@@ -345,6 +420,15 @@ func (m *Monitor) Start() error {
 		go m.reportSystemMetricsLoop()
 	}
 
+	// Start Prometheus file export when path set and not already updating via reportSystemMetrics (file-only)
+	if m.config.Report.PrometheusFilePath != "" && !(m.config.SystemMetrics.Enabled && m.config.Report.SendTo != "" && m.config.Report.Token != "") {
+		interval := m.config.SystemMetrics.Interval
+		if interval == 0 {
+			interval = 1 * time.Minute
+		}
+		go m.runPrometheusFileLoop(interval)
+	}
+
 	// Start log collection if enabled
 	if len(m.config.LogSources) > 0 && m.config.Report.SendTo != "" && m.config.Report.Token != "" {
 		m.logManager.StartLogCollection(m.ctx)
@@ -366,6 +450,14 @@ func (m *Monitor) Start() error {
 	<-sigChan
 
 	log.Println("[Beacon] Shutdown signal received, stopping monitoring...")
+
+	// Flush last logs synchronously before cancelling
+	if len(m.config.LogSources) > 0 && m.config.Report.SendTo != "" && (m.config.Report.Token != "" || m.config.Report.TokenName != "") {
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		m.logManager.FlushAndStop(flushCtx)
+		flushCancel()
+	}
+
 	m.cancel()
 	wg.Wait()
 
@@ -463,6 +555,9 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 	m.resultsMux.Lock()
 	m.results[check.Name] = &result
 	m.resultsMux.Unlock()
+
+	// Persist check results for CLI (beacon projects list / status)
+	m.persistCheckResults()
 
 	// Send alert via plugin system if check failed
 	if result.Status != "up" {
@@ -784,6 +879,25 @@ func (m *Monitor) reportSystemMetrics() {
 	// Send to /agent/metrics endpoint
 	metricsURL := strings.TrimSuffix(m.config.Report.SendTo, "/") + "/agent/metrics"
 	m.sendToAPI(metricsURL, metrics)
+
+	// Update Prometheus file when path set (same schedule as metrics report)
+	if m.config.Report.PrometheusFilePath != "" {
+		m.writePrometheusFile()
+	}
+}
+
+func (m *Monitor) runPrometheusFileLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	m.writePrometheusFile()
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			m.writePrometheusFile()
+		}
+	}
 }
 
 func (m *Monitor) sendHeartbeat() {
@@ -816,9 +930,83 @@ func (m *Monitor) sendHeartbeat() {
 		},
 	}
 
-	// Send to /agent/heartbeat endpoint
+	// Send to /agent/heartbeat endpoint and read response for deploy_requested
 	heartbeatURL := strings.TrimSuffix(m.config.Report.SendTo, "/") + "/agent/heartbeat"
-	m.sendToAPI(heartbeatURL, heartbeat)
+	body, err := m.doAPIRequest(heartbeatURL, heartbeat)
+	if err != nil {
+		log.Printf("[Beacon] Heartbeat request failed: %v", err)
+		return
+	}
+	if body != nil && m.config.Report.DeployOnRequest {
+		var resp heartbeatResponse
+		if jsonErr := json.Unmarshal(body, &resp); jsonErr == nil && resp.DeployRequested {
+			log.Printf("[Beacon] Deploy requested by BeaconWatch, running deploy...")
+			result := m.runDeployRequested()
+			m.postDeployResult(result)
+		}
+	}
+}
+
+func (m *Monitor) doAPIRequest(url string, payload interface{}) ([]byte, error) {
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST", url, strings.NewReader(string(jsonData)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", m.currentToken)
+	resp, err := m.httpClient.Do(m.ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer util.DeferClose(resp.Body, "HTTP response body")()
+	return io.ReadAll(resp.Body)
+}
+
+func (m *Monitor) runDeployRequested() deployResultPayload {
+	projectName := m.getProjectNameFromConfigPath()
+	envPath := filepath.Join(getConfigDir(), "config", "projects", projectName, "env")
+	if _, err := os.Stat(envPath); err == nil {
+		if loadErr := util.LoadEnvFile(envPath); loadErr != nil {
+			log.Printf("[Beacon] Failed to load project env: %v", loadErr)
+			return deployResultPayload{Success: false, Error: loadErr.Error()}
+		}
+	}
+	cfg := config.Load()
+	statusDir := filepath.Join(getConfigDir(), "state", projectName)
+	if err := os.MkdirAll(statusDir, 0755); err != nil {
+		return deployResultPayload{Success: false, Error: err.Error()}
+	}
+	status := state.NewStatus(statusDir)
+	deploymentType := cfg.DeploymentType
+	if deploymentType == "" {
+		deploymentType = "git"
+	}
+	var err error
+	if deploymentType == "docker" {
+		deploy.CheckForNewImageTag(cfg, status)
+		// CheckForNewImageTag does not return error; assume success
+	} else {
+		lastTag, _ := status.Get()
+		err = deploy.Deploy(cfg, lastTag, status)
+	}
+	if err != nil {
+		log.Printf("[Beacon] Deploy failed: %v", err)
+		return deployResultPayload{Success: false, Error: err.Error()}
+	}
+	log.Printf("[Beacon] Deploy completed successfully")
+	return deployResultPayload{Success: true}
+}
+
+func (m *Monitor) postDeployResult(result deployResultPayload) {
+	if m.config.Report.SendTo == "" {
+		return
+	}
+	url := strings.TrimSuffix(m.config.Report.SendTo, "/") + "/agent/deploy-result"
+	_, _ = m.doAPIRequest(url, result)
 }
 
 func (m *Monitor) sendToAPI(url string, payload interface{}) {
@@ -863,19 +1051,20 @@ func (m *Monitor) startPrometheusServer() {
 }
 
 func (m *Monitor) prometheusHandler(w http.ResponseWriter, r *http.Request) {
-	m.resultsMux.RLock()
-	defer m.resultsMux.RUnlock()
-
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	_, _ = w.Write([]byte(m.getPrometheusMetricsText()))
+}
 
+// getPrometheusMetricsText returns Prometheus text exposition format (checks + system metrics)
+func (m *Monitor) getPrometheusMetricsText() string {
+	var b strings.Builder
+
+	m.resultsMux.RLock()
 	for _, result := range m.results {
-		// Status metric (1 = up, 0 = down/error)
 		status := 0
 		if result.Status == "up" {
 			status = 1
 		}
-
-		// Build device labels for metrics
 		deviceLabels := fmt.Sprintf("name=\"%s\",type=\"%s\"", result.Name, result.Type)
 		if result.Device.Name != "" {
 			deviceLabels += fmt.Sprintf(",device=\"%s\"", result.Device.Name)
@@ -886,31 +1075,67 @@ func (m *Monitor) prometheusHandler(w http.ResponseWriter, r *http.Request) {
 		if result.Device.Environment != "" {
 			deviceLabels += fmt.Sprintf(",environment=\"%s\"", result.Device.Environment)
 		}
-
-		util.LogError(func() error {
-			_, err := fmt.Fprintf(w, "beacon_check_status{%s} %d\n", deviceLabels, status)
-			return err
-		}(), "write metrics")
-
-		// Duration metric
-		util.LogError(func() error {
-			_, err := fmt.Fprintf(w, "beacon_check_duration_seconds{%s} %.3f\n", deviceLabels, result.Duration.Seconds())
-			return err
-		}(), "write metrics")
-
-		// Response time for HTTP checks
+		fmt.Fprintf(&b, "beacon_check_status{%s} %d\n", deviceLabels, status)
+		fmt.Fprintf(&b, "beacon_check_duration_seconds{%s} %.3f\n", deviceLabels, result.Duration.Seconds())
 		if result.Type == "http" && result.ResponseTime > 0 {
-			util.LogError(func() error {
-				_, err := fmt.Fprintf(w, "beacon_check_response_time_seconds{%s} %.3f\n", deviceLabels, result.ResponseTime.Seconds())
-				return err
-			}(), "write metrics")
+			fmt.Fprintf(&b, "beacon_check_response_time_seconds{%s} %.3f\n", deviceLabels, result.ResponseTime.Seconds())
 		}
+		fmt.Fprintf(&b, "beacon_check_last_check_timestamp{%s} %d\n", deviceLabels, result.Timestamp.Unix())
+	}
+	m.resultsMux.RUnlock()
 
-		// Last check timestamp
-		util.LogError(func() error {
-			_, err := fmt.Fprintf(w, "beacon_check_last_check_timestamp{%s} %d\n", deviceLabels, result.Timestamp.Unix())
-			return err
-		}(), "write metrics")
+	// System metrics (when enabled)
+	if m.config.SystemMetrics.Enabled && m.metricsCollector != nil {
+		hostname, _ := m.metricsCollector.GetHostname()
+		labels := fmt.Sprintf("hostname=\"%s\"", hostname)
+		if cpu, err := m.metricsCollector.GetCPUUsage(); err == nil {
+			fmt.Fprintf(&b, "beacon_system_cpu_usage_percent{%s} %.2f\n", labels, cpu)
+		}
+		if mem, err := m.metricsCollector.GetMemoryUsage(); err == nil {
+			fmt.Fprintf(&b, "beacon_system_memory_usage_percent{%s} %.2f\n", labels, mem)
+		}
+		diskPath := m.config.SystemMetrics.DiskPath
+		if diskPath == "" {
+			diskPath = "/"
+		}
+		if disk, err := m.metricsCollector.GetDiskUsage(diskPath); err == nil {
+			fmt.Fprintf(&b, "beacon_system_disk_usage_percent{%s,path=\"%s\"} %.2f\n", labels, diskPath, disk)
+		}
+		if load, err := m.metricsCollector.GetLoadAverage(); err == nil {
+			fmt.Fprintf(&b, "beacon_system_load_average_1m{%s} %.2f\n", labels, load)
+		}
+		if uptime, err := m.metricsCollector.GetUptime(); err == nil {
+			fmt.Fprintf(&b, "beacon_system_uptime_seconds{%s} %d\n", labels, uptime)
+		}
+	}
+
+	return b.String()
+}
+
+// writePrometheusFile writes Prometheus text exposition to a file (atomic: temp + rename)
+func (m *Monitor) writePrometheusFile() {
+	path := m.config.Report.PrometheusFilePath
+	if path == "" {
+		home, _ := os.UserHomeDir()
+		if home == "" {
+			return
+		}
+		path = filepath.Join(home, ".beacon", "metrics.prom")
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("[Beacon] Failed to create Prometheus file dir: %v", err)
+		return
+	}
+	tmpPath := path + ".tmp"
+	content := m.getPrometheusMetricsText()
+	if err := os.WriteFile(tmpPath, []byte(content), 0644); err != nil {
+		log.Printf("[Beacon] Failed to write Prometheus file: %v", err)
+		return
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		log.Printf("[Beacon] Failed to rename Prometheus file: %v", err)
+		_ = os.Remove(tmpPath)
 	}
 }
 

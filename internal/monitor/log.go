@@ -13,12 +13,25 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+const (
+	defaultLogBatchSize    = 50
+	defaultLogFlushInterval = 15 * time.Second
+	logPositionsFilename   = "log_positions.json"
+)
+
+// logCursor is persisted per source+identifier (container or file path)
+type logCursor struct {
+	LastTimestamp string `json:"last_timestamp,omitempty"` // RFC3339
+	LastOffset    int64  `json:"last_offset,omitempty"`
+}
 
 // LogSource represents a log collection source
 type LogSource struct {
@@ -77,24 +90,106 @@ type LogCollector struct {
 
 // LogManager handles all log collection and forwarding
 type LogManager struct {
-	config        *Config
-	logs          []LogEntry
-	logsMux       sync.RWMutex
-	logCollectors map[string]*LogCollector
-	httpClient    *http.Client
-	seenLogs      map[string]time.Time // hash -> last seen timestamp for deduplication
-	seenLogsMux   sync.RWMutex
+	config         *Config
+	logs           []LogEntry
+	logsMux        sync.RWMutex
+	logCollectors  map[string]*LogCollector
+	httpClient     *http.Client
+	seenLogs       map[string]time.Time // hash -> last seen timestamp for deduplication
+	seenLogsMux    sync.RWMutex
+	stateDir       string
+	logPositions   map[string]logCursor
+	logPositionsMux sync.RWMutex
+	pendingEntries []LogEntry
+	lastFlush      time.Time
+	pendingMux     sync.Mutex
+	flushTicker    *time.Ticker
+	flushStop      chan struct{}
+}
+
+// getStateDir returns ~/.beacon/state for cursor persistence
+func getStateDir() string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return ".beacon/state"
+	}
+	return filepath.Join(home, ".beacon", "state")
 }
 
 // NewLogManager creates a new log manager
 func NewLogManager(config *Config, httpClient *http.Client) *LogManager {
-	return &LogManager{
+	stateDir := getStateDir()
+	_ = os.MkdirAll(stateDir, 0755)
+	lm := &LogManager{
 		config:        config,
 		logs:          make([]LogEntry, 0),
 		logCollectors: make(map[string]*LogCollector),
 		httpClient:    httpClient,
 		seenLogs:      make(map[string]time.Time),
+		stateDir:      stateDir,
+		logPositions:  make(map[string]logCursor),
+		pendingEntries: make([]LogEntry, 0),
+		lastFlush:     time.Now(),
 	}
+	return lm
+}
+
+func (lm *LogManager) loadLogPositions() {
+	path := filepath.Join(lm.stateDir, logPositionsFilename)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("[Beacon] Failed to load log positions: %v", err)
+		}
+		return
+	}
+	var positions map[string]logCursor
+	if err := json.Unmarshal(data, &positions); err != nil {
+		log.Printf("[Beacon] Failed to parse log positions: %v", err)
+		return
+	}
+	lm.logPositionsMux.Lock()
+	lm.logPositions = positions
+	lm.logPositionsMux.Unlock()
+}
+
+func (lm *LogManager) saveLogPositions() {
+	lm.logPositionsMux.RLock()
+	positions := make(map[string]logCursor, len(lm.logPositions))
+	for k, v := range lm.logPositions {
+		positions[k] = v
+	}
+	lm.logPositionsMux.RUnlock()
+
+	path := filepath.Join(lm.stateDir, logPositionsFilename)
+	data, err := json.MarshalIndent(positions, "", "  ")
+	if err != nil {
+		log.Printf("[Beacon] Failed to marshal log positions: %v", err)
+		return
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		log.Printf("[Beacon] Failed to write log positions: %v", err)
+	}
+}
+
+func (lm *LogManager) getCursor(key string) (since time.Time, offset int64) {
+	lm.logPositionsMux.RLock()
+	c, ok := lm.logPositions[key]
+	lm.logPositionsMux.RUnlock()
+	if !ok || c.LastTimestamp == "" {
+		return time.Time{}, 0
+	}
+	t, _ := time.Parse(time.RFC3339, c.LastTimestamp)
+	return t, c.LastOffset
+}
+
+func (lm *LogManager) saveCursor(key string, lastTimestamp time.Time, lastOffset int64) {
+	lm.logPositionsMux.Lock()
+	lm.logPositions[key] = logCursor{
+		LastTimestamp: lastTimestamp.UTC().Format(time.RFC3339),
+		LastOffset:    lastOffset,
+	}
+	lm.logPositionsMux.Unlock()
 }
 
 // parseLogTimestamp attempts to parse timestamps from various log formats
@@ -157,8 +252,22 @@ func (lm *LogManager) parseLogTimestamp(line string) (time.Time, string) {
 func (lm *LogManager) StartLogCollection(ctx context.Context) {
 	log.Printf("[Beacon] Starting log collection for %d sources", len(lm.config.LogSources))
 
+	lm.loadLogPositions()
+
 	// Start periodic cleanup of old hashes
 	go lm.startHashCleanup(ctx)
+
+	batchSize := lm.config.Report.LogBatchSize
+	if batchSize <= 0 {
+		batchSize = defaultLogBatchSize
+	}
+	flushInterval := lm.config.Report.LogFlushInterval
+	if flushInterval <= 0 {
+		flushInterval = defaultLogFlushInterval
+	}
+	lm.flushStop = make(chan struct{})
+	lm.flushTicker = time.NewTicker(flushInterval)
+	go lm.runFlushTicker()
 
 	for _, source := range lm.config.LogSources {
 		if !source.Enabled {
@@ -170,6 +279,29 @@ func (lm *LogManager) StartLogCollection(ctx context.Context) {
 			running: true,
 		}
 		logCollector.ctx, logCollector.cancel = context.WithCancel(ctx)
+
+		// Apply persisted cursor for this source
+		switch source.Type {
+		case "file":
+			if source.FilePath != "" {
+				key := "file:" + source.Name + ":" + source.FilePath
+				since, offset := lm.getCursor(key)
+				if !since.IsZero() {
+					logCollector.lastTimestamp = since
+				}
+				if offset > 0 {
+					logCollector.lastPosition = offset
+				}
+			}
+		case "docker":
+			key := "docker:" + source.Name
+			since, _ := lm.getCursor(key)
+			if !since.IsZero() {
+				logCollector.lastTimestamp = since
+			} else {
+				logCollector.lastTimestamp = time.Now().Add(-source.Interval)
+			}
+		}
 
 		lm.logCollectors[source.Name] = logCollector
 
@@ -184,6 +316,17 @@ func (lm *LogManager) StartLogCollection(ctx context.Context) {
 			go lm.runCommandLogCollection(logCollector)
 		default:
 			log.Printf("[Beacon] Unknown log source type: %s", source.Type)
+		}
+	}
+}
+
+func (lm *LogManager) runFlushTicker() {
+	for {
+		select {
+		case <-lm.flushStop:
+			return
+		case <-lm.flushTicker.C:
+			lm.flushPending(false)
 		}
 	}
 }
@@ -210,6 +353,61 @@ func (lm *LogManager) StopLogCollection() {
 			collector.cancel()
 		}
 	}
+}
+
+// FlushAndStop cancels collectors, performs a final collect per source, flushes pending logs synchronously, then saves positions.
+func (lm *LogManager) FlushAndStop(ctx context.Context) {
+	// Stop flush ticker
+	if lm.flushTicker != nil {
+		lm.flushTicker.Stop()
+		lm.flushTicker = nil
+	}
+	if lm.flushStop != nil {
+		close(lm.flushStop)
+		lm.flushStop = nil
+	}
+
+	// Cancel collectors so they exit
+	lm.StopLogCollection()
+
+	// Brief wait for collector goroutines to exit
+	select {
+	case <-time.After(300 * time.Millisecond):
+	case <-ctx.Done():
+	}
+
+	// Final collect per source (one-shot)
+	for _, source := range lm.config.LogSources {
+		if !source.Enabled {
+			continue
+		}
+		var entries []LogEntry
+		switch source.Type {
+		case "file":
+			// Temporary collector to get last N lines
+			tempCollector := &LogCollector{source: source}
+			entries = lm.collectFileLogWithTail(source, tempCollector)
+		case "docker":
+			since, _ := lm.getCursor("docker:" + source.Name)
+			if since.IsZero() {
+				since = time.Now().Add(-source.Interval)
+			}
+			entries = lm.collectDockerLogSince(source, since)
+		case "deploy":
+			entries = lm.collectDeployLog(source)
+		case "command":
+			entries = lm.collectCommandLog(source)
+		default:
+			continue
+		}
+		if len(entries) > 0 {
+			lm.addLogEntries(entries)
+		}
+	}
+
+	// Flush any pending entries synchronously
+	lm.flushPending(true)
+	lm.saveLogPositions()
 }
 
 // runFileLogCollection handles file-based log collection
@@ -243,11 +441,13 @@ func (lm *LogManager) runFileLogCollection(collector *LogCollector) {
 		return
 	}
 
-	// If following file, start from the end; otherwise start from beginning
-	if source.FollowFile {
-		collector.lastPosition = stat.Size()
-	} else {
-		collector.lastPosition = 0 // Start from beginning to read existing content
+	// If we didn't load a cursor, set initial position from file
+	if collector.lastPosition == 0 {
+		if source.FollowFile {
+			collector.lastPosition = stat.Size()
+		} else {
+			collector.lastPosition = 0 // Start from beginning to read existing content
+		}
 	}
 
 	log.Printf("[Beacon] Using direct file access for %s", source.FilePath)
@@ -263,6 +463,13 @@ func (lm *LogManager) runFileLogCollection(collector *LogCollector) {
 			if len(entries) > 0 {
 				lm.addLogEntries(entries)
 			}
+			key := "file:" + source.Name + ":" + source.FilePath
+			ts := collector.lastTimestamp
+			if ts.IsZero() {
+				ts = time.Now()
+			}
+			lm.saveCursor(key, ts, collector.lastPosition)
+			lm.saveLogPositions()
 		}
 	}
 }
@@ -365,6 +572,13 @@ func (lm *LogManager) runFileLogCollectionWithTail(collector *LogCollector) {
 			if len(entries) > 0 {
 				lm.addLogEntries(entries)
 			}
+			key := "file:" + source.Name + ":" + source.FilePath
+			ts := collector.lastTimestamp
+			if ts.IsZero() {
+				ts = time.Now()
+			}
+			lm.saveCursor(key, ts, 0)
+			lm.saveLogPositions()
 		}
 	}
 }
@@ -443,8 +657,7 @@ func (lm *LogManager) runDockerLogCollection(collector *LogCollector) {
 	source := collector.source
 	log.Printf("[Beacon] Starting docker log collection: %s", source.Name)
 
-	// Initialize lastTimestamp to avoid getting all historical logs on first run
-	collector.lastTimestamp = time.Now().Add(-source.Interval)
+	// lastTimestamp set from persisted cursor in StartLogCollection, or from initial interval
 
 	ticker := time.NewTicker(source.Interval)
 	defer ticker.Stop()
@@ -464,6 +677,9 @@ func (lm *LogManager) runDockerLogCollection(collector *LogCollector) {
 					}
 				}
 			}
+			key := "docker:" + source.Name
+			lm.saveCursor(key, collector.lastTimestamp, 0)
+			lm.saveLogPositions()
 		}
 	}
 }
@@ -777,7 +993,25 @@ func (lm *LogManager) cleanupOldHashes() {
 	}
 }
 
-// addLogEntries adds new log entries to the collection and reports them
+// flushPending sends pending entries to the API synchronously and clears the buffer
+func (lm *LogManager) flushPending(force bool) {
+	lm.pendingMux.Lock()
+	pending := lm.pendingEntries
+	lm.pendingEntries = nil
+	lm.lastFlush = time.Now()
+	lm.pendingMux.Unlock()
+
+	if len(pending) == 0 {
+		return
+	}
+	if lm.config.Report.SendTo == "" || lm.config.Report.Token == "" {
+		return
+	}
+	lm.reportLogs(pending)
+	log.Printf("[Beacon] Flushed %d log entries", len(pending))
+}
+
+// addLogEntries adds new log entries to the collection and reports them (batched)
 func (lm *LogManager) addLogEntries(entries []LogEntry) {
 	if len(entries) == 0 {
 		return
@@ -819,9 +1053,24 @@ func (lm *LogManager) addLogEntries(entries []LogEntry) {
 	}
 	lm.logsMux.Unlock()
 
-	// Report logs to external API
+	batchSize := lm.config.Report.LogBatchSize
+	if batchSize <= 0 {
+		batchSize = defaultLogBatchSize
+	}
+
 	if lm.config.Report.SendTo != "" && lm.config.Report.Token != "" {
-		go lm.reportLogs(filteredEntries)
+		lm.pendingMux.Lock()
+		lm.pendingEntries = append(lm.pendingEntries, filteredEntries...)
+		if len(lm.pendingEntries) >= batchSize {
+			toSend := lm.pendingEntries
+			lm.pendingEntries = nil
+			lm.lastFlush = time.Now()
+			lm.pendingMux.Unlock()
+			lm.reportLogs(toSend)
+			log.Printf("[Beacon] Flushed %d log entries (batch full)", len(toSend))
+		} else {
+			lm.pendingMux.Unlock()
+		}
 	}
 
 	log.Printf("[Beacon] Collected %d log entries (filtered from %d)", len(filteredEntries), len(entries))
@@ -858,7 +1107,8 @@ func (lm *LogManager) reportLogs(logs []LogEntry) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", lm.config.Report.SendTo+"/agent/logs", strings.NewReader(string(jsonData)))
+	baseURL := strings.TrimSuffix(lm.config.Report.SendTo, "/")
+	req, err := http.NewRequest("POST", baseURL+"/agent/logs", strings.NewReader(string(jsonData)))
 	if err != nil {
 		log.Printf("[Beacon] Failed to create logs report request: %v", err)
 		return

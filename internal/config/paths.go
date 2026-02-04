@@ -12,6 +12,7 @@ type BeaconPaths struct {
 	BaseDir       string // ~/.beacon
 	ConfigDir     string // ~/.beacon/config
 	ProjectsDir   string // ~/.beacon/config/projects
+	StateDir      string // ~/.beacon/state (log cursors, check state)
 	TemplatesDir  string // ~/.beacon/templates (shared templates)
 	LogsDir       string // ~/.beacon/logs (project-specific logs)
 	SystemdDir    string // ~/.config/systemd/user (for user services)
@@ -30,6 +31,7 @@ func NewBeaconPaths() (*BeaconPaths, error) {
 		BaseDir:       filepath.Join(homeDir, ".beacon"),
 		ConfigDir:     filepath.Join(homeDir, ".beacon", "config"),
 		ProjectsDir:   filepath.Join(homeDir, ".beacon", "config", "projects"),
+		StateDir:      filepath.Join(homeDir, ".beacon", "state"),
 		TemplatesDir:  filepath.Join(homeDir, ".beacon", "templates"),
 		LogsDir:       filepath.Join(homeDir, ".beacon", "logs"),
 		SystemdDir:    filepath.Join(homeDir, ".config", "systemd", "user"),
@@ -46,6 +48,7 @@ func (bp *BeaconPaths) EnsureDirectories() error {
 		bp.BaseDir,
 		bp.ConfigDir,
 		bp.ProjectsDir,
+		bp.StateDir,
 		bp.TemplatesDir,
 		bp.LogsDir,
 		bp.SystemdDir,
