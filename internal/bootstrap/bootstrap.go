@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"text/template"
 
@@ -16,16 +17,35 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DockerImageBootstrapConfig holds bootstrap configuration for a single Docker image
+type DockerImageBootstrapConfig struct {
+	Image              string   `yaml:"image"`
+	Registry           string   `yaml:"registry"`
+	Username           string   `yaml:"username"`
+	Password           string   `yaml:"password"`
+	Token              string   `yaml:"token"`
+	DeployCommand      string   `yaml:"deploy_command"`
+	DockerComposeFiles []string `yaml:"docker_compose_files"` // Array of compose files
+}
+
 // BootstrapConfig holds configuration for bootstrapping a new Beacon project
 type BootstrapConfig struct {
-	ProjectName      string `yaml:"project_name"`
-	RepoURL          string `yaml:"repo_url"`
+	ProjectName    string `yaml:"project_name"`
+	DeploymentType string `yaml:"deployment_type"` // "git" or "docker"
+
+	// Git repository configuration
+	RepoURL    string `yaml:"repo_url"`
+	SSHKeyPath string `yaml:"ssh_key_path"`
+	GitToken   string `yaml:"git_token"`
+
+	// Docker registry configuration (array of images)
+	DockerImages []DockerImageBootstrapConfig `yaml:"docker_images"`
+
+	// Common configuration
 	LocalPath        string `yaml:"local_path"`
 	DeployCommand    string `yaml:"deploy_command"`
 	PollInterval     string `yaml:"poll_interval"`
 	Port             string `yaml:"port"`
-	SSHKeyPath       string `yaml:"ssh_key_path"`
-	GitToken         string `yaml:"git_token"`
 	SecureEnvPath    string `yaml:"secure_env_path"`
 	User             string `yaml:"user"`
 	WorkingDir       string `yaml:"working_dir"`
@@ -93,6 +113,15 @@ func (bm *BootstrapManager) BootstrapProject(projectName string, skipSystemd boo
 		return fmt.Errorf("failed to create environment file: %v", err)
 	}
 
+	// Create Docker deployment configs if needed
+	if config.DeploymentType == "docker" {
+		if len(config.DockerImages) > 0 {
+			if err := bm.createDockerImagesConfig(config); err != nil {
+				return fmt.Errorf("failed to create Docker images config: %v", err)
+			}
+		}
+	}
+
 	// Create systemd service if requested and available
 	systemdCreated := false
 	if !skipSystemd && bm.serviceManager.IsAvailable() {
@@ -140,6 +169,15 @@ func (bm *BootstrapManager) BootstrapProjectFromConfig(projectName, configFile s
 		return fmt.Errorf("failed to create environment file: %v", err)
 	}
 
+	// Create Docker deployment configs if needed
+	if config.DeploymentType == "docker" {
+		if len(config.DockerImages) > 0 {
+			if err := bm.createDockerImagesConfig(config); err != nil {
+				return fmt.Errorf("failed to create Docker images config: %v", err)
+			}
+		}
+	}
+
 	// Create systemd service if requested and available
 	systemdCreated := false
 	if !skipSystemd && bm.serviceManager.IsAvailable() {
@@ -178,19 +216,55 @@ func (bm *BootstrapManager) collectConfiguration(projectName string) (*Bootstrap
 		return nil, fmt.Errorf("failed to get current user: %v", err)
 	}
 
+	// Ask for deployment type first
+	deploymentType := promptForInput("Enter deployment type (git or docker)", "git")
+	if deploymentType != "git" && deploymentType != "docker" {
+		deploymentType = "git" // Default to git if invalid
+	}
+
 	config := &BootstrapConfig{
 		ProjectName:      projectName,
-		RepoURL:          promptForInput("Enter Git repository URL", "https://github.com/yourusername/yourrepo.git"),
+		DeploymentType:   deploymentType,
 		LocalPath:        promptForInput("Enter local deployment path", bm.paths.GetProjectWorkingDir(projectName)),
 		DeployCommand:    promptForInput("Enter deploy command (optional)", ""),
 		PollInterval:     promptForInput("Enter polling interval", "60s"),
 		Port:             promptForInput("Enter HTTP server port", "8080"),
-		SSHKeyPath:       promptForInput("Enter SSH key path (optional)", ""),
-		GitToken:         promptForInput("Enter Git token (optional)", ""),
 		SecureEnvPath:    promptForInput("Enter secure environment file path (optional)", fmt.Sprintf("/etc/beacon/%s.env", projectName)),
 		User:             currentUser.Username,
 		WorkingDir:       bm.paths.GetProjectWorkingDir(projectName),
 		UseSystemService: bm.serviceManager != nil && bm.serviceManager.IsAvailable(),
+	}
+
+	// Collect deployment-specific configuration
+	switch deploymentType {
+	case "git":
+		config.RepoURL = promptForInput("Enter Git repository URL", "https://github.com/yourusername/yourrepo.git")
+		config.SSHKeyPath = promptForInput("Enter SSH key path (optional)", "")
+		config.GitToken = promptForInput("Enter Git token (optional)", "")
+	case "docker":
+		// For interactive mode, collect at least one image
+		// Users can add more images by editing the config file later
+		fmt.Println("\n📦 Docker Image Configuration")
+		fmt.Println("You can add more images later by editing the configuration file.")
+
+		imgCfg := DockerImageBootstrapConfig{}
+		imgCfg.Image = promptForInput("Enter Docker image name (e.g., username/app or ghcr.io/username/app)", "")
+		imgCfg.Registry = promptForInput("Enter Docker registry (e.g., docker.io, ghcr.io) [optional, auto-detected]", "")
+		imgCfg.Username = promptForInput("Enter Docker registry username (optional)", "")
+		imgCfg.Password = promptForInput("Enter Docker registry password (optional)", "")
+		imgCfg.Token = promptForInput("Enter Docker registry token (optional)", "")
+
+		// Support multiple compose files (comma-separated or space-separated)
+		composeFilesInput := promptForInput("Enter docker-compose file(s) (optional, comma or space separated, relative to local_path)", "")
+		if composeFilesInput != "" {
+			// Split by comma or space
+			composeFiles := strings.Fields(strings.ReplaceAll(composeFilesInput, ",", " "))
+			imgCfg.DockerComposeFiles = composeFiles
+		}
+
+		imgCfg.DeployCommand = promptForInput("Enter deploy command for this image (e.g., 'docker compose up -d' or 'docker run ...')", "")
+
+		config.DockerImages = []DockerImageBootstrapConfig{imgCfg}
 	}
 
 	return config, nil
@@ -198,6 +272,11 @@ func (bm *BootstrapManager) collectConfiguration(projectName string) (*Bootstrap
 
 // createEnvironmentFile creates the environment file for the project
 func (bm *BootstrapManager) createEnvironmentFile(config *BootstrapConfig) error {
+	// Default to "git" when DeploymentType is unset so env file contains BEACON_REPO_URL etc.
+	if config.DeploymentType == "" {
+		config.DeploymentType = "git"
+	}
+
 	envPath := bm.paths.GetProjectEnvFile(config.ProjectName)
 
 	file, err := os.Create(envPath)
@@ -221,6 +300,29 @@ func (bm *BootstrapManager) createEnvironmentFile(config *BootstrapConfig) error
 	} else {
 		fmt.Printf("⚠️  Warning: No Git token configured (will use SSH key if provided)\n")
 	}
+	return nil
+}
+
+// createDockerImagesConfig creates a YAML file with Docker images configuration
+func (bm *BootstrapManager) createDockerImagesConfig(config *BootstrapConfig) error {
+	dockerImagesPath := filepath.Join(bm.paths.GetProjectConfigDir(config.ProjectName), "docker-images.yml")
+
+	file, err := os.Create(dockerImagesPath)
+	if err != nil {
+		return fmt.Errorf("failed to create Docker images config file: %v", err)
+	}
+	defer util.Close(file, "Docker images config file")
+
+	data, err := yaml.Marshal(config.DockerImages)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Docker images config: %v", err)
+	}
+
+	if _, err := file.Write(data); err != nil {
+		return fmt.Errorf("failed to write Docker images config: %v", err)
+	}
+
+	fmt.Printf("✅ Created Docker images configuration: %s\n", dockerImagesPath)
 	return nil
 }
 
@@ -308,6 +410,11 @@ func promptForInput(prompt, defaultValue string) string {
 // Environment file template
 const envTemplate = `# Beacon project environment file for {{.ProjectName}}
 
+# Deployment type: "git" or "docker"
+BEACON_DEPLOYMENT_TYPE={{.DeploymentType}}
+
+{{- if eq .DeploymentType "git"}}
+# Git repository configuration
 # Repository URL (supports both HTTPS and SSH)
 BEACON_REPO_URL={{.RepoURL}}
 
@@ -319,6 +426,11 @@ BEACON_SSH_KEY_PATH={{.SSHKeyPath}}
 # Personal access token (optional, for HTTPS URLs)
 {{- if .GitToken}}
 BEACON_GIT_TOKEN={{.GitToken}}
+{{- end}}
+{{- else if eq .DeploymentType "docker"}}
+# Docker registry configuration
+# Docker images are configured in docker-images.yml file in the project config directory
+# See: ~/.beacon/config/projects/{{.ProjectName}}/docker-images.yml
 {{- end}}
 
 # Local deployment path

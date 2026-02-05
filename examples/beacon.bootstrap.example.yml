@@ -1,0 +1,31 @@
+# Beacon Bootstrap Configuration Example
+# This file can be used with: beacon bootstrap myproject -f examples/beacon.bootstrap.example.yml
+
+# Project configuration
+project_name: "my-awesome-app"
+deployment_type: "git"  # Options: "git" or "docker"
+
+# Git repository configuration (used when deployment_type is "git")
+repo_url: "https://github.com/username/my-awesome-app.git"
+ssh_key_path: "/home/user/.ssh/id_rsa"  # For SSH URLs
+git_token: "ghp_xxxxxxxxxxxxxxxxxxxx"  # For HTTPS URLs (GitHub Personal Access Token)
+
+# Docker registry configuration (used when deployment_type is "docker")
+# See examples/beacon.bootstrap.docker.yml for complete Docker examples
+# docker_images:
+#   - image: "username/my-app"
+#     registry: "docker.io"  # Optional, auto-detected
+#     deploy_command: "docker compose up -d"
+#     docker_compose_file: "docker-compose.yml"  # Relative to local_path
+
+# Common configuration
+local_path: "$HOME/beacon/my-awesome-app"
+deploy_command: "./scripts/deploy.sh"
+poll_interval: "60s"
+port: "8080"
+
+# Security and environment
+secure_env_path: "/etc/beacon/my-awesome-app.env"
+user: "deploy-user"
+working_dir: "$HOME/beacon/my-awesome-app"
+use_system_service: false  # Set to true for system-wide service
