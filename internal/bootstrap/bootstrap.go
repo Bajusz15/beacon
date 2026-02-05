@@ -272,6 +272,11 @@ func (bm *BootstrapManager) collectConfiguration(projectName string) (*Bootstrap
 
 // createEnvironmentFile creates the environment file for the project
 func (bm *BootstrapManager) createEnvironmentFile(config *BootstrapConfig) error {
+	// Default to "git" when DeploymentType is unset so env file contains BEACON_REPO_URL etc.
+	if config.DeploymentType == "" {
+		config.DeploymentType = "git"
+	}
+
 	envPath := bm.paths.GetProjectEnvFile(config.ProjectName)
 
 	file, err := os.Create(envPath)
