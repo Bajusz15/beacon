@@ -83,6 +83,16 @@ func (bp *BeaconPaths) GetProjectAlertsFile(projectName string) string {
 	return filepath.Join(bp.GetProjectConfigDir(projectName), "alerts.yml")
 }
 
+// GetProjectSourcesFile returns the observation sources config file path for a specific project
+func (bp *BeaconPaths) GetProjectSourcesFile(projectName string) string {
+	return filepath.Join(bp.GetProjectConfigDir(projectName), "sources.yml")
+}
+
+// GetProjectStateDir returns the state directory for a specific project (checks, k8s, etc.)
+func (bp *BeaconPaths) GetProjectStateDir(projectName string) string {
+	return filepath.Join(bp.StateDir, projectName)
+}
+
 // GetProjectKeysDir returns the keys directory for a specific project
 func (bp *BeaconPaths) GetProjectKeysDir(projectName string) string {
 	return filepath.Join(bp.GetProjectConfigDir(projectName), "keys")
