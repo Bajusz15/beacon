@@ -72,7 +72,7 @@ func buildConfig(src SourceConfig) (*rest.Config, error) {
 }
 
 // Name implements sources.Source.
-func (o *Observer) Name() string { return o.cfg.SourceConfig.Name() }
+func (o *Observer) Name() string { return SourceDisplayName(o.cfg.SourceConfig) }
 
 // Type implements sources.Source.
 func (o *Observer) Type() string { return "kubernetes" }
@@ -433,14 +433,6 @@ func daemonSetConditions(ds *appsv1.DaemonSet) []string {
 
 func workloadID(clusterID, namespace, kind, name string) string {
 	return clusterID + "/" + namespace + "/" + kind + "/" + name
-}
-
-// SourceConfig.Name() - we have Name as field; add method if needed.
-func (s SourceConfig) Name() string {
-	if s.Name != "" {
-		return s.Name
-	}
-	return "kubernetes-default"
 }
 
 // ClusterIDFromKubeconfig returns a short stable id for the cluster (e.g. for in-cluster use "in-cluster").

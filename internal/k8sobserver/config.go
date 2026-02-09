@@ -8,6 +8,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// SourceDisplayName returns the source name or a default if empty.
+func SourceDisplayName(c SourceConfig) string {
+	if c.Name != "" {
+		return c.Name
+	}
+	return "kubernetes-default"
+}
+
 // SourceConfig is the configuration for a single Kubernetes observation source.
 type SourceConfig struct {
 	Name       string   `yaml:"name"`
