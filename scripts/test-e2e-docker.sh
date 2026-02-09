@@ -51,11 +51,11 @@ DEPLOY_LOG="${WORKDIR}/deploy.log"
 BEACON_LOG="${WORKDIR}/beacon.log"
 REGISTRY="${BEACON_E2E_REGISTRY:-localhost:5055}"
 SKIP_REGISTRY_START="${BEACON_E2E_SKIP_REGISTRY_START:-0}"
-IMAGE_BASE="${REGISTRY}/beacon-e2e/app"
 TIMESTAMP="$(date +%s)"
-# Use very high semantic versions so they sort above any leftover tags in the registry
-TAG1="v9998.${TIMESTAMP}.0"
-TAG2="v9999.${TIMESTAMP}.0"
+# Unique image name per run so the shared registry has no leftover tags (Beacon picks "latest" tag; leftovers would win over our TAG1)
+IMAGE_BASE="${REGISTRY}/beacon-e2e/app-${TIMESTAMP}"
+TAG1="v1.0.0"
+TAG2="v1.1.0"
 
 log_info "Working directory: ${WORKDIR}"
 

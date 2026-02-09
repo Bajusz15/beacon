@@ -1,0 +1,42 @@
+# Mock HTTP server for e2e log forwarding test. Records POST /agent/logs to stdout.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-log-server
+  namespace: default
+  labels:
+    app: mock-log-server
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: mock-log-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-log-server
+  namespace: default
+  labels:
+    app: mock-log-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-log-server
+  template:
+    metadata:
+      labels:
+        app: mock-log-server
+    spec:
+      containers:
+        - name: server
+          image: mock-log-server:e2e
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
