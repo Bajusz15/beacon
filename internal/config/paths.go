@@ -121,6 +121,11 @@ func (bp *BeaconPaths) GetMasterKeyFile() string {
 	return filepath.Join(bp.BaseDir, ".master_key")
 }
 
+// GetProjectsFilePath returns the path to the projects inventory file
+func (bp *BeaconPaths) GetProjectsFilePath() string {
+	return filepath.Join(bp.BaseDir, "projects.json")
+}
+
 // ValidateProjectName validates a project name for filesystem safety
 func (bp *BeaconPaths) ValidateProjectName(name string) error {
 	if name == "" {

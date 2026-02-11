@@ -54,12 +54,37 @@ Beacon projects in a consistent way.`,
 	}
 
 	projectCmd.AddCommand(createListCommand(pm))
+	projectCmd.AddCommand(createAddCommand(pm))
 	projectCmd.AddCommand(createStatusCommand(pm))
 	projectCmd.AddCommand(createRemoveCommand(pm))
 	projectCmd.AddCommand(createInfoCommand(pm))
 	projectCmd.AddCommand(createCleanCommand(pm))
 
 	return projectCmd
+}
+
+func createAddCommand(pm *ProjectManager) *cobra.Command {
+	var location, configDir string
+	cmd := &cobra.Command{
+		Use:   "add [project-name]",
+		Short: "Add a project to the inventory",
+		Long:  `Add a project to the inventory manually. Use when migrating or adding projects not created via bootstrap.`,
+		Example: `  beacon projects add myapp --location ~/beacon/myapp
+  beacon projects add myapp --location /path/to/repo --config-dir ~/.beacon/config/projects/myapp`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			projectName := args[0]
+			if err := pm.AddProject(projectName, location, configDir); err != nil {
+				fmt.Printf("❌ Failed to add project: %v\n", err)
+				return
+			}
+			fmt.Printf("✅ Project '%s' added to inventory\n", projectName)
+		},
+	}
+	cmd.Flags().StringVar(&location, "location", "", "Project location (working directory)")
+	cmd.Flags().StringVar(&configDir, "config-dir", "", "Config directory (default: ~/.beacon/config/projects/<name>)")
+	_ = cmd.MarkFlagRequired("location")
+	return cmd
 }
 
 func createListCommand(pm *ProjectManager) *cobra.Command {
@@ -200,12 +225,23 @@ func healthSummary(st *state.ChecksState) string {
 
 // ListProjects lists all configured projects with health summary when available
 func (pm *ProjectManager) ListProjects() error {
-	projects, err := pm.paths.ListProjects()
+	dirProjects, err := pm.paths.ListProjects()
 	if err != nil {
 		return err
 	}
 
-	if len(projects) == 0 {
+	invPath := pm.paths.GetProjectsFilePath()
+	inv, err := LoadInventory(invPath)
+	if err != nil {
+		inv = &Inventory{Projects: []ProjectEntry{}}
+	}
+
+	if inv != nil {
+		pm.ensureInventoryMigrated(inv, dirProjects)
+		_ = SaveInventory(invPath, inv)
+	}
+
+	if len(dirProjects) == 0 {
 		fmt.Println("📭 No projects configured")
 		fmt.Println()
 		fmt.Println("Create your first project with:")
@@ -213,12 +249,16 @@ func (pm *ProjectManager) ListProjects() error {
 		return nil
 	}
 
-	fmt.Printf("📁 Beacon Projects (%d)\n", len(projects))
+	fmt.Printf("📁 Beacon Projects (%d)\n", len(dirProjects))
 	fmt.Println()
 
-	for _, project := range projects {
+	for _, project := range dirProjects {
 		configDir := pm.paths.GetProjectConfigDir(project)
 		workingDir := pm.paths.GetProjectWorkingDir(project)
+		if e := GetProject(inv, project); e != nil {
+			configDir = e.ConfigDir
+			workingDir = e.Location
+		}
 		envFile := pm.paths.GetProjectEnvFile(project)
 
 		fmt.Printf("🔹 %s\n", project)
@@ -241,6 +281,41 @@ func (pm *ProjectManager) ListProjects() error {
 	}
 
 	return nil
+}
+
+// ensureInventoryMigrated adds projects from dir scan to inventory if they're missing
+func (pm *ProjectManager) ensureInventoryMigrated(inv *Inventory, dirProjects []string) {
+	for _, name := range dirProjects {
+		if GetProject(inv, name) != nil {
+			continue
+		}
+		location := pm.inferProjectLocation(name)
+		configDir := pm.paths.GetProjectConfigDir(name)
+		AddProject(inv, name, location, configDir)
+	}
+}
+
+// inferProjectLocation reads BEACON_LOCAL_PATH from env file or returns default
+func (pm *ProjectManager) inferProjectLocation(projectName string) string {
+	envPath := pm.paths.GetProjectEnvFile(projectName)
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		return pm.paths.GetProjectWorkingDir(projectName)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "BEACON_LOCAL_PATH=") {
+			val := strings.TrimPrefix(line, "BEACON_LOCAL_PATH=")
+			val = strings.Trim(val, "\"'")
+			if p := os.ExpandEnv(val); p != "" {
+				if abs, err := filepath.Abs(p); err == nil {
+					return abs
+				}
+				return p
+			}
+		}
+	}
+	return pm.paths.GetProjectWorkingDir(projectName)
 }
 
 // ShowStatus prints health status for one or all projects (per-check detail)
@@ -295,7 +370,47 @@ func (pm *ProjectManager) RemoveProject(projectName string) error {
 		return fmt.Errorf("project '%s' does not exist", projectName)
 	}
 
-	return pm.paths.RemoveProject(projectName)
+	if err := pm.paths.RemoveProject(projectName); err != nil {
+		return err
+	}
+
+	invPath := pm.paths.GetProjectsFilePath()
+	inv, err := LoadInventory(invPath)
+	if err == nil {
+		RemoveProject(inv, projectName)
+		_ = SaveInventory(invPath, inv)
+	}
+	return nil
+}
+
+// AddProject adds a project to the inventory
+func (pm *ProjectManager) AddProject(projectName, location, configDir string) error {
+	if err := pm.paths.ValidateProjectName(projectName); err != nil {
+		return err
+	}
+	if location == "" {
+		return fmt.Errorf("location is required")
+	}
+	loc := filepath.Clean(os.ExpandEnv(location))
+	if abs, err := filepath.Abs(loc); err == nil {
+		loc = abs
+	}
+	cfgDir := configDir
+	if cfgDir == "" {
+		cfgDir = pm.paths.GetProjectConfigDir(projectName)
+	} else {
+		cfgDir = filepath.Clean(os.ExpandEnv(cfgDir))
+		if abs, err := filepath.Abs(cfgDir); err == nil {
+			cfgDir = abs
+		}
+	}
+	invPath := pm.paths.GetProjectsFilePath()
+	inv, err := LoadInventory(invPath)
+	if err != nil {
+		return err
+	}
+	AddProject(inv, projectName, loc, cfgDir)
+	return SaveInventory(invPath, inv)
 }
 
 // ShowProjectInfo shows detailed information about a project
