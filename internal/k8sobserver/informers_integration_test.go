@@ -102,13 +102,9 @@ func TestObserverWithFakeClient(t *testing.T) {
 	watcherStarted := make(chan struct{})
 	var closeOnce sync.Once
 	client.PrependWatchReactor("*", func(action clienttesting.Action) (handled bool, ret watch.Interface, err error) {
-		var opts metav1.ListOptions
-		if watchAction, ok := action.(clienttesting.WatchActionImpl); ok {
-			opts = watchAction.ListOptions
-		}
 		gvr := action.GetResource()
 		ns := action.GetNamespace()
-		w, err := client.Tracker().Watch(gvr, ns, opts)
+		w, err := client.Tracker().Watch(gvr, ns)
 		if err != nil {
 			return false, nil, err
 		}
