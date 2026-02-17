@@ -22,9 +22,9 @@ import (
 )
 
 const (
-	defaultLogBatchSize    = 50
+	defaultLogBatchSize     = 50
 	defaultLogFlushInterval = 15 * time.Second
-	logPositionsFilename   = "log_positions.json"
+	logPositionsFilename    = "log_positions.json"
 )
 
 // logCursor is persisted per source+identifier (container or file path)
@@ -90,21 +90,21 @@ type LogCollector struct {
 
 // LogManager handles all log collection and forwarding
 type LogManager struct {
-	config         *Config
-	logs           []LogEntry
-	logsMux        sync.RWMutex
-	logCollectors  map[string]*LogCollector
-	httpClient     *http.Client
-	seenLogs       map[string]time.Time // hash -> last seen timestamp for deduplication
-	seenLogsMux    sync.RWMutex
-	stateDir       string
-	logPositions   map[string]logCursor
+	config          *Config
+	logs            []LogEntry
+	logsMux         sync.RWMutex
+	logCollectors   map[string]*LogCollector
+	httpClient      *http.Client
+	seenLogs        map[string]time.Time // hash -> last seen timestamp for deduplication
+	seenLogsMux     sync.RWMutex
+	stateDir        string
+	logPositions    map[string]logCursor
 	logPositionsMux sync.RWMutex
-	pendingEntries []LogEntry
-	lastFlush      time.Time
-	pendingMux     sync.Mutex
-	flushTicker    *time.Ticker
-	flushStop      chan struct{}
+	pendingEntries  []LogEntry
+	lastFlush       time.Time
+	pendingMux      sync.Mutex
+	flushTicker     *time.Ticker
+	flushStop       chan struct{}
 }
 
 // getStateDir returns ~/.beacon/state for cursor persistence
@@ -121,15 +121,15 @@ func NewLogManager(config *Config, httpClient *http.Client) *LogManager {
 	stateDir := getStateDir()
 	_ = os.MkdirAll(stateDir, 0755)
 	lm := &LogManager{
-		config:        config,
-		logs:          make([]LogEntry, 0),
-		logCollectors: make(map[string]*LogCollector),
-		httpClient:    httpClient,
-		seenLogs:      make(map[string]time.Time),
-		stateDir:      stateDir,
-		logPositions:  make(map[string]logCursor),
+		config:         config,
+		logs:           make([]LogEntry, 0),
+		logCollectors:  make(map[string]*LogCollector),
+		httpClient:     httpClient,
+		seenLogs:       make(map[string]time.Time),
+		stateDir:       stateDir,
+		logPositions:   make(map[string]logCursor),
 		pendingEntries: make([]LogEntry, 0),
-		lastFlush:     time.Now(),
+		lastFlush:      time.Now(),
 	}
 	return lm
 }
@@ -257,10 +257,6 @@ func (lm *LogManager) StartLogCollection(ctx context.Context) {
 	// Start periodic cleanup of old hashes
 	go lm.startHashCleanup(ctx)
 
-	batchSize := lm.config.Report.LogBatchSize
-	if batchSize <= 0 {
-		batchSize = defaultLogBatchSize
-	}
 	flushInterval := lm.config.Report.LogFlushInterval
 	if flushInterval <= 0 {
 		flushInterval = defaultLogFlushInterval
@@ -994,7 +990,7 @@ func (lm *LogManager) cleanupOldHashes() {
 }
 
 // flushPending sends pending entries to the API synchronously and clears the buffer
-func (lm *LogManager) flushPending(force bool) {
+func (lm *LogManager) flushPending(_ bool) {
 	lm.pendingMux.Lock()
 	pending := lm.pendingEntries
 	lm.pendingEntries = nil

@@ -111,10 +111,18 @@ func (o *Observer) Start(ctx context.Context) error {
 	stsInformer := factory.Apps().V1().StatefulSets().Informer()
 	dsInformer := factory.Apps().V1().DaemonSets().Informer()
 
-	deployInformer.AddEventHandler(o.deploymentHandler())
-	stsInformer.AddEventHandler(o.statefulSetHandler())
-	dsInformer.AddEventHandler(o.daemonSetHandler())
-	podInformer.AddEventHandler(o.podHandler(podInformer.GetIndexer()))
+	if _, err := deployInformer.AddEventHandler(o.deploymentHandler()); err != nil {
+		return err
+	}
+	if _, err := stsInformer.AddEventHandler(o.statefulSetHandler()); err != nil {
+		return err
+	}
+	if _, err := dsInformer.AddEventHandler(o.daemonSetHandler()); err != nil {
+		return err
+	}
+	if _, err := podInformer.AddEventHandler(o.podHandler(podInformer.GetIndexer())); err != nil {
+		return err
+	}
 
 	factory.Start(ctx.Done())
 	if !cache.WaitForCacheSync(ctx.Done(), deployInformer.HasSynced, stsInformer.HasSynced, dsInformer.HasSynced, podInformer.HasSynced) {
@@ -140,7 +148,9 @@ func (o *Observer) deploymentHandler() cache.ResourceEventHandler {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { o.upsertDeployment(obj.(*appsv1.Deployment)) },
 		UpdateFunc: func(_, newObj interface{}) { o.upsertDeployment(newObj.(*appsv1.Deployment)) },
-		DeleteFunc: func(obj interface{}) { o.deleteWorkload(workloadID(o.cfg.ClusterID, obj.(*appsv1.Deployment).Namespace, "Deployment", obj.(*appsv1.Deployment).Name)) },
+		DeleteFunc: func(obj interface{}) {
+			o.deleteWorkload(workloadID(o.cfg.ClusterID, obj.(*appsv1.Deployment).Namespace, "Deployment", obj.(*appsv1.Deployment).Name))
+		},
 	}
 }
 
@@ -148,7 +158,9 @@ func (o *Observer) statefulSetHandler() cache.ResourceEventHandler {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { o.upsertStatefulSet(obj.(*appsv1.StatefulSet)) },
 		UpdateFunc: func(_, newObj interface{}) { o.upsertStatefulSet(newObj.(*appsv1.StatefulSet)) },
-		DeleteFunc: func(obj interface{}) { o.deleteWorkload(workloadID(o.cfg.ClusterID, obj.(*appsv1.StatefulSet).Namespace, "StatefulSet", obj.(*appsv1.StatefulSet).Name)) },
+		DeleteFunc: func(obj interface{}) {
+			o.deleteWorkload(workloadID(o.cfg.ClusterID, obj.(*appsv1.StatefulSet).Namespace, "StatefulSet", obj.(*appsv1.StatefulSet).Name))
+		},
 	}
 }
 
@@ -156,7 +168,9 @@ func (o *Observer) daemonSetHandler() cache.ResourceEventHandler {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { o.upsertDaemonSet(obj.(*appsv1.DaemonSet)) },
 		UpdateFunc: func(_, newObj interface{}) { o.upsertDaemonSet(newObj.(*appsv1.DaemonSet)) },
-		DeleteFunc: func(obj interface{}) { o.deleteWorkload(workloadID(o.cfg.ClusterID, obj.(*appsv1.DaemonSet).Namespace, "DaemonSet", obj.(*appsv1.DaemonSet).Name)) },
+		DeleteFunc: func(obj interface{}) {
+			o.deleteWorkload(workloadID(o.cfg.ClusterID, obj.(*appsv1.DaemonSet).Namespace, "DaemonSet", obj.(*appsv1.DaemonSet).Name))
+		},
 	}
 }
 
@@ -281,7 +295,7 @@ func (o *Observer) onPodChange(indexer cache.Indexer, pod *corev1.Pod) {
 	}
 }
 
-func (o *Observer) refreshWorkloadFromPods(id, kind string, pods []interface{}) {
+func (o *Observer) refreshWorkloadFromPods(id, _ string, pods []interface{}) {
 	o.workMu.Lock()
 	w, ok := o.workloads[id]
 	if !ok {
@@ -383,7 +397,9 @@ func (o *Observer) emitAllWorkloads() {
 		observations = append(observations, w.toObservation())
 	}
 	if len(observations) > 0 {
-		if batch, ok := o.sink.(interface{ RecordObservationsBatch([]sources.Observation) error }); ok {
+		if batch, ok := o.sink.(interface {
+			RecordObservationsBatch([]sources.Observation) error
+		}); ok {
 			_ = batch.RecordObservationsBatch(observations)
 		} else {
 			for _, obs := range observations {

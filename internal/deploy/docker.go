@@ -466,7 +466,7 @@ func isSemanticVersion(tag string) bool {
 		}
 		// Check if part is numeric (allowing for pre-release identifiers)
 		for _, r := range part {
-			if !((r >= '0' && r <= '9') || r == '-' || r == '+') {
+			if (r < '0' || r > '9') && r != '-' && r != '+' {
 				return false
 			}
 		}
@@ -500,14 +500,14 @@ func compareSemanticVersions(v1, v2 string) int {
 			if idx := strings.IndexAny(numStr1, "-+"); idx != -1 {
 				numStr1 = numStr1[:idx]
 			}
-			fmt.Sscanf(numStr1, "%d", &num1)
+			_, _ = fmt.Sscanf(numStr1, "%d", &num1)
 		}
 		if i < len(parts2) {
 			numStr2 := parts2[i]
 			if idx := strings.IndexAny(numStr2, "-+"); idx != -1 {
 				numStr2 = numStr2[:idx]
 			}
-			fmt.Sscanf(numStr2, "%d", &num2)
+			_, _ = fmt.Sscanf(numStr2, "%d", &num2)
 		}
 
 		if num1 > num2 {

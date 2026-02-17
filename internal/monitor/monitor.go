@@ -23,10 +23,10 @@ import (
 	"beacon/internal/errors"
 	"beacon/internal/keys"
 	"beacon/internal/plugins"
-	"beacon/internal/state"
 	"beacon/internal/plugins/email"
 	"beacon/internal/plugins/webhook"
 	"beacon/internal/ratelimit"
+	"beacon/internal/state"
 	"beacon/internal/util"
 	"beacon/internal/version"
 
@@ -77,17 +77,17 @@ type SystemMetricsConfig struct {
 }
 
 type ReportConfig struct {
-	SendTo            string          `yaml:"send_to"`
-	Token             string          `yaml:"token,omitempty"`
-	TokenName         string          `yaml:"token_name,omitempty"`
-	PrometheusEnable  bool            `yaml:"prometheus_metrics"`
-	PrometheusPort    int             `yaml:"prometheus_port"`
-	PrometheusFilePath string         `yaml:"prometheus_file_path,omitempty"` // write metrics to file (node_exporter textfile, local-only)
+	SendTo             string          `yaml:"send_to"`
+	Token              string          `yaml:"token,omitempty"`
+	TokenName          string          `yaml:"token_name,omitempty"`
+	PrometheusEnable   bool            `yaml:"prometheus_metrics"`
+	PrometheusPort     int             `yaml:"prometheus_port"`
+	PrometheusFilePath string          `yaml:"prometheus_file_path,omitempty"` // write metrics to file (node_exporter textfile, local-only)
 	Heartbeat          HeartbeatConfig `yaml:"heartbeat,omitempty"`
 	DeployOnRequest    bool            `yaml:"deploy_on_request,omitempty"` // run deploy when BeaconWatch sets deploy_requested
 	// Log batching: flush when batch full or interval elapsed
-	LogBatchSize     int             `yaml:"log_batch_size,omitempty"`     // max entries per HTTP request (default 50)
-	LogFlushInterval time.Duration   `yaml:"log_flush_interval,omitempty"` // max time before sending partial batch (default 15s)
+	LogBatchSize     int           `yaml:"log_batch_size,omitempty"`     // max entries per HTTP request (default 50)
+	LogFlushInterval time.Duration `yaml:"log_flush_interval,omitempty"` // max time before sending partial batch (default 15s)
 }
 
 type HeartbeatConfig struct {
@@ -97,7 +97,7 @@ type HeartbeatConfig struct {
 
 // heartbeatResponse is the server response to /agent/heartbeat (may include deploy_requested)
 type heartbeatResponse struct {
-	DeviceID       string `json:"device_id,omitempty"`
+	DeviceID        string `json:"device_id,omitempty"`
 	DeployRequested bool   `json:"deploy_requested,omitempty"`
 }
 
@@ -421,7 +421,7 @@ func (m *Monitor) Start() error {
 	}
 
 	// Start Prometheus file export when path set and not already updating via reportSystemMetrics (file-only)
-	if m.config.Report.PrometheusFilePath != "" && !(m.config.SystemMetrics.Enabled && m.config.Report.SendTo != "" && m.config.Report.Token != "") {
+	if m.config.Report.PrometheusFilePath != "" && (!m.config.SystemMetrics.Enabled || m.config.Report.SendTo == "" || m.config.Report.Token == "") {
 		interval := m.config.SystemMetrics.Interval
 		if interval == 0 {
 			interval = 1 * time.Minute
@@ -451,7 +451,7 @@ func (m *Monitor) Start() error {
 
 	log.Println("[Beacon] Shutdown signal received, stopping monitoring...")
 
-	// Flush last logs synchronously before cancelling
+	// Flush last logs synchronously before canceling
 	if len(m.config.LogSources) > 0 && m.config.Report.SendTo != "" && (m.config.Report.Token != "" || m.config.Report.TokenName != "") {
 		flushCtx, flushCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		m.logManager.FlushAndStop(flushCtx)

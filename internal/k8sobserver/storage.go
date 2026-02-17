@@ -21,7 +21,7 @@ const (
 type NoopSink struct{}
 
 func (NoopSink) RecordObservation(obs sources.Observation) error { return nil }
-func (NoopSink) RecordEvent(ev sources.Event) error             { return nil }
+func (NoopSink) RecordEvent(ev sources.Event) error              { return nil }
 
 // FileSink persists observations and events to the state directory.
 type FileSink struct {
@@ -84,7 +84,7 @@ func (s *FileSink) RecordEvent(ev sources.Event) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	enc := json.NewEncoder(f)
 	return enc.Encode(evCopy)
 }
@@ -120,13 +120,13 @@ func observationFromSnapshot(w WorkloadSnapshot) sources.Observation {
 	}
 	return sources.Observation{
 		ID:                 w.ID,
-		ClusterID:           w.ClusterID,
+		ClusterID:          w.ClusterID,
 		Namespace:          w.Namespace,
 		Kind:               w.Kind,
 		Name:               w.Name,
 		UID:                w.UID,
-		DesiredReplicas:     w.DesiredReplicas,
-		AvailableReplicas:   w.AvailableReplicas,
+		DesiredReplicas:    w.DesiredReplicas,
+		AvailableReplicas:  w.AvailableReplicas,
 		ObservedGeneration: w.ObservedGeneration,
 		SpecGeneration:     w.SpecGeneration,
 		DesiredImages:      w.DesiredImages,

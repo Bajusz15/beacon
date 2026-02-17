@@ -26,26 +26,26 @@ type Sink interface {
 
 // Observation is a point-in-time snapshot of an observed workload (e.g. a Deployment).
 type Observation struct {
-	ID                string
-	ClusterID         string
-	Namespace         string
-	Kind              string
-	Name              string
-	UID               string
-	DesiredReplicas   int32
-	AvailableReplicas int32
+	ID                 string
+	ClusterID          string
+	Namespace          string
+	Kind               string
+	Name               string
+	UID                string
+	DesiredReplicas    int32
+	AvailableReplicas  int32
 	ObservedGeneration int64
-	SpecGeneration    int64
-	DesiredImages     []string
-	RunningImages     []string
-	RunningDigests    []string
-	Conditions        []string
-	HealthSignals     []string
-	FirstSeen         string
-	LastSeen          string
-	LastChange        string
-	InDrift           bool
-	DriftReasons      []string
+	SpecGeneration     int64
+	DesiredImages      []string
+	RunningImages      []string
+	RunningDigests     []string
+	Conditions         []string
+	HealthSignals      []string
+	FirstSeen          string
+	LastSeen           string
+	LastChange         string
+	InDrift            bool
+	DriftReasons       []string
 }
 
 // Event is a single audit/change event for the event log.

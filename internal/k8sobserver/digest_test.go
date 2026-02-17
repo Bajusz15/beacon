@@ -6,9 +6,9 @@ import (
 
 func TestParseImageID(t *testing.T) {
 	tests := []struct {
-		imageID      string
-		wantImage    string
-		wantDigest   string
+		imageID    string
+		wantImage  string
+		wantDigest string
 	}{
 		{
 			"docker-pullable://docker.io/library/nginx@sha256:abc123",

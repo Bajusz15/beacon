@@ -37,14 +37,6 @@ func (c *collectingSink) RecordEvent(ev sources.Event) error {
 	return nil
 }
 
-func (c *collectingSink) observations() []sources.Observation {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	out := make([]sources.Observation, len(c.obs))
-	copy(out, c.obs)
-	return out
-}
-
 func TestObserverWithFakeClient(t *testing.T) {
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{

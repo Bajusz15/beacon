@@ -183,11 +183,11 @@ func StatusSourceCommand() *cobra.Command {
 	var project, name string
 	var timeout time.Duration
 	cmd := &cobra.Command{
-		Use:   "status [name]",
-		Short: "Show observed Kubernetes workloads",
-		Long:  `Connect to the cluster, sync once, and print workload status (desired/available, drift, health).`,
+		Use:     "status [name]",
+		Short:   "Show observed Kubernetes workloads",
+		Long:    `Connect to the cluster, sync once, and print workload status (desired/available, drift, health).`,
 		Example: `  beacon source status my-k8s --project myapp`,
-		Args: cobra.MaximumNArgs(1),
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if project == "" {
 				return fmt.Errorf("--project is required")
