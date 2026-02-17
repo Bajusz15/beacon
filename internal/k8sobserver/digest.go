@@ -22,14 +22,13 @@ func ParseImageID(imageID string) (image string, digest string) {
 }
 
 // ImageTag returns the tag part of an image reference (e.g. "myapp:v1" -> "v1").
-// If no tag, returns empty.
+// If the reference uses digest format (contains @), returns empty (no tag).
 func ImageTag(imageRef string) string {
+	if strings.Contains(imageRef, "@") {
+		return "" // digest format, no tag
+	}
 	if idx := strings.LastIndex(imageRef, ":"); idx != -1 {
-		tag := imageRef[idx+1:]
-		if strings.Contains(tag, "@") {
-			return "" // digest only
-		}
-		return tag
+		return imageRef[idx+1:]
 	}
 	return ""
 }
