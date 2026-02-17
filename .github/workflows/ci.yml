@@ -207,4 +207,4 @@ jobs:
         sudo mv kubectl /usr/local/bin/kubectl
 
     - name: Run Kubernetes log-forwarding E2E
-      run: ./scripts/test-e2e-log-forwarding.sh
+      run: bash scripts/test-e2e-log-forwarding.sh
