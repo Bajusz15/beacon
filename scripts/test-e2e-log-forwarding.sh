@@ -14,8 +14,11 @@ log_info()    { printf "[INFO] %s\n" "$*"; }
 log_success() { printf "\033[32m[SUCCESS]\033[0m %s\n" "$*"; }
 log_error()   { printf "\033[31m[ERROR]\033[0m %s\n" "$*"; }
 
+KUBECONFIG_FILE=""
+
 cleanup() {
   set +e
+  [[ -n "${KUBECONFIG_FILE}" && -f "${KUBECONFIG_FILE}" ]] && rm -f "${KUBECONFIG_FILE}"
   kind delete cluster --name "${CLUSTER_NAME}" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -42,7 +45,9 @@ docker build -t beacon:e2e -f "${ROOT_DIR}/Dockerfile.e2e" "${ROOT_DIR}"
 log_info "Creating kind cluster: ${CLUSTER_NAME}"
 kind create cluster --name "${CLUSTER_NAME}" --wait 60s 2>/dev/null || true
 
-export KUBECONFIG="$(kind get kubeconfig --name "${CLUSTER_NAME}")"
+KUBECONFIG_FILE="$(mktemp)"
+kind get kubeconfig --name "${CLUSTER_NAME}" > "${KUBECONFIG_FILE}"
+export KUBECONFIG="${KUBECONFIG_FILE}"
 log_info "Loading images into kind..."
 kind load docker-image mock-log-server:e2e --name "${CLUSTER_NAME}"
 kind load docker-image beacon:e2e --name "${CLUSTER_NAME}"

@@ -39,6 +39,7 @@ go.work.sum
 # .idea/
 # .vscode/
 .DS_Store
+.cursorrules
 
 # Monitor config
 beacon.monitor.yml
