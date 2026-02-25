@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"beacon/internal/bootstrap"
+	"beacon/internal/k8sobserver"
 	"beacon/internal/monitor"
 
 	"github.com/spf13/cobra"
@@ -269,6 +270,7 @@ func main() {
 	rootCmd.AddCommand(keys.KeysCmd)
 	rootCmd.AddCommand(alerting.CreateSimpleAlertingCommand())
 	rootCmd.AddCommand(projects.CreateProjectCommand())
+	rootCmd.AddCommand(createSourceCommand())
 
 	// If no subcommand is provided, run in deploy mode
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {
@@ -279,6 +281,24 @@ func main() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func createSourceCommand() *cobra.Command {
+	sourceCmd := &cobra.Command{
+		Use:   "source",
+		Short: "Manage observation sources (e.g. Kubernetes)",
+		Long:  `Add, list, remove, or show status of observation sources such as Kubernetes (read-only workload observer).`,
+		Example: `  beacon source add kubernetes my-k8s --kubeconfig ~/.kube/config --project myapp
+  beacon source list --project myapp
+  beacon source status my-k8s --project myapp`,
+	}
+	sourceCmd.AddCommand(k8sobserver.ListSourcesCommand())
+	sourceCmd.AddCommand(k8sobserver.RemoveSourceCommand())
+	sourceCmd.AddCommand(k8sobserver.StatusSourceCommand())
+	addCmd := &cobra.Command{Use: "add", Short: "Add an observation source"}
+	addCmd.AddCommand(k8sobserver.AddSourceCommand())
+	sourceCmd.AddCommand(addCmd)
+	return sourceCmd
 }
 
 func runDeploy() {

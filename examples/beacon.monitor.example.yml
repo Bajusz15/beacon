@@ -255,11 +255,15 @@ report:
   token: YOUR_BEACONWATCH_API_KEY
   prometheus_metrics: true
   prometheus_port: 9100
+  # Optional: write metrics to file (node_exporter textfile, local-only)
+  # prometheus_file_path: ~/.beacon/metrics.prom
   
   # Heartbeat configuration
   heartbeat:
     enabled: true
     interval: 30s
+  # Run deploy when BeaconWatch requests it (e.g. "Deploy now" button)
+  # deploy_on_request: true
 
 # -------------------------------------------
 # DEPLOY COMMAND LOG REDIRECTION EXAMPLES

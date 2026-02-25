@@ -12,6 +12,7 @@ type BeaconPaths struct {
 	BaseDir       string // ~/.beacon
 	ConfigDir     string // ~/.beacon/config
 	ProjectsDir   string // ~/.beacon/config/projects
+	StateDir      string // ~/.beacon/state (log cursors, check state)
 	TemplatesDir  string // ~/.beacon/templates (shared templates)
 	LogsDir       string // ~/.beacon/logs (project-specific logs)
 	SystemdDir    string // ~/.config/systemd/user (for user services)
@@ -30,6 +31,7 @@ func NewBeaconPaths() (*BeaconPaths, error) {
 		BaseDir:       filepath.Join(homeDir, ".beacon"),
 		ConfigDir:     filepath.Join(homeDir, ".beacon", "config"),
 		ProjectsDir:   filepath.Join(homeDir, ".beacon", "config", "projects"),
+		StateDir:      filepath.Join(homeDir, ".beacon", "state"),
 		TemplatesDir:  filepath.Join(homeDir, ".beacon", "templates"),
 		LogsDir:       filepath.Join(homeDir, ".beacon", "logs"),
 		SystemdDir:    filepath.Join(homeDir, ".config", "systemd", "user"),
@@ -46,6 +48,7 @@ func (bp *BeaconPaths) EnsureDirectories() error {
 		bp.BaseDir,
 		bp.ConfigDir,
 		bp.ProjectsDir,
+		bp.StateDir,
 		bp.TemplatesDir,
 		bp.LogsDir,
 		bp.SystemdDir,
@@ -78,6 +81,16 @@ func (bp *BeaconPaths) GetProjectMonitorFile(projectName string) string {
 // GetProjectAlertsFile returns the alerts configuration file path for a specific project
 func (bp *BeaconPaths) GetProjectAlertsFile(projectName string) string {
 	return filepath.Join(bp.GetProjectConfigDir(projectName), "alerts.yml")
+}
+
+// GetProjectSourcesFile returns the observation sources config file path for a specific project
+func (bp *BeaconPaths) GetProjectSourcesFile(projectName string) string {
+	return filepath.Join(bp.GetProjectConfigDir(projectName), "sources.yml")
+}
+
+// GetProjectStateDir returns the state directory for a specific project (checks, k8s, etc.)
+func (bp *BeaconPaths) GetProjectStateDir(projectName string) string {
+	return filepath.Join(bp.StateDir, projectName)
 }
 
 // GetProjectKeysDir returns the keys directory for a specific project
