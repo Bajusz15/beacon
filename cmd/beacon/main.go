@@ -23,6 +23,7 @@ import (
 
 	"beacon/internal/bootstrap"
 	"beacon/internal/k8sobserver"
+	"beacon/internal/mcp"
 	"beacon/internal/monitor"
 
 	"github.com/spf13/cobra"
@@ -271,6 +272,7 @@ func main() {
 	rootCmd.AddCommand(alerting.CreateSimpleAlertingCommand())
 	rootCmd.AddCommand(projects.CreateProjectCommand())
 	rootCmd.AddCommand(createSourceCommand())
+	rootCmd.AddCommand(createMCPCommand())
 
 	// If no subcommand is provided, run in deploy mode
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {
@@ -299,6 +301,44 @@ func createSourceCommand() *cobra.Command {
 	addCmd.AddCommand(k8sobserver.AddSourceCommand())
 	sourceCmd.AddCommand(addCmd)
 	return sourceCmd
+}
+
+func createMCPCommand() *cobra.Command {
+	mcpCmd := &cobra.Command{
+		Use:   "mcp",
+		Short: "MCP server for Cursor/Claude Desktop",
+		Long: `Expose Beacon tools via Model Context Protocol.
+
+Tools: inventory, status, logs, diff (read); deploy, restart (write, gated).
+Set BEACON_MCP_DEPLOY_ENABLED=1 and BEACON_MCP_RESTART_ENABLED=1 to enable write tools.`,
+	}
+
+	var transport, listen, tokenEnv string
+	serveCmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Run MCP server",
+		Long: `Run the Beacon MCP server. Use stdio for local Cursor/Claude Desktop,
+or http for network access (requires --token-env for auth).`,
+		Example: `  beacon mcp serve --transport stdio
+  beacon mcp serve --transport http --listen 127.0.0.1:7766 --token-env BEACON_MCP_TOKEN`,
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx := context.Background()
+			opts := mcp.ServeOptions{
+				Transport: transport,
+				Listen:    listen,
+				TokenEnv:  tokenEnv,
+			}
+			if err := mcp.RunServe(ctx, opts); err != nil {
+				log.Fatalf("MCP server: %v", err)
+			}
+		},
+	}
+	serveCmd.Flags().StringVar(&transport, "transport", "stdio", "Transport: stdio (local) or http")
+	serveCmd.Flags().StringVar(&listen, "listen", "127.0.0.1:7766", "Listen address for http transport")
+	serveCmd.Flags().StringVar(&tokenEnv, "token-env", "", "Env var name for bearer token (recommended for http)")
+
+	mcpCmd.AddCommand(serveCmd)
+	return mcpCmd
 }
 
 func runDeploy() {

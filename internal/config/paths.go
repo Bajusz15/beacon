@@ -42,6 +42,22 @@ func NewBeaconPaths() (*BeaconPaths, error) {
 	return paths, nil
 }
 
+// NewBeaconPathsFromBase creates BeaconPaths with the given home directory (e.g. for tests)
+func NewBeaconPathsFromBase(homeDir string) *BeaconPaths {
+	base := filepath.Join(homeDir, ".beacon")
+	return &BeaconPaths{
+		BaseDir:       base,
+		ConfigDir:     filepath.Join(base, "config"),
+		ProjectsDir:   filepath.Join(base, "config", "projects"),
+		StateDir:      filepath.Join(base, "state"),
+		TemplatesDir:  filepath.Join(base, "templates"),
+		LogsDir:       filepath.Join(base, "logs"),
+		SystemdDir:    filepath.Join(homeDir, ".config", "systemd", "user"),
+		SystemdDirSys: "/etc/systemd/system",
+		WorkingDir:   filepath.Join(homeDir, "beacon"),
+	}
+}
+
 // EnsureDirectories creates all necessary directories
 func (bp *BeaconPaths) EnsureDirectories() error {
 	dirs := []string{
@@ -119,6 +135,11 @@ func (bp *BeaconPaths) GetSystemdServiceFile(projectName string, useSystemServic
 // GetMasterKeyFile returns the master key file path for encryption
 func (bp *BeaconPaths) GetMasterKeyFile() string {
 	return filepath.Join(bp.BaseDir, ".master_key")
+}
+
+// GetProjectsFilePath returns the path to the projects inventory file
+func (bp *BeaconPaths) GetProjectsFilePath() string {
+	return filepath.Join(bp.BaseDir, "projects.json")
 }
 
 // ValidateProjectName validates a project name for filesystem safety

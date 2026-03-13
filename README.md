@@ -99,6 +99,7 @@ Click any badge to see detailed results and logs.
 ## 📚 **Documentation**
 
 - **[LOG_FORWARDING.md](./LOG_FORWARDING.md)** - Complete guide for log forwarding (file, Docker, deploy, command logs)
+- **[docs/MCP.md](./docs/MCP.md)** - MCP server for Cursor/Claude Desktop (beacon_inventory, beacon_status, etc.)
 - **[beacon.monitor.example.yml](./beacon.monitor.example.yml)** - Comprehensive monitoring configuration examples
 - **[beacon.bootstrap.example.yml](./beacon.bootstrap.example.yml)** - Bootstrap configuration template for automation
 - **[beacon.env.example](./beacon.env.example)** - Environment configuration template
