@@ -10,6 +10,7 @@ import (
 	"text/template"
 
 	"beacon/internal/config"
+	"beacon/internal/projects"
 	"beacon/internal/systemd"
 	"beacon/internal/util"
 
@@ -102,7 +103,7 @@ func (bm *BootstrapManager) BootstrapProject(projectName string, skipSystemd boo
 		return fmt.Errorf("failed to create project structure: %v", err)
 	}
 
-	// Collect configuration
+	// Collect configuration (needed for inventory location)
 	config, err := bm.collectConfiguration(projectName)
 	if err != nil {
 		return fmt.Errorf("failed to collect configuration: %v", err)
@@ -131,6 +132,9 @@ func (bm *BootstrapManager) BootstrapProject(projectName string, skipSystemd boo
 			systemdCreated = true
 		}
 	}
+
+	// Register project in inventory
+	bm.addProjectToInventory(config)
 
 	// Display success message
 	bm.displaySuccessMessage(config, systemdCreated)
@@ -188,10 +192,32 @@ func (bm *BootstrapManager) BootstrapProjectFromConfig(projectName, configFile s
 		}
 	}
 
+	// Register project in inventory
+	bm.addProjectToInventory(config)
+
 	// Display success message
 	bm.displaySuccessMessage(config, systemdCreated)
 
 	return nil
+}
+
+// addProjectToInventory adds or updates the project in projects.json
+func (bm *BootstrapManager) addProjectToInventory(config *BootstrapConfig) {
+	invPath := bm.paths.GetProjectsFilePath()
+	inv, err := projects.LoadInventory(invPath)
+	if err != nil {
+		fmt.Printf("Warning: Failed to load project inventory: %v\n", err)
+		return
+	}
+	location := filepath.Clean(os.ExpandEnv(config.LocalPath))
+	if abs, err := filepath.Abs(location); err == nil {
+		location = abs
+	}
+	configDir := bm.paths.GetProjectConfigDir(config.ProjectName)
+	projects.AddProject(inv, config.ProjectName, location, configDir)
+	if err := projects.SaveInventory(invPath, inv); err != nil {
+		fmt.Printf("Warning: Failed to save project inventory: %v\n", err)
+	}
 }
 
 // loadConfigFromFile loads bootstrap configuration from a YAML file
@@ -272,6 +298,11 @@ func (bm *BootstrapManager) collectConfiguration(projectName string) (*Bootstrap
 
 // createEnvironmentFile creates the environment file for the project
 func (bm *BootstrapManager) createEnvironmentFile(config *BootstrapConfig) error {
+	// Default to "git" when DeploymentType is unset so env file contains BEACON_REPO_URL etc.
+	if config.DeploymentType == "" {
+		config.DeploymentType = "git"
+	}
+
 	envPath := bm.paths.GetProjectEnvFile(config.ProjectName)
 
 	file, err := os.Create(envPath)

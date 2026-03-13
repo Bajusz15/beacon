@@ -98,7 +98,6 @@ func Load() *Config {
 			fmt.Fprintf(os.Stderr, "[Beacon] Warning: Failed to load Docker images config: %v\n", err)
 		}
 	}
-
 	cfg.ProjectDir = filepath.Base(cfg.LocalPath)
 
 	return cfg

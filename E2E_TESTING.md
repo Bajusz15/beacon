@@ -155,11 +155,43 @@ The wizard prompts may have changed. Update the expect script in `test-e2e-cli.s
 - Verify `BEACON_DEPLOY_COMMAND` in env file
 - Check deploy.log for errors
 
+## Log Forwarding E2E (Kubernetes)
+
+A separate e2e test verifies that Beacon forwards logs to an HTTP endpoint when running as a sidecar in Kubernetes.
+
+### Flow
+
+1. **Mock HTTP server** runs in the cluster (Deployment + Service). It accepts `POST /agent/logs`, records the request body to stdout, and returns 200.
+2. **Test pod** has two containers:
+   - **log-writer**: writes a known line (`E2E_LOG_FORWARDING_MARKER_...`) to `/shared/app.log` every 2s (shared emptyDir).
+   - **beacon**: runs `beacon monitor -f /config/monitor.yml` with a file log source for `/shared/app.log` and `report.send_to: http://mock-log-server:8080`.
+3. Beacon tails the file, batches logs, and sends them to the mock server. The test waits until the mock server’s logs contain the marker.
+
+### Run locally
+
+Requires **kind**, **kubectl**, and **Docker**.
+
+```bash
+./scripts/test-e2e-log-forwarding.sh
+```
+
+The script will:
+
+- Build `mock-log-server:e2e` (from `scripts/mock-log-server/`) and `beacon:e2e` (from `Dockerfile.e2e`).
+- Create a kind cluster, load images, deploy the mock server and the test pod.
+- Poll `kubectl logs deployment/mock-log-server` for `RECEIVED_POST_AGENT_LOGS` containing `E2E_LOG_FORWARDING_MARKER`.
+- Delete the kind cluster on exit.
+
+### Manifests
+
+- `deploy/kubernetes/e2e/mock-log-server.e2e.yaml` – Service + Deployment for the mock server.
+- `deploy/kubernetes/e2e/beacon-log-forwarding.e2e.yaml` – ConfigMap (monitor.yml) + Pod (log-writer + beacon sidecar).
+
 ## Future Improvements
 
 - [ ] Test systemd service creation and management
 - [ ] Test alerting integration
-- [ ] Test log forwarding
+- [x] Test log forwarding (Kubernetes e2e; see above)
 - [ ] Test multiple projects
 - [ ] Performance/load testing
 - [ ] Test error recovery scenarios
