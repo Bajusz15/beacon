@@ -11,9 +11,9 @@ import (
 )
 
 func TestE2EMCPTools(t *testing.T) {
-	endpoint := "http://127.0.0.1:7767"
-	if e := os.Getenv("BEACON_MCP_ENDPOINT"); e != "" {
-		endpoint = e
+	endpoint := os.Getenv("BEACON_MCP_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("BEACON_MCP_ENDPOINT not set; run via scripts/test-e2e-mcp.sh")
 	}
 	t.Logf("connecting to MCP server at %s", endpoint)
 

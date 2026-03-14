@@ -13,7 +13,7 @@ type Config struct {
 	DeployEnabled  bool     `yaml:"deploy_enabled"`
 	RestartEnabled bool     `yaml:"restart_enabled"`
 	AllowedTools   []string `yaml:"allowed_tools,omitempty"`
-	AuditLogPath   string  `yaml:"audit_log_path,omitempty"`
+	AuditLogPath   string   `yaml:"audit_log_path,omitempty"`
 }
 
 // LoadConfig loads MCP config from the given path (e.g. ~/.beacon/mcp.yml)

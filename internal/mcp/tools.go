@@ -35,9 +35,9 @@ type StatusOutput struct {
 	Project   string    `json:"project"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Checks    []struct {
-		Name      string `json:"name"`
-		Status    string `json:"status"`
-		Error     string `json:"error,omitempty"`
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Error  string `json:"error,omitempty"`
 	} `json:"checks"`
 }
 
@@ -58,15 +58,15 @@ type DiffOutput struct {
 // DeployOutput is the result of beacon_deploy
 type DeployOutput struct {
 	Message           string `json:"message"`
-	ConfirmationToken  string `json:"confirmation_token,omitempty"`
+	ConfirmationToken string `json:"confirmation_token,omitempty"`
 	Deployed          bool   `json:"deployed,omitempty"`
 }
 
 // RestartOutput is the result of beacon_restart
 type RestartOutput struct {
-	Message          string `json:"message"`
+	Message           string `json:"message"`
 	ConfirmationToken string `json:"confirmation_token,omitempty"`
-	Restarted        bool   `json:"restarted,omitempty"`
+	Restarted         bool   `json:"restarted,omitempty"`
 }
 
 func (b *ToolBackend) getInventory() (*projects.Inventory, error) {
@@ -275,7 +275,7 @@ func (b *ToolBackend) ToolDeploy(project, ref, confirmationToken string) (Deploy
 		return DeployOutput{}, err
 	}
 	return DeployOutput{
-		Message:          "deploy requires confirmation; call again with confirmation_token",
+		Message:           "deploy requires confirmation; call again with confirmation_token",
 		ConfirmationToken: token,
 	}, nil
 }
@@ -308,10 +308,7 @@ func (b *ToolBackend) ToolRestart(project, service, confirmationToken string) (R
 			return RestartOutput{}, fmt.Errorf("token is for %s, not restart", tool)
 		}
 		project = args["project"].(string)
-		svc, _ := args["service"].(string)
-		if svc != "" {
-			service = svc
-		}
+		_, _ = args["service"].(string)
 
 		if err := restartSystemdService(project); err != nil {
 			return RestartOutput{}, err
@@ -324,7 +321,7 @@ func (b *ToolBackend) ToolRestart(project, service, confirmationToken string) (R
 		return RestartOutput{}, err
 	}
 	return RestartOutput{
-		Message:          "restart requires confirmation; call again with confirmation_token",
+		Message:           "restart requires confirmation; call again with confirmation_token",
 		ConfirmationToken: token,
 	}, nil
 }
@@ -334,7 +331,7 @@ func configLoadEnv(envPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())

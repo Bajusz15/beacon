@@ -54,7 +54,7 @@ func NewBeaconPathsFromBase(homeDir string) *BeaconPaths {
 		LogsDir:       filepath.Join(base, "logs"),
 		SystemdDir:    filepath.Join(homeDir, ".config", "systemd", "user"),
 		SystemdDirSys: "/etc/systemd/system",
-		WorkingDir:   filepath.Join(homeDir, "beacon"),
+		WorkingDir:    filepath.Join(homeDir, "beacon"),
 	}
 }
 

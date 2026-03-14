@@ -111,7 +111,7 @@ func NewServerAndBackend(baseDir string) (*mcp.Server, *ToolBackend, error) {
 
 	auditPath := cfg.GetAuditLogPath()
 	if auditPath != "" {
-		_ = os.MkdirAll(filepath.Dir(auditPath), 0755)
+		_ = os.MkdirAll(filepath.Dir(auditPath), 0o755)
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{
@@ -133,10 +133,10 @@ func NewServerAndBackend(baseDir string) (*mcp.Server, *ToolBackend, error) {
 			entry["error_msg"] = err.Error()
 		}
 		data, _ := json.Marshal(entry)
-		f, _ := os.OpenFile(auditPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		f, _ := os.OpenFile(auditPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if f != nil {
-			f.Write(append(data, '\n'))
-			f.Close()
+			_, _ = f.Write(append(data, '\n'))
+			_ = f.Close()
 		}
 	}
 
@@ -180,7 +180,11 @@ func runHTTP(ctx context.Context, opts ServeOptions) error {
 		listen = "127.0.0.1:7766"
 	}
 
-	srv := &http.Server{Addr: listen, Handler: handler}
+	srv := &http.Server{
+		Addr:              listen,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Shutdown(context.Background())
