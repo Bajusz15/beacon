@@ -25,7 +25,7 @@ cleanup() {
 
 trap cleanup EXIT
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT_DIR}"
 
 E2E_HOME="$(mktemp -d /tmp/beacon-e2e-mcp-XXXXXX)"
@@ -77,7 +77,7 @@ fi
 
 log_info "Running E2E tests..."
 export BEACON_MCP_ENDPOINT="${MCP_URL}"
-if ! go test ./scripts/test-e2e-mcp/ -run TestE2EMCPTools -count=1 -v; then
+if ! go test ./tests/mcp/ -run TestE2EMCPTools -count=1 -v; then
   log_error "E2E tests failed"
   exit 1
 fi

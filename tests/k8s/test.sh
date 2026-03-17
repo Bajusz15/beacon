@@ -6,7 +6,7 @@ set -euo pipefail
 
 MARKER="E2E_LOG_FORWARDING_MARKER"
 CLUSTER_NAME="${CLUSTER_NAME:-beacon-log-e2e}"
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 E2E_DIR="${ROOT_DIR}/deploy/kubernetes/e2e"
 TIMEOUT=120
 
@@ -37,10 +37,10 @@ if ! command -v docker &>/dev/null; then
 fi
 
 log_info "Building mock-log-server image..."
-docker build -t mock-log-server:e2e "${ROOT_DIR}/scripts/mock-log-server"
+docker build -t mock-log-server:e2e "${ROOT_DIR}/tests/k8s/mock-log-server"
 # Build beacon image (use e2e Dockerfile which has beacon at /usr/local/bin)
 log_info "Building beacon image..."
-docker build -t beacon:e2e -f "${ROOT_DIR}/Dockerfile.e2e" "${ROOT_DIR}"
+docker build -t beacon:e2e -f "${ROOT_DIR}/tests/e2e/Dockerfile" "${ROOT_DIR}"
 
 log_info "Creating kind cluster: ${CLUSTER_NAME}"
 kind create cluster --name "${CLUSTER_NAME}" --wait 60s 2>/dev/null || true

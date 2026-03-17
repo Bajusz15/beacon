@@ -76,7 +76,7 @@ go test ./internal/mcp/...
 **E2E test** (requires beacon in PATH or builds it):
 
 ```bash
-./scripts/test-e2e-mcp.sh
+./tests/mcp/test.sh
 ```
 
 The E2E script builds beacon, starts the MCP server on HTTP, runs a client that calls `beacon_inventory`, and verifies the response.

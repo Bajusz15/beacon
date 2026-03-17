@@ -35,12 +35,12 @@ The expect script watches for prompts and sends responses, simulating a user typ
    - Allows beacon to clone and fetch tags via HTTP (like GitHub/GitLab)
    - Runs on port 8080
 
-2. **E2E Test Script** (`scripts/test-e2e-cli.sh`)
+2. **E2E Test Script** (`tests/e2e/test-cli.sh`)
    - Orchestrates all test steps
    - Uses expect to automate wizard
    - Verifies bootstrap, deployment, and monitoring
 
-3. **Docker Container** (`Dockerfile.e2e`)
+3. **Docker Container** (`tests/e2e/Dockerfile`)
    - Contains all dependencies (git, expect, go)
    - Builds beacon binary
    - Runs tests in isolated environment
@@ -68,10 +68,10 @@ The expect script watches for prompts and sends responses, simulating a user typ
 
 ```bash
 # Build and run
-docker compose -f docker-compose.e2e.yml up --build
+docker compose -f tests/e2e/docker-compose.yml up --build
 
 # Or run script directly (requires expect installed)
-./scripts/test-e2e-cli.sh
+./tests/e2e/test-cli.sh
 ```
 
 ### In CI
@@ -141,7 +141,7 @@ Verify port 8080 is available and not blocked.
 
 ### Expect Script Failing
 
-The wizard prompts may have changed. Update the expect script in `test-e2e-cli.sh` to match current prompts.
+The wizard prompts may have changed. Update the expect script in `test-cli.sh` to match current prompts.
 
 ### Repository Not Cloning
 
@@ -172,12 +172,12 @@ A separate e2e test verifies that Beacon forwards logs to an HTTP endpoint when 
 Requires **kind**, **kubectl**, and **Docker**.
 
 ```bash
-./scripts/test-e2e-log-forwarding.sh
+./tests/k8s/test.sh
 ```
 
 The script will:
 
-- Build `mock-log-server:e2e` (from `scripts/mock-log-server/`) and `beacon:e2e` (from `Dockerfile.e2e`).
+- Build `mock-log-server:e2e` (from `tests/k8s/mock-log-server/`) and `beacon:e2e` (from `tests/e2e/Dockerfile`).
 - Create a kind cluster, load images, deploy the mock server and the test pod.
 - Poll `kubectl logs deployment/mock-log-server` for `RECEIVED_POST_AGENT_LOGS` containing `E2E_LOG_FORWARDING_MARKER`.
 - Delete the kind cluster on exit.

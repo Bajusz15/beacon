@@ -40,7 +40,11 @@ go.work.sum
 # .vscode/
 .DS_Store
 .cursorrules
+PLAN.md
 
 # Monitor config
 beacon.monitor.yml
+
+# Test output
+test-results/
 

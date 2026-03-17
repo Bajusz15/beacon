@@ -158,7 +158,7 @@ jobs:
     - name: Run E2E Integration Test (Docker)
       run: |
         # Build and run E2E test in Docker
-        docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
+        docker compose -f tests/e2e/docker-compose.yml up --build --abort-on-container-exit
 
         # Check if test passed
         if [ -f test-results/e2e-result.txt ]; then
@@ -201,7 +201,7 @@ jobs:
         git config --global user.email "test@beacon.local"
 
     - name: Run MCP E2E test
-      run: bash scripts/test-e2e-mcp.sh
+      run: bash tests/mcp/test.sh
 
   e2e-k8s:
     name: E2E Kubernetes (Log Forwarding)
@@ -229,4 +229,4 @@ jobs:
         sudo mv kubectl /usr/local/bin/kubectl
 
     - name: Run Kubernetes log-forwarding E2E
-      run: bash scripts/test-e2e-log-forwarding.sh
+      run: bash tests/k8s/test.sh
