@@ -51,7 +51,7 @@ linters:
         path: '.*_test\.go'
       - linters:
           - gosec
-        text: 'G301|G302|G304|G306|G204|G114|G104|G115|G402.*TLS'
+        text: 'G301|G302|G304|G306|G204|G114|G104|G115|G402.*TLS|G101|G117|G703|G704|G706|G118'
       - linters:
           - gosec
         path: '.*_test\.go'

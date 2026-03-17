@@ -50,28 +50,28 @@ func (e *BeaconError) Unwrap() error {
 func (e *BeaconError) FormatError() string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("❌ Error: %s\n", e.Message))
+	fmt.Fprintf(&sb, "❌ Error: %s\n", e.Message)
 
 	if e.OriginalError != nil {
-		sb.WriteString(fmt.Sprintf("   Original error: %v\n", e.OriginalError))
+		fmt.Fprintf(&sb, "   Original error: %v\n", e.OriginalError)
 	}
 
 	if len(e.Troubleshooting) > 0 {
 		sb.WriteString("\n🔍 Possible causes:\n")
 		for i, step := range e.Troubleshooting {
-			sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, step))
+			fmt.Fprintf(&sb, "  %d. %s\n", i+1, step)
 		}
 	}
 
 	if len(e.NextSteps) > 0 {
 		sb.WriteString("\n📋 Troubleshooting steps:\n")
 		for i, step := range e.NextSteps {
-			sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, step))
+			fmt.Fprintf(&sb, "  %d. %s\n", i+1, step)
 		}
 	}
 
 	if e.Documentation != "" {
-		sb.WriteString(fmt.Sprintf("\n📚 Documentation: %s\n", e.Documentation))
+		fmt.Fprintf(&sb, "\n📚 Documentation: %s\n", e.Documentation)
 	}
 
 	return sb.String()

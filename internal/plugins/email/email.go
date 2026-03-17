@@ -146,47 +146,47 @@ func (p *EmailPlugin) buildEmail(alert plugins.Alert) (string, string) {
 
 	body.WriteString("Beacon Alert\n")
 	body.WriteString("============\n\n")
-	body.WriteString(fmt.Sprintf("Title: %s\n", alert.Title))
-	body.WriteString(fmt.Sprintf("Message: %s\n", alert.Message))
-	body.WriteString(fmt.Sprintf("Severity: %s\n", strings.ToUpper(alert.Severity)))
-	body.WriteString(fmt.Sprintf("Time: %s\n\n", alert.Timestamp.Format("2006-01-02 15:04:05 MST")))
+	fmt.Fprintf(&body, "Title: %s\n", alert.Title)
+	fmt.Fprintf(&body, "Message: %s\n", alert.Message)
+	fmt.Fprintf(&body, "Severity: %s\n", strings.ToUpper(alert.Severity))
+	fmt.Fprintf(&body, "Time: %s\n\n", alert.Timestamp.Format("2006-01-02 15:04:05 MST"))
 
 	body.WriteString("Device Information:\n")
 	body.WriteString("-------------------\n")
-	body.WriteString(fmt.Sprintf("Name: %s\n", alert.Device.Name))
+	fmt.Fprintf(&body, "Name: %s\n", alert.Device.Name)
 	if alert.Device.Location != "" {
-		body.WriteString(fmt.Sprintf("Location: %s\n", alert.Device.Location))
+		fmt.Fprintf(&body, "Location: %s\n", alert.Device.Location)
 	}
 	if alert.Device.Environment != "" {
-		body.WriteString(fmt.Sprintf("Environment: %s\n", alert.Device.Environment))
+		fmt.Fprintf(&body, "Environment: %s\n", alert.Device.Environment)
 	}
 	if len(alert.Device.Tags) > 0 {
-		body.WriteString(fmt.Sprintf("Tags: %s\n", strings.Join(alert.Device.Tags, ", ")))
+		fmt.Fprintf(&body, "Tags: %s\n", strings.Join(alert.Device.Tags, ", "))
 	}
 
 	// Add check details if available
 	if alert.Check != nil {
 		body.WriteString("\nCheck Details:\n")
 		body.WriteString("--------------\n")
-		body.WriteString(fmt.Sprintf("Name: %s\n", alert.Check.Name))
-		body.WriteString(fmt.Sprintf("Type: %s\n", alert.Check.Type))
-		body.WriteString(fmt.Sprintf("Status: %s\n", strings.ToUpper(alert.Check.Status)))
-		body.WriteString(fmt.Sprintf("Duration: %s\n", alert.Check.Duration.String()))
+		fmt.Fprintf(&body, "Name: %s\n", alert.Check.Name)
+		fmt.Fprintf(&body, "Type: %s\n", alert.Check.Type)
+		fmt.Fprintf(&body, "Status: %s\n", strings.ToUpper(alert.Check.Status))
+		fmt.Fprintf(&body, "Duration: %s\n", alert.Check.Duration.String())
 
 		if alert.Check.Error != "" {
-			body.WriteString(fmt.Sprintf("Error: %s\n", alert.Check.Error))
+			fmt.Fprintf(&body, "Error: %s\n", alert.Check.Error)
 		}
 
 		if alert.Check.HTTPStatusCode > 0 {
-			body.WriteString(fmt.Sprintf("HTTP Status Code: %d\n", alert.Check.HTTPStatusCode))
+			fmt.Fprintf(&body, "HTTP Status Code: %d\n", alert.Check.HTTPStatusCode)
 		}
 
 		if alert.Check.ResponseTime > 0 {
-			body.WriteString(fmt.Sprintf("Response Time: %s\n", alert.Check.ResponseTime.String()))
+			fmt.Fprintf(&body, "Response Time: %s\n", alert.Check.ResponseTime.String())
 		}
 
 		if alert.Check.CommandOutput != "" {
-			body.WriteString(fmt.Sprintf("Command Output: %s\n", alert.Check.CommandOutput))
+			fmt.Fprintf(&body, "Command Output: %s\n", alert.Check.CommandOutput)
 		}
 	}
 
@@ -200,9 +200,9 @@ func (p *EmailPlugin) buildEmail(alert plugins.Alert) (string, string) {
 func (p *EmailPlugin) buildMessage(subject, body string) string {
 	var message strings.Builder
 
-	message.WriteString(fmt.Sprintf("From: %s\r\n", p.from))
-	message.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(p.to, ", ")))
-	message.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
+	fmt.Fprintf(&message, "From: %s\r\n", p.from)
+	fmt.Fprintf(&message, "To: %s\r\n", strings.Join(p.to, ", "))
+	fmt.Fprintf(&message, "Subject: %s\r\n", subject)
 	message.WriteString("MIME-Version: 1.0\r\n")
 	message.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
 	message.WriteString("\r\n")
