@@ -156,18 +156,7 @@ jobs:
         git config --global user.email "test@beacon.local"
 
     - name: Run E2E Integration Test (Docker)
-      run: |
-        # Build and run E2E test in Docker
-        docker compose -f tests/e2e/docker-compose.yml up --build --abort-on-container-exit
-
-        # Check if test passed
-        if [ -f test-results/e2e-result.txt ]; then
-          echo "✅ E2E Test Results:"
-          cat test-results/e2e-result.txt
-        else
-          echo "❌ E2E Test failed - no results file found"
-          exit 1
-        fi
+      run: docker compose -f tests/e2e/docker-compose.yml up --build --abort-on-container-exit --exit-code-from beacon-e2e
       env:
         CI: true
         BEACON_E2E_TEST: 1
@@ -177,9 +166,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: e2e-test-logs
-        path: |
-          test-results/
-          ~/.beacon/logs/
+        path: ~/.beacon/logs/
 
   e2e-mcp:
     name: E2E MCP Server
