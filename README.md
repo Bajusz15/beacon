@@ -65,6 +65,30 @@ journalctl --user -u beacon@myapp -f
 
 > **Need help?** Check out the [Troubleshooting](#-troubleshooting) section or [open an issue](https://github.com/Bajusz15/beacon/issues).
 
+### Cloud reporting (BeaconInfra)
+
+To send heartbeats, check results, and logs to **[BeaconInfra](https://beaconinfra.dev/)** (or a self-hosted API-compatible backend), configure **local identity** once. This does **not** call a “register” endpoint: the server creates the device on the **first successful heartbeat**.
+
+1. **Write `~/.beacon/config.yaml`** (no network):
+
+   ```bash
+   export BEACON_API_KEY="your_user_api_key"   # from the BeaconInfra UI
+   export BEACON_CLOUD_URL="https://your-host/api"   # API base URL including /api
+   beacon init --name my-n100   # or: beacon init --api-key ... --cloud-url ... --name ...
+   ```
+
+   The file holds `api_key`, `device_name`, `cloud_url`, `heartbeat_interval` (seconds), optional cached `device_id`, and `cloud_reporting_enabled`. Mode `0600`.
+
+2. **Machine-wide heartbeat** (optional, often installed via `beacon bootstrap` as `beacon-master.service`):
+
+   ```bash
+   beacon master
+   ```
+
+3. **Per-project monitor** (`beacon monitor`): set `report.send_to` in your `beacon.monitor.yml` to the same API base URL, or leave it empty if `cloud_url` in `config.yaml` is set. You can omit `report.token` when the user API key is in `config.yaml`. Optional legacy `~/.beacon/config/agent.yml` (`dtk_` device token) is still honored if present.
+
+The companion **BeaconInfra** backend repo documents the full contract in `docs/v2/V2_IDENTITY_PROMPT.md` (device identity = user + `device_name`, first heartbeat creates the device).
+
 ## 📊 **CI Status & Quality**
 
 Our CI pipeline ensures code quality and reliability:
@@ -99,6 +123,7 @@ Click any badge to see detailed results and logs.
 ## 📚 **Documentation**
 
 - **[LOG_FORWARDING.md](./docs/LOG_FORWARDING.md)** - Complete guide for log forwarding (file, Docker, deploy, command logs)
+- **[MASTER_AGENT.md](./docs/MASTER_AGENT.md)** - Machine-wide cloud reporting with beacon master
 - **[docs/MCP.md](./docs/MCP.md)** - MCP server for Cursor/Claude Desktop (beacon_inventory, beacon_status, etc.)
 - **[beacon.monitor.example.yml](./beacon.monitor.example.yml)** - Comprehensive monitoring configuration examples
 - **[beacon.bootstrap.example.yml](./beacon.bootstrap.example.yml)** - Bootstrap configuration template for automation
@@ -109,6 +134,7 @@ Click any badge to see detailed results and logs.
 ## 📖 **Table of Contents**
 
 - [🚀 5-Minute Quick Start](#-5-minute-quick-start) ⚡ **Start Here**
+- [Cloud reporting (BeaconInfra)](#cloud-reporting-beaconinfra)
 - [Features](#-features)
 - [Perfect For](#-perfect-for) 🎯 **Who Should Use Beacon**
 - [How Beacon Works](#-how-beacon-works) 🔍 **Understanding the System**
@@ -315,7 +341,7 @@ The bootstrap command automatically sets up:
 3. **Working Directory**: `~/beacon/myapp/`
 4. **Local Deployment Path**: Where your Git repository will be cloned
 5. **User Systemd Service**: `~/.config/systemd/user/beacon@myapp.service`
-What you mose provide:
+What you must provide:
 
 1. **Secure Environment File**: For storing sensitive deployment variables
 
@@ -422,13 +448,15 @@ After bootstrap, you may want to:
 
 ## 📋 **Configuration Files**
 
-Beacon uses two main configuration files:
+Beacon uses these configuration layers:
 
-1. **`beacon.env`** - Environment variables for deployment settings
+1. **`~/.beacon/config.yaml`** (optional, for cloud reporting) — written by `beacon init`; holds user API key, device name, and API base URL for BeaconInfra. See [Cloud reporting (BeaconInfra)](#cloud-reporting-beaconinfra).
+
+2. **`beacon.env`** — Environment variables for deployment settings
    - Repository URLs, deploy commands, polling intervals
    - See: [beacon.env.example](./beacon.env.example)
 
-2. **`beacon.monitor.yml`** - YAML configuration for monitoring and log forwarding
+3. **`beacon.monitor.yml`** — YAML configuration for monitoring and log forwarding
    - Health checks, system metrics, log sources, reporting
    - See: [beacon.monitor.example.yml](./beacon.monitor.example.yml) for comprehensive examples
    - See: [LOG_FORWARDING.md](./docs/LOG_FORWARDING.md) for detailed log forwarding setup
@@ -608,6 +636,7 @@ system_metrics:
 # Reporting configuration
 report:
   send_to: https://beaconinfra.dev/api
+  # token: optional if ~/.beacon/config.yaml has api_key (beacon init)
   token: YOUR_API_TOKEN
   interval: 60s
   prometheus_metrics: true
@@ -702,16 +731,18 @@ Beacon will POST JSON results to the specified endpoint with authentication.
 
 ### Available Commands
 
-Beacon provides three main commands:
+Main commands:
 
-- **`beacon bootstrap`** - Project setup and systemd service creation ⭐ **Recommended**
-- **`beacon deploy`** - Deployment agent (polls Git repos for tags and deploys code automatically)
-- **`beacon monitor`** - Health monitoring system (runs independently, forwards logs to [BeaconInfra](https://beaconinfra.dev/))
+- **`beacon bootstrap`** — Project setup and systemd service creation ⭐ **Recommended**
+- **`beacon init`** — Local-only: writes `~/.beacon/config.yaml` for BeaconInfra (API key, device name, cloud URL). No HTTP.
+- **`beacon master`** — Machine-wide cloud heartbeat loop using `config.yaml` (often `beacon-master.service`).
+- **`beacon deploy`** — Deployment agent (polls Git repos for tags and deploys code automatically)
+- **`beacon monitor`** — Health monitoring (runs independently; reports to [BeaconInfra](https://beaconinfra.dev/) when configured)
 
-**Command Separation:**
-- **Bootstrap** sets up deployment automation (runs `deploy` automatically via systemd)
-- **Deploy** runs continuously, polling for new release tags and deploying when found
-- **Monitor** runs separately, providing health checks and log forwarding to cloud dashboard
+**Command separation:**
+- **Bootstrap** sets up deployment automation (runs `deploy` automatically via systemd) and may enable cloud reporting + master service.
+- **Deploy** runs continuously, polling for new release tags and deploying when found.
+- **Monitor** runs separately, providing health checks and log forwarding to the cloud dashboard.
 
 ### Quick Install (Recommended)
 

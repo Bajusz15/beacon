@@ -41,6 +41,7 @@ go.work.sum
 .DS_Store
 .cursorrules
 PLAN.md
+CLAUDE.md
 
 # Monitor config
 beacon.monitor.yml

@@ -22,7 +22,10 @@ import (
 	"time"
 
 	"beacon/internal/bootstrap"
+	"beacon/internal/child"
+	"beacon/internal/identity"
 	"beacon/internal/k8sobserver"
+	"beacon/internal/master"
 	"beacon/internal/mcp"
 	"beacon/internal/monitor"
 
@@ -36,8 +39,10 @@ var rootCmd = &cobra.Command{
 Usage:
 1. beacon deploy - runs the deployment agent that polls Git repositories for new tags and deploys them
 2. beacon bootstrap - sets up your project configuration and optionally creates systemd services
-3. beacon monitor - runs health checks and monitoring
-4. beacon version - displays version information`,
+3. beacon init - register with BeaconInfra and save ~/.beacon/config/agent.yml (user API key + device token)
+4. beacon master - machine-wide cloud heartbeat (systemd: beacon-master.service)
+5. beacon monitor - project child: health checks from monitor.yml
+6. beacon version - displays version information`,
 	Version: version.GetVersion(),
 }
 
@@ -57,10 +62,11 @@ var restartCmd = &cobra.Command{
 	Use:   "restart [service]",
 	Short: "Restart beacon services",
 	Long: `Restart beacon services. If no service is specified, restarts the deploy service.
-Available services: deploy, monitor`,
+Available services: deploy, monitor, master (cloud agent: systemctl --user restart beacon-master.service)`,
 	Example: `  beacon restart
   beacon restart deploy
-  beacon restart monitor`,
+  beacon restart monitor
+  beacon restart master`,
 	Run: func(cmd *cobra.Command, args []string) {
 		service := "deploy"
 		if len(args) > 0 {
@@ -70,14 +76,14 @@ Available services: deploy, monitor`,
 		switch service {
 		case "deploy":
 			log.Println("[Beacon] Restarting deploy service...")
-			// For now, just log the restart - in a real implementation,
-			// this would signal the systemd service to restart
 			log.Println("[Beacon] Deploy service restart requested")
 		case "monitor":
 			log.Println("[Beacon] Restarting monitor service...")
 			log.Println("[Beacon] Monitor service restart requested")
+		case "master":
+			log.Println("[Beacon] Restart master: systemctl --user restart beacon-master.service")
 		default:
-			log.Printf("[Beacon] Unknown service: %s. Available services: deploy, monitor\n", service)
+			log.Printf("[Beacon] Unknown service: %s. Available services: deploy, monitor, master\n", service)
 			os.Exit(1)
 		}
 	},
@@ -227,6 +233,67 @@ func init() {
 	templateCmd.AddCommand(templateInitCmd)
 }
 
+var initAgentCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Write local cloud identity to ~/.beacon/config.yaml (no network)",
+	Long: `Writes ~/.beacon/config.yaml with api_key, device_name, cloud_url, and heartbeat_interval.
+No HTTP requests; the device is created on the first successful POST /agent/heartbeat.
+
+Environment: BEACON_API_KEY (or BEACON_USER_API_KEY), BEACON_CLOUD_URL or BEACON_SERVER_URL,
+BEACON_DEVICE_NAME.`,
+	Example: `  export BEACON_API_KEY=usr_...
+  export BEACON_CLOUD_URL=https://app.example.com/api
+  beacon init --name homelab-pi
+
+  beacon init --api-key usr_... --cloud-url https://app.example.com/api --name homelab-pi`,
+	Run: func(cmd *cobra.Command, args []string) {
+		cloudURL, _ := cmd.Flags().GetString("cloud-url")
+		if cloudURL == "" {
+			cloudURL, _ = cmd.Flags().GetString("server")
+		}
+		apiKey, _ := cmd.Flags().GetString("api-key")
+		if apiKey == "" {
+			apiKey = os.Getenv("BEACON_API_KEY")
+		}
+		if apiKey == "" {
+			apiKey = os.Getenv("BEACON_USER_API_KEY")
+		}
+		name, _ := cmd.Flags().GetString("name")
+		if name == "" {
+			name, _ = cmd.Flags().GetString("device-name")
+		}
+		if name == "" {
+			name = os.Getenv("BEACON_DEVICE_NAME")
+		}
+
+		if err := identity.WriteUserInit(apiKey, name, cloudURL); err != nil {
+			log.Fatalf("beacon init: %v", err)
+		}
+		p, err := identity.UserConfigPath()
+		if err != nil {
+			log.Printf("[Beacon] Wrote ~/.beacon/config.yaml")
+			return
+		}
+		log.Printf("[Beacon] Wrote %s", p)
+	},
+}
+
+var masterCmd = &cobra.Command{
+	Use:   "master",
+	Short: "Run the machine-wide cloud reporter (foreground)",
+	Long: `Runs independently of any project. Reads ~/.beacon/config.yaml.
+
+When cloud_reporting_enabled is true and api_key, cloud_url, and device_name are set (via beacon init),
+sends POST /agent/heartbeat every heartbeat_interval (default 60s if unset).
+
+Typical install: beacon bootstrap creates beacon-master.service; it runs this command in the background.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		master.Run(ctx)
+	},
+}
+
 var monitorCmd = &cobra.Command{
 	Use:   "monitor [config-file]",
 	Short: "Run health checks and report results",
@@ -246,6 +313,48 @@ The configuration file should contain device info, checks, and alert rules.`,
 
 func init() {
 	monitorCmd.Flags().StringP("config", "f", "", "Path to configuration file")
+
+	initAgentCmd.Flags().String("cloud-url", "", "API base URL including /api (BEACON_CLOUD_URL or BEACON_SERVER_URL)")
+	initAgentCmd.Flags().String("server", "", "Alias for --cloud-url (BEACON_SERVER_URL)")
+	initAgentCmd.Flags().String("api-key", "", "User API key (BEACON_API_KEY or BEACON_USER_API_KEY)")
+	initAgentCmd.Flags().String("name", "", "Device name (BEACON_DEVICE_NAME; default: hostname)")
+	initAgentCmd.Flags().String("device-name", "", "Alias for --name")
+
+	// Child agent flags (hidden command - spawned by master only)
+	childAgentCmd.Flags().String("project-id", "", "Project identifier")
+	childAgentCmd.Flags().String("config", "", "Path to project YAML config")
+	childAgentCmd.Flags().String("ipc-dir", "", "IPC directory for this child")
+	_ = childAgentCmd.MarkFlagRequired("project-id")
+	_ = childAgentCmd.MarkFlagRequired("config")
+	_ = childAgentCmd.MarkFlagRequired("ipc-dir")
+}
+
+// childAgentCmd is the hidden "beacon agent" subcommand spawned by the master.
+// Users should never run this directly - it's for internal master/child IPC.
+var childAgentCmd = &cobra.Command{
+	Use:    "agent",
+	Short:  "Run as child agent (internal - spawned by master)",
+	Hidden: true, // Don't show in help - internal use only
+	Run: func(cmd *cobra.Command, args []string) {
+		projectID, _ := cmd.Flags().GetString("project-id")
+		configPath, _ := cmd.Flags().GetString("config")
+		ipcDir, _ := cmd.Flags().GetString("ipc-dir")
+
+		cfg := &child.Config{
+			ProjectID:  projectID,
+			ConfigPath: configPath,
+			IPCDir:     ipcDir,
+		}
+
+		c, err := child.New(cfg)
+		if err != nil {
+			log.Fatalf("[Beacon agent] Failed to initialize: %v", err)
+		}
+
+		if err := c.Run(); err != nil {
+			log.Fatalf("[Beacon agent] Failed: %v", err)
+		}
+	},
 }
 
 var deployCmd = &cobra.Command{
@@ -262,7 +371,10 @@ no subcommand is specified.`,
 func main() {
 	// Add subcommands
 	rootCmd.AddCommand(bootstrap.BootstrapCommand())
+	rootCmd.AddCommand(initAgentCmd)
+	rootCmd.AddCommand(masterCmd)
 	rootCmd.AddCommand(monitorCmd)
+	rootCmd.AddCommand(childAgentCmd) // Hidden - spawned by master only
 	rootCmd.AddCommand(deployCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(restartCmd)

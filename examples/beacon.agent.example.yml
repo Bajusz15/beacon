@@ -1,0 +1,12 @@
+# Optional global agent identity (~/.beacon/config/agent.yml).
+# Created by: beacon init
+#
+# When present, beacon monitor uses device_token (dtk_...) for API auth if set,
+# otherwise it uses report.token / report.token_name from monitor.yml.
+#
+# server_url fills report.send_to when monitor.yml omits it.
+
+server_url: https://your-beacon-host.example/api
+device_name: homelab-gateway
+device_id: ""
+device_token: ""

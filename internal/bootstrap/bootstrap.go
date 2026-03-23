@@ -10,11 +10,13 @@ import (
 	"text/template"
 
 	"beacon/internal/config"
+	"beacon/internal/identity"
 	"beacon/internal/projects"
 	"beacon/internal/systemd"
 	"beacon/internal/util"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
 
@@ -51,6 +53,9 @@ type BootstrapConfig struct {
 	User             string `yaml:"user"`
 	WorkingDir       string `yaml:"working_dir"`
 	UseSystemService bool   `yaml:"use_system_service"`
+
+	// Machine-wide master agent (~/.beacon/config.yaml). Written on first bootstrap if missing.
+	CloudReportingEnabled *bool `yaml:"cloud_reporting_enabled,omitempty"`
 }
 
 // BootstrapManager manages the bootstrap process using unified configuration
@@ -98,6 +103,10 @@ func (bm *BootstrapManager) BootstrapProject(projectName string, skipSystemd boo
 		return fmt.Errorf("failed to create directories: %v", err)
 	}
 
+	if err := bm.ensureGlobalCloudSettings(true, nil); err != nil {
+		fmt.Printf("Warning: global cloud settings: %v\n", err)
+	}
+
 	// Create project structure
 	if err := bm.paths.CreateProjectStructure(projectName); err != nil {
 		return fmt.Errorf("failed to create project structure: %v", err)
@@ -139,6 +148,8 @@ func (bm *BootstrapManager) BootstrapProject(projectName string, skipSystemd boo
 	// Display success message
 	bm.displaySuccessMessage(config, systemdCreated)
 
+	bm.tryInstallMasterSystemd(skipSystemd)
+
 	return nil
 }
 
@@ -161,6 +172,13 @@ func (bm *BootstrapManager) BootstrapProjectFromConfig(projectName, configFile s
 	// Set working directory if not specified
 	if config.WorkingDir == "" {
 		config.WorkingDir = bm.paths.GetProjectWorkingDir(projectName)
+	}
+
+	if err := bm.paths.EnsureDirectories(); err != nil {
+		return fmt.Errorf("failed to create directories: %v", err)
+	}
+	if err := bm.ensureGlobalCloudSettings(false, config); err != nil {
+		fmt.Printf("Warning: global cloud settings: %v\n", err)
 	}
 
 	// Create directory structure
@@ -197,6 +215,8 @@ func (bm *BootstrapManager) BootstrapProjectFromConfig(projectName, configFile s
 
 	// Display success message
 	bm.displaySuccessMessage(config, systemdCreated)
+
+	bm.tryInstallMasterSystemd(skipSystemd)
 
 	return nil
 }
@@ -413,6 +433,97 @@ func (bm *BootstrapManager) displaySuccessMessage(config *BootstrapConfig, syste
 	}
 	fmt.Println()
 	fmt.Println("💡 Tip: Use 'beacon --help' to see all available commands")
+	uc, _ := identity.LoadUserConfig()
+	if uc != nil && uc.CloudReportingEnabled {
+		fmt.Println()
+		fmt.Println("Cloud master agent (project-independent):")
+		fmt.Println("  beacon init   # writes ~/.beacon/config.yaml; then: systemctl --user restart beacon-master.service")
+		fmt.Println("  systemctl --user status beacon-master.service")
+	}
+}
+
+func (bm *BootstrapManager) ensureGlobalCloudSettings(interactive bool, bc *BootstrapConfig) error {
+	gp, err := identity.UserConfigPath()
+	if err != nil {
+		return err
+	}
+	_, statErr := os.Stat(gp)
+	if statErr == nil {
+		return nil
+	}
+	if !os.IsNotExist(statErr) {
+		return statErr
+	}
+	enabled := true
+	if bc != nil && bc.CloudReportingEnabled != nil {
+		enabled = *bc.CloudReportingEnabled
+	} else if interactive && term.IsTerminal(int(os.Stdin.Fd())) {
+		enabled = promptYesNo("Send this host's health status to Beacon cloud?", true)
+	}
+	if err := identity.MergeBootstrapCloudOnly(enabled); err != nil {
+		return err
+	}
+	fmt.Printf("✅ Created global settings: %s (cloud_reporting=%v)\n", gp, enabled)
+	return nil
+}
+
+func promptYesNo(prompt string, defaultYes bool) bool {
+	defShow := "Y/n"
+	if !defaultYes {
+		defShow = "y/N"
+	}
+	fmt.Printf("%s [%s]: ", prompt, defShow)
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	line = strings.TrimSpace(strings.ToLower(line))
+	if line == "" {
+		return defaultYes
+	}
+	return line == "y" || line == "yes"
+}
+
+func (bm *BootstrapManager) tryInstallMasterSystemd(skipSystemd bool) {
+	if skipSystemd || bm.serviceManager == nil || !bm.serviceManager.IsAvailable() {
+		return
+	}
+	uc, err := identity.LoadUserConfig()
+	if err != nil || uc == nil || !uc.CloudReportingEnabled {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		fmt.Printf("Warning: cannot install beacon-master.service: no home directory\n")
+		return
+	}
+	exe := resolveBeaconExecutable()
+	execLine := fmt.Sprintf("%s master", exe)
+	if err := bm.serviceManager.CreateMasterService(execLine, home); err != nil {
+		fmt.Printf("Warning: beacon-master.service: %v\n", err)
+		return
+	}
+	if err := bm.serviceManager.ReloadDaemon(); err != nil {
+		fmt.Printf("Warning: systemd daemon-reload: %v\n", err)
+		return
+	}
+	if err := bm.serviceManager.EnableMasterService(); err != nil {
+		fmt.Printf("Warning: systemctl enable beacon-master: %v\n", err)
+		return
+	}
+	if err := bm.serviceManager.StartMasterService(); err != nil {
+		fmt.Printf("Warning: systemctl start beacon-master: %v (run `beacon init`, then: systemctl --user restart beacon-master.service)\n", err)
+		return
+	}
+	fmt.Printf("✅ Cloud master agent service installed: systemctl --user status beacon-master.service\n")
+}
+
+func resolveBeaconExecutable() string {
+	if p, err := os.Executable(); err == nil && p != "" {
+		if abs, err := filepath.Abs(p); err == nil {
+			return abs
+		}
+		return p
+	}
+	return "/usr/local/bin/beacon"
 }
 
 // promptForInput prompts the user for input with a default value

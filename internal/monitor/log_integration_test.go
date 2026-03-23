@@ -46,7 +46,7 @@ func TestFileLogCollection(t *testing.T) {
 		},
 	}
 
-	lm := NewLogManager(config, &http.Client{})
+	lm := NewLogManager(config, &http.Client{}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
@@ -119,7 +119,7 @@ func TestCommandLogCollection(t *testing.T) {
 		},
 	}
 
-	lm := NewLogManager(config, &http.Client{})
+	lm := NewLogManager(config, &http.Client{}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
@@ -171,7 +171,7 @@ func TestDockerLogCollection(t *testing.T) {
 		},
 	}
 
-	lm := NewLogManager(config, &http.Client{})
+	lm := NewLogManager(config, &http.Client{}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
@@ -223,7 +223,7 @@ func TestDeployLogCollection(t *testing.T) {
 		},
 	}
 
-	lm := NewLogManager(config, &http.Client{})
+	lm := NewLogManager(config, &http.Client{}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
@@ -323,7 +323,7 @@ func TestLogReportingIntegration(t *testing.T) {
 		},
 	}
 
-	lm := NewLogManager(config, &http.Client{})
+	lm := NewLogManager(config, &http.Client{}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
@@ -511,7 +511,7 @@ func TestLogManagerErrorHandling(t *testing.T) {
 		},
 	}
 
-	lm := NewLogManager(config, &http.Client{})
+	lm := NewLogManager(config, &http.Client{}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
@@ -562,7 +562,7 @@ func TestLogManagerConcurrency(t *testing.T) {
 		},
 	}
 
-	lm := NewLogManager(config, &http.Client{})
+	lm := NewLogManager(config, &http.Client{}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
