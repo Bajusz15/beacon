@@ -137,12 +137,13 @@ type AgentMetrics struct {
 
 // AgentHeartbeatRequest represents a heartbeat for the /agent/heartbeat endpoint
 type AgentHeartbeatRequest struct {
-	Hostname     string            `json:"hostname"`
-	IPAddress    string            `json:"ip_address"`
-	Tags         []string          `json:"tags"`
-	AgentVersion string            `json:"agent_version"`
-	DeviceName   string            `json:"device_name"`
-	Metadata     map[string]string `json:"metadata"`
+	Hostname      string            `json:"hostname"`
+	IPAddress     string            `json:"ip_address"`
+	Tags          []string          `json:"tags"`
+	AgentVersion  string            `json:"agent_version"`
+	DeviceName    string            `json:"device_name"`
+	Metadata      map[string]string `json:"metadata"`
+	SystemMetrics *AgentMetrics     `json:"system_metrics,omitempty"`
 }
 
 // SystemMetricsCollector interface for dependency injection
@@ -172,6 +173,7 @@ type Monitor struct {
 	configWatcher             *fsnotify.Watcher
 	configPath                string
 	pluginManager             *plugins.Manager
+	lastSystemMetricsSendAt   time.Time
 }
 
 // LinuxSystemMetricsCollector implements SystemMetricsCollector for Linux systems
@@ -410,8 +412,8 @@ func (m *Monitor) Start() error {
 		go m.runHeartbeatLoop()
 	}
 
-	// Start system metrics collection if enabled
-	if m.config.SystemMetrics.Enabled && m.config.Report.SendTo != "" && m.config.Report.Token != "" {
+	// POST /agent/metrics only when heartbeat is off; with heartbeat, metrics ride on /agent/heartbeat
+	if m.config.SystemMetrics.Enabled && m.config.Report.SendTo != "" && m.config.Report.Token != "" && !m.config.Report.Heartbeat.Enabled {
 		interval := m.config.SystemMetrics.Interval
 		if interval == 0 {
 			interval = 1 * time.Minute // Default 1 minute
@@ -810,15 +812,39 @@ func (m *Monitor) reportSystemMetricsLoop() {
 	}
 }
 
-func (m *Monitor) reportSystemMetrics() {
+func (m *Monitor) systemMetricsInterval() time.Duration {
+	d := m.config.SystemMetrics.Interval
+	if d == 0 {
+		return time.Minute
+	}
+	return d
+}
+
+func (m *Monitor) shouldAttachSystemMetrics() bool {
+	if !m.config.SystemMetrics.Enabled {
+		return false
+	}
 	if m.config.Report.SendTo == "" || m.config.Report.Token == "" {
-		return
+		return false
+	}
+	if !m.config.Report.Heartbeat.Enabled {
+		return false
+	}
+	return m.lastSystemMetricsSendAt.IsZero() || time.Since(m.lastSystemMetricsSendAt) >= m.systemMetricsInterval()
+}
+
+func (m *Monitor) buildAgentMetrics() *AgentMetrics {
+	if !m.config.SystemMetrics.Enabled {
+		return nil
+	}
+	if m.config.Report.SendTo == "" || m.config.Report.Token == "" {
+		return nil
 	}
 
 	hostname, err := m.metricsCollector.GetHostname()
 	if err != nil {
 		log.Printf("[Beacon] Failed to get hostname: %v", err)
-		return
+		return nil
 	}
 
 	ipAddress, err := m.metricsCollector.GetIPAddress()
@@ -827,7 +853,6 @@ func (m *Monitor) reportSystemMetrics() {
 		ipAddress = "unknown"
 	}
 
-	// Initialize metrics with basic info
 	metrics := AgentMetrics{
 		Hostname:      hostname,
 		IPAddress:     ipAddress,
@@ -835,7 +860,6 @@ func (m *Monitor) reportSystemMetrics() {
 		CustomMetrics: make(map[string]*CheckResult),
 	}
 
-	// Collect only enabled system metrics
 	if m.config.SystemMetrics.CPU {
 		if cpuUsage, err := m.metricsCollector.GetCPUUsage(); err == nil {
 			metrics.CPUUsage = cpuUsage
@@ -864,23 +888,29 @@ func (m *Monitor) reportSystemMetrics() {
 		}
 	}
 
-	// Always collect uptime
 	if uptime, err := m.metricsCollector.GetUptime(); err == nil {
 		metrics.UptimeSeconds = uptime
 	}
 
-	// Add custom check results
 	m.resultsMux.RLock()
 	for _, result := range m.results {
 		metrics.CustomMetrics[result.Name] = result
 	}
 	m.resultsMux.RUnlock()
 
-	// Send to /agent/metrics endpoint
+	return &metrics
+}
+
+func (m *Monitor) reportSystemMetrics() {
+	if m.config.Report.SendTo == "" || m.config.Report.Token == "" {
+		return
+	}
+	metrics := m.buildAgentMetrics()
+	if metrics == nil {
+		return
+	}
 	metricsURL := strings.TrimSuffix(m.config.Report.SendTo, "/") + "/agent/metrics"
 	m.sendToAPI(metricsURL, metrics)
-
-	// Update Prometheus file when path set (same schedule as metrics report)
 	if m.config.Report.PrometheusFilePath != "" {
 		m.writePrometheusFile()
 	}
@@ -930,12 +960,25 @@ func (m *Monitor) sendHeartbeat() {
 		},
 	}
 
-	// Send to /agent/heartbeat endpoint and read response for deploy_requested
+	var attachedSystemMetrics bool
+	if m.shouldAttachSystemMetrics() {
+		if mp := m.buildAgentMetrics(); mp != nil {
+			heartbeat.SystemMetrics = mp
+			attachedSystemMetrics = true
+		}
+	}
+
 	heartbeatURL := strings.TrimSuffix(m.config.Report.SendTo, "/") + "/agent/heartbeat"
 	body, err := m.doAPIRequest(heartbeatURL, heartbeat)
 	if err != nil {
 		log.Printf("[Beacon] Heartbeat request failed: %v", err)
 		return
+	}
+	if attachedSystemMetrics {
+		m.lastSystemMetricsSendAt = time.Now()
+	}
+	if m.config.Report.PrometheusFilePath != "" {
+		m.writePrometheusFile()
 	}
 	if body != nil && m.config.Report.DeployOnRequest {
 		var resp heartbeatResponse
