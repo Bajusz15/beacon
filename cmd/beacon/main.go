@@ -35,14 +35,14 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "beacon",
 	Short: "Beacon - IoT deployment and monitoring agent",
-	Long: `Beacon is a lightweight deployment and monitoring agent for IoT devices.
-Usage:
-1. beacon deploy - runs the deployment agent that polls Git repositories for new tags and deploys them
-2. beacon bootstrap - sets up your project configuration and optionally creates systemd services
-3. beacon init - register with BeaconInfra and save ~/.beacon/config/agent.yml (user API key + device token)
-4. beacon master - machine-wide cloud heartbeat (systemd: beacon-master.service)
-5. beacon monitor - project child: health checks from monitor.yml
-6. beacon version - displays version information`,
+	Long: `Beacon is a lightweight agent for self-hosted devices — deploy, monitor, and report health.
+
+  beacon init      write ~/.beacon/config.yaml (no network)
+  beacon master    start the master agent — spawns child agents, sends heartbeats
+  beacon bootstrap set up a new project (interactive or from a config file)
+  beacon monitor   run a single project's health checks (dev/debug)
+  beacon deploy    poll a Git repo for new tags and deploy
+  beacon version   show version`,
 	Version: version.GetVersion(),
 }
 

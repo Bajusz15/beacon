@@ -2,941 +2,251 @@
 
 <img src="./docs/logo.png" alt="Beacon Logo" width="120" height="120">
 
-**Lightweight deployment and monitoring agent for self-hosted IoT devices**
+**Lightweight agent for self-hosted devices — deploy, monitor, and report health from a single binary.**
 
-Beacon is a **deployment and monitoring agent**: one binary that deploys (Git tags or Docker image polling), runs your deploy command (e.g. `docker compose up`), and monitors health. Local-first, optional SaaS; no plugin ecosystem.
+Beacon runs on your Raspberry Pi, N100 mini PC, or any Linux box. A **master agent** runs in the background managing independent **child agents** per project. Each child handles its own health checks, log tailing, and deployments. The master aggregates everything and optionally reports to the [BeaconInfra](https://beaconinfra.dev) cloud dashboard — or you run it fully offline.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org/)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20-lightgrey)](https://github.com/Bajusz15/beacon/releases)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey)](https://github.com/Bajusz15/beacon/releases)
 [![CI](https://github.com/Bajusz15/beacon/workflows/CI/badge.svg)](https://github.com/Bajusz15/beacon/actions)
 [![codecov](https://codecov.io/gh/Bajusz15/beacon/branch/main/graph/badge.svg)](https://codecov.io/gh/Bajusz15/beacon)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Bajusz15/beacon)](https://goreportcard.com/report/github.com/Bajusz15/beacon)
-[![Security](https://github.com/Bajusz15/beacon/workflows/CI/badge.svg?label=security)](https://github.com/Bajusz15/beacon/security)
-[![Release](https://github.com/Bajusz15/beacon/workflows/Release/badge.svg)](https://github.com/Bajusz15/beacon/releases)
 
-Beacon polls a Git repository (or Docker registry) for new tags and deploys when a new tag appears, while providing infrastructure monitoring and log forwarding. List projects and view health from the CLI (`beacon projects list`, `beacon projects status`). Future proof your IoT or self-hosted deployments with one agent. 
+---
 
-## 🚀 **5-Minute Quick Start**
+## How Beacon Works
 
-Get Beacon up and running in minutes:
+```
+┌──────────────────────────────────────────────┐
+│            BeaconInfra Cloud (optional)       │
+│   receives heartbeats, sends commands back    │
+└───────────────────┬──────────────────────────┘
+                    │ HTTPS  (optional)
+                    │
+┌───────────────────┴──────────────────────────┐
+│             beacon master                     │
+│                                               │
+│  - Runs in the background (one per device)    │
+│  - Collects device metrics: CPU, RAM, disk    │
+│  - Sends heartbeat to cloud on interval       │
+│  - Aggregates health from all child agents    │
+│  - Dispatches commands to children via IPC    │
+│  - Spawns, watches, and restarts children     │
+└──────┬───────────────────────┬───────────────┘
+       │  IPC (file-based)     │  IPC
+       │                       │
+┌──────┴──────────┐   ┌────────┴──────────┐
+│  child agent    │   │  child agent      │  ... N children
+│  project: myapp │   │  project: blog    │
+│                 │   │                   │
+│  - Health checks│   │  - Health checks  │
+│  - Log tailing  │   │  - Log tailing    │
+│  - Deployments  │   │  - Deployments    │
+└─────────────────┘   └───────────────────┘
+```
 
-### 1. Install Beacon
+**One binary. Two modes:**
+
+- `beacon master` — the background daemon that manages everything
+- `beacon agent` — internal child mode, spawned by the master (never run directly)
+
+The master is **stateless per project** — it doesn't know about Docker or systemd. Each child agent handles its own project config and reports health back up through IPC. Adding a new project type never requires changing the master.
+
+**Children are isolated.** One crash doesn't affect others. The master auto-restarts failed children with exponential backoff.
+
+---
+
+## Privacy First
+
+Cloud reporting is **completely optional**. By default, if you don't run `beacon init`, the master runs with `cloud_reporting_enabled: false` and never makes a network request.
+
+When enabled, Beacon sends device metrics (CPU %, RAM %, disk %, uptime) and application health summaries. It uses your machine's hostname as the device identifier — no fingerprinting, no telemetry beyond what you configure.
+
+**Application-level metrics** (e.g. HTTP response time, process CPU) are opt-in per project in the project's `beacon.monitor.yml`. You control exactly what gets reported.
+
+---
+
+## Quick Start
+
+### 1. Install
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Bajusz15/beacon/main/scripts/install.sh | bash
 ```
 
-### 2. Bootstrap Your First Project
-```bash
-# Interactive setup (recommended for first time)
-beacon bootstrap myapp
-
-# Or use a config file for automation
-beacon bootstrap myapp -f beacon.bootstrap.example.yml
-```
-
-### 3. Start Monitoring
-```bash
-# Set up monitoring configuration
-cp beacon.monitor.example.yml ~/.beacon/config/projects/myapp/monitor.yml
-
-# Start monitoring
-beacon monitor -f ~/.beacon/config/projects/myapp/monitor.yml
-```
-
-### 4. Enable Auto-Deployment (Optional)
-```bash
-# Enable systemd service for automatic deployment
-systemctl --user daemon-reload
-systemctl --user enable beacon@myapp
-systemctl --user start beacon@myapp
-```
-
-### 5. Test It Works
-```bash
-# Check status
-systemctl --user status beacon@myapp
-
-# View logs
-journalctl --user -u beacon@myapp -f
-```
-
-**🎉 That's it!** Your project is now being monitored and will automatically deploy when you push new tags to your Git repository.
-
-> **Need help?** Check out the [Troubleshooting](#-troubleshooting) section or [open an issue](https://github.com/Bajusz15/beacon/issues).
-
-### Cloud reporting (BeaconInfra)
-
-To send heartbeats, check results, and logs to **[BeaconInfra](https://beaconinfra.dev/)** (or a self-hosted API-compatible backend), configure **local identity** once. This does **not** call a “register” endpoint: the server creates the device on the **first successful heartbeat**.
-
-1. **Write `~/.beacon/config.yaml`** (no network):
-
-   ```bash
-   export BEACON_API_KEY="your_user_api_key"   # from the BeaconInfra UI
-   export BEACON_CLOUD_URL="https://your-host/api"   # API base URL including /api
-   beacon init --name my-n100   # or: beacon init --api-key ... --cloud-url ... --name ...
-   ```
-
-   The file holds `api_key`, `device_name`, `cloud_url`, `heartbeat_interval` (seconds), optional cached `device_id`, and `cloud_reporting_enabled`. Mode `0600`.
-
-2. **Machine-wide heartbeat** (optional, often installed via `beacon bootstrap` as `beacon-master.service`):
-
-   ```bash
-   beacon master
-   ```
-
-3. **Per-project monitor** (`beacon monitor`): set `report.send_to` in your `beacon.monitor.yml` to the same API base URL, or leave it empty if `cloud_url` in `config.yaml` is set. You can omit `report.token` when the user API key is in `config.yaml`. Optional legacy `~/.beacon/config/agent.yml` (`dtk_` device token) is still honored if present.
-
-The companion **BeaconInfra** backend repo documents the full contract in `docs/v2/V2_IDENTITY_PROMPT.md` (device identity = user + `device_name`, first heartbeat creates the device).
-
-## 📊 **CI Status & Quality**
-
-Our CI pipeline ensures code quality and reliability:
-
-| Badge | Description | Status |
-|-------|-------------|--------|
-| ![CI](https://github.com/Bajusz15/beacon/workflows/CI/badge.svg) | **Tests & Builds** - Runs tests on Go 1.21, 1.22, 1.23 and builds for all platforms | [View Details](https://github.com/Bajusz15/beacon/actions) |
-| ![codecov](https://codecov.io/gh/Bajusz15/beacon/branch/main/graph/badge.svg) | **Test Coverage** - Shows percentage of code covered by tests | [View Coverage](https://codecov.io/gh/Bajusz15/beacon) |
-| ![Go Report Card](https://goreportcard.com/badge/github.com/Bajusz15/beacon) | **Code Quality** - Go code quality metrics and analysis | [View Report](https://goreportcard.com/report/github.com/Bajusz15/beacon) |
-| ![Security](https://github.com/Bajusz15/beacon/workflows/CI/badge.svg?label=security) | **Security Scan** - Automated security vulnerability scanning | [View Security](https://github.com/Bajusz15/beacon/security) |
-| ![Release](https://github.com/Bajusz15/beacon/workflows/Release/badge.svg) | **Releases** - Automated releases with cross-platform binaries | [View Releases](https://github.com/Bajusz15/beacon/releases) |
-
-### CI Pipeline Features
-
-- **Multi-version Testing**: Tests on Go 1.21, 1.22, and 1.23
-- **Cross-platform Builds**: Linux (ARM, ARM64, AMD64) and macOS (ARM64, AMD64)
-- **Security Scanning**: Gosec and govulncheck for vulnerability detection
-- **Code Quality**: golangci-lint with comprehensive rules
-- **Test Coverage**: Detailed coverage reports with HTML output
-- **Automated Releases**: Triggered by Git tags with checksums
-- **Dependency Updates**: Weekly automated dependency updates
-
-### How to Read the Badges
-
-- **Green ✅**: All checks passed
-- **Red ❌**: Some checks failed (click badge for details)
-- **Yellow ⚠️**: Checks are running or pending
-- **Gray ⚪**: Checks are disabled or not configured
-
-Click any badge to see detailed results and logs.
-
-## 📚 **Documentation**
-
-- **[LOG_FORWARDING.md](./docs/LOG_FORWARDING.md)** - Complete guide for log forwarding (file, Docker, deploy, command logs)
-- **[MASTER_AGENT.md](./docs/MASTER_AGENT.md)** - Machine-wide cloud reporting with beacon master
-- **[docs/MCP.md](./docs/MCP.md)** - MCP server for Cursor/Claude Desktop (beacon_inventory, beacon_status, etc.)
-- **[beacon.monitor.example.yml](./beacon.monitor.example.yml)** - Comprehensive monitoring configuration examples
-- **[beacon.bootstrap.example.yml](./beacon.bootstrap.example.yml)** - Bootstrap configuration template for automation
-- **[beacon.env.example](./beacon.env.example)** - Environment configuration template
-- **[beacon.wizard.example.yml](./beacon.wizard.example.yml)** - Example output from setup-wizard (monitor config)
-- **[beacon.wizard.example.env](./beacon.wizard.example.env)** - Example output from setup-wizard (environment variables)
-
-## 📖 **Table of Contents**
-
-- [🚀 5-Minute Quick Start](#-5-minute-quick-start) ⚡ **Start Here**
-- [Cloud reporting (BeaconInfra)](#cloud-reporting-beaconinfra)
-- [Features](#-features)
-- [Perfect For](#-perfect-for) 🎯 **Who Should Use Beacon**
-- [How Beacon Works](#-how-beacon-works) 🔍 **Understanding the System**
-- [Bootstrap Setup](#-bootstrap-setup) ⭐ **Recommended**
-- [Configuration Files](#-configuration-files)
-- [Monitoring Configuration](#monitoring-configuration)
-- [Log Forwarding](#-log-forwarding) → See [LOG_FORWARDING.md](./docs/LOG_FORWARDING.md)
-- [Installation](#-installation)
-- [Troubleshooting](#-troubleshooting)
-
-## ✨ **Features**
-
-- **🚀 Auto-Deployment**: Polls Git repos for new tags and automatically deploys latest versions
-- **📊 Health Monitoring**: HTTP endpoints, ports, custom commands, and system metrics
-- **📋 Log Forwarding**: Files, Docker containers, deployments, and custom commands
-- **🔔 Smart Alerting**: Email, webhooks, Discord, Telegram with severity-based routing
-- **⚡ Lightweight**: Single binary, minimal dependencies, perfect for IoT devices
-- **🔧 Easy Setup**: Interactive bootstrap wizard or config file automation
-- **🛡️ Self-Hosted**: No cloud dependencies, complete privacy and control
-- **📱 Status Page**: Built-in web interface for monitoring status
-- **🔄 Hot Reload**: Update configuration without restarting services
-- **🎯 Multi-Project**: Manage multiple projects independently
-
-## 🎯 **Perfect For**
-
-- **🏠 Self-Hosters**: Home labs, personal servers, IoT projects
-- **👨‍💻 Developers**: Individual developers and small teams
-- **🌱 Entrepreneurs**: Startups and small businesses
-- **🎮 Hobbyists**: Raspberry Pi enthusiasts, makers, tinkerers
-- **🔒 Privacy-Focused**: Users who want complete control over their infrastructure
-- **⚡ Simple Needs**: Those who want powerful monitoring without enterprise complexity
-
-> **Not for**: Large enterprise teams with complex compliance requirements. Beacon is designed for individuals, small teams, and self-hosted environments.
-
-## 🧙‍♂️ **Configuration Wizard**
-
-Beacon includes an interactive configuration wizard to help you set up monitoring quickly:
-
-```bash
-# Start the configuration wizard
-beacon setup-wizard
-
-# Specify custom paths
-beacon setup-wizard --config ./my-config.yml --env .env
-```
-
-### Wizard Features
-
-- **Device Templates**: Pre-configured setups for Raspberry Pi, web servers, Docker hosts, and databases
-- **Interactive Setup**: Step-by-step configuration with helpful prompts
-- **Plugin Configuration**: Easy setup for Discord, Telegram, email, and webhook alerts
-- **Environment Variables**: Automatic generation of `.env` file with secure credential placeholders
-- **Validation**: Configuration validation before saving
-
-### Supported Templates
-
-1. **Raspberry Pi / IoT Device** - SSH service monitoring, system health checks
-2. **Web Server / Application** - HTTP endpoint monitoring, health checks, process monitoring
-3. **Docker Container Host** - Docker daemon, compose services, container health
-4. **Database Server** - PostgreSQL, MySQL, Redis port monitoring, connection tests
-5. **Custom Configuration** - Start minimal and add checks manually
-
-### Example Wizard Output
-
-The wizard generates three files:
-- **Monitor config** (`beacon.monitor.yml`) - Your monitoring configuration
-- **Environment file** (`.env`) - Credentials and tokens (never commit this!)
-- **Bootstrap config** (`beacon.bootstrap.yml`) - Generic bootstrap template ready to customize
-
-See example outputs:
-- **[beacon.wizard.example.yml](./beacon.wizard.example.yml)** - Example monitor config generated by wizard
-- **[beacon.wizard.example.env](./beacon.wizard.example.env)** - Example environment file with placeholders
-- **[beacon.bootstrap.example.yml](./beacon.bootstrap.example.yml)** - Similar to the generated bootstrap config (customize and use with `beacon bootstrap myproject -f beacon.bootstrap.yml`)
-
-After running the wizard:
-1. Fill in environment variables in `.env`
-2. Customize `beacon.bootstrap.yml` with your repo URL and deploy command
-3. Run: `beacon bootstrap myproject -f beacon.bootstrap.yml`
-4. Run: `beacon monitor -f beacon.monitor.yml`
-
-## 🔍 **How Beacon Works**
-
-Beacon operates as a lightweight agent with two main functions: **deployment automation** and **monitoring/logging**. Here's how each component works:
-
-### 🚀 **Deployment Agent (`beacon deploy`)**
-
-The deployment agent automatically manages your application deployments:
-
-- **Repository Polling**: Continuously monitors your Git repository for new release tags
-- **Automatic Deployment**: When a new tag is detected, automatically pulls the latest code and runs your deploy command
-- **First Install**: If no tags are found, deploys the default branch (usually `main` or `master`)
-- **Custom Commands**: Executes your specified deploy command (e.g., `docker compose up --build -d`, `./install.sh`)
-- **Status Server**: Runs an HTTP server providing deployment status and health information
-
-**Example Workflow:**
-1. You push a new tag `v1.2.3` to your repository
-2. Beacon detects the new tag within your polling interval
-3. Automatically pulls the latest code to your deployment directory
-4. Runs your deploy command (e.g., Docker Compose, installation script)
-5. Reports success/failure status via HTTP endpoint
-
-### 📊 **Monitoring Agent (`beacon monitor`)**
-
-The monitoring agent provides comprehensive infrastructure monitoring:
-
-- **Health Checks**: Monitors HTTP endpoints, TCP ports, and custom commands
-- **System Metrics**: Collects CPU, memory, disk usage, and other system information
-- **Log Forwarding**: Captures and forwards logs from files, Docker containers, and commands
-- **External Reporting**: Sends monitoring data to external systems like [BeaconWatch](https://beaconinfra.dev/)
-- **Prometheus Metrics**: Exposes metrics in Prometheus format for integration with monitoring stacks
-
-**Integration with BeaconInfra Cloud Dashboard:**
-- **Centralized Monitoring**: View all your devices and their health status in one dashboard
-- **Log Aggregation**: Centralized log viewing and analysis across multiple devices
-- **Website Monitoring**: Set up independent HTTP/HTTPS monitoring checks from BeaconInfra's cloud infrastructure
-- **Alerting**: Configure email and webhook notifications for failures
-- **Historical Data**: Track uptime percentages and performance trends over time
-
-### 🔄 **Command Integration**
-
-**Bootstrap automatically sets up deployment:**
-```bash
-beacon bootstrap myapp  # Sets up deploy agent with systemd service
-```
-
-**Monitoring runs separately:**
-```bash
-beacon monitor  # Runs monitoring based on beacon.monitor.yml config
-```
-
-**Typical Setup:**
-1. **Bootstrap** creates deployment automation for your application
-2. **Monitor** runs independently to watch system health and forward logs
-3. **BeaconInfra Dashboard** provides centralized view of all your devices and monitoring data
-
-This separation allows you to:
-- Run deployment automation without monitoring overhead
-- Monitor multiple applications from a single device
-- Scale monitoring independently from deployment needs
-- Use BeaconInfra's cloud infrastructure for external monitoring checks
-
-## ⭐ **Bootstrap Setup**
-
-The `beacon bootstrap` command is the recommended way to set up new projects. It creates all necessary directories, configuration files, and optionally sets up systemd services automatically.
-
-### Basic Bootstrap Usage
+### 2. Bootstrap your first project
 
 ```bash
 # Interactive setup (recommended)
 beacon bootstrap myapp
 
-# Use configuration file for non-interactive setup
+# Or from a config file
 beacon bootstrap myapp -f beacon.bootstrap.example.yml
-
-# With options
-beacon bootstrap myapp --force --skip-systemd
 ```
 
-**Options:**
-- `--force, -f` - Force overwrite of existing components
-- `--skip-systemd, -s` - Skip systemd service setup
-- `--config, -f` - Use configuration file for non-interactive setup
+Bootstrap creates a project config at `~/.beacon/config/projects/myapp/`, sets up a systemd service, and optionally configures cloud reporting.
 
-### Bootstrap Configuration File
-
-For automation and testing, you can use a YAML configuration file instead of interactive prompts:
+### 3. Start the master agent
 
 ```bash
-beacon bootstrap myapp -f beacon.bootstrap.example.yml
+beacon master
 ```
 
-**Example configuration file** (`beacon.bootstrap.example.yml`):
+The master spawns child agents for each configured project, starts health checks, and (if configured) sends heartbeats to the cloud.
+
+For production, run it as a systemd service — `beacon bootstrap` installs this automatically.
+
+---
+
+## Cloud Reporting (Optional)
+
+To connect to [BeaconInfra](https://beaconinfra.dev) (or a self-hosted compatible backend):
+
+### 1. Write local config — no network call
+
+```bash
+beacon init --api-key usr_xxxx --name my-pi --cloud-url https://api.beaconinfra.dev/api
+```
+
+This writes `~/.beacon/config.yaml`. No HTTP requests are made here. The device is registered on the **first heartbeat** — there is no separate register step.
+
+### 2. Start the master
+
+```bash
+beacon master
+```
+
+The first heartbeat creates the device in the dashboard using `(user, device_name)` as the identity. The server returns a `device_id` which is cached locally for convenience — it's not authoritative.
+
+### Config file: `~/.beacon/config.yaml`
+
 ```yaml
-# Project configuration
-project_name: "my-awesome-app"
-repo_url: "https://github.com/username/my-awesome-app.git"
-local_path: "$HOME/beacon/my-awesome-app"
-deploy_command: "./scripts/deploy.sh"
-poll_interval: "60s"
-port: "8080"
+api_key: "usr_xxxxxxxxxxxxxxxx"
+device_name: "my-pi"              # defaults to hostname if omitted
+cloud_url: "https://api.beaconinfra.dev/api"
+heartbeat_interval: 30            # seconds
+cloud_reporting_enabled: true
 
-# Authentication (choose one or both)
-ssh_key_path: "/home/user/.ssh/id_rsa"  # For SSH URLs
-git_token: "ghp_xxxxxxxxxxxxxxxxxxxx"  # For HTTPS URLs (GitHub Personal Access Token)
-
-# Security and environment
-secure_env_path: "/etc/beacon/my-awesome-app.env"
-user: "deploy-user"
-working_dir: "$HOME/beacon/my-awesome-app"
-use_system_service: false  # Set to true for system-wide service
+# Projects managed by this device's master agent
+projects:
+  - id: "myapp"
+    config_path: "/home/user/myapp/beacon.monitor.yml"
+    enabled: true
 ```
 
-**Benefits of using config files:**
-- **Non-interactive**: Perfect for CI/CD and automation
-- **Version controlled**: Store configuration in your repository
-- **Reproducible**: Consistent setup across environments
-
-### What Bootstrap Creates
-
-The bootstrap command automatically sets up:
-
-1. **Project Configuration Directory**: `~/.beacon/config/projects/myapp/`
-2. **Environment File**: `~/.beacon/config/projects/myapp/env`
-3. **Working Directory**: `~/beacon/myapp/`
-4. **Local Deployment Path**: Where your Git repository will be cloned
-5. **User Systemd Service**: `~/.config/systemd/user/beacon@myapp.service`
-What you must provide:
-
-1. **Secure Environment File**: For storing sensitive deployment variables
-
-### Bootstrap Interactive Prompts
-
-During bootstrap, you'll be prompted for:
-
-- **Project Name**: Unique identifier for your project
-- **Git Repository URL**: HTTPS or SSH URL to your repository
-- **Local Deployment Path**: Where to clone and deploy your code
-- **Deploy Command**: Command to run after deployment (e.g., `docker compose up --build -d`)
-- **Polling Interval**: How often to check for new tags (e.g., `60s`, `5m`)
-- **HTTP Server Port**: Port for Beacon's status server
-- **SSH Key Path**: Optional SSH key for private repositories
-- **Git Token**: Optional personal access token for HTTPS repositories
-- **Secure Environment File Path**: Optional path for sensitive environment variables
-
-### Example Bootstrap Session
+### Environment variables
 
 ```bash
-$ beacon bootstrap myapp
-[Beacon] Starting project bootstrap...
-[Beacon] This will create the necessary directory structure, configuration files,
-[Beacon] and optionally set up systemd services for your beacon project.
-
-Enter project name [myapp]: myapp
-Enter Git repository URL [https://github.com/yourusername/yourrepo.git]: https://github.com/myuser/myapp.git
-Enter local deployment path [/home/pi/beacon/myapp]: /opt/myapp
-Enter deploy command (optional): docker compose up --build -d
-Enter polling interval [60s]: 2m
-Enter HTTP server port [8080]: 8080
-Enter SSH key path (optional): 
-Enter Git token (optional): ghp_xxxxxxxxxxxxxxxxxxxx
-Enter secure environment file path (optional) [/etc/beacon/myapp.env]: /etc/myapp/.env
-Set up systemd service? (Y/n): Y
-
-[Beacon] Created directories:
-  - /home/pi/.beacon/config/projects/myapp
-  - /opt/myapp
-  - /home/pi/.beacon
-[Beacon] Created environment file: /home/pi/.beacon/config/projects/myapp/env
-[Beacon] Created user systemd service: /home/pi/.config/systemd/user/beacon@myapp.service
-[Beacon] Set permissions:
-  - Working directory owned by pi
-  - Environment file readable by all users
-[Beacon] Bootstrap completed successfully!
-
-Next steps:
-1. Review configuration: /home/pi/.beacon/config/projects/myapp/env
-2. Edit configuration if needed
-3. Set up secure environment file: /etc/myapp/.env
-   Add your deployment environment variables (API keys, database URLs, etc.)
-   Example: sudo nano /etc/myapp/.env
-   Set permissions: sudo chmod 600 /etc/myapp/.env
-4. Enable and start the user systemd service:
-   systemctl --user daemon-reload
-   systemctl --user enable beacon@myapp
-   systemctl --user start beacon@myapp
-   systemctl --user status beacon@myapp
-   journalctl --user -u beacon@myapp -f
-5. Test deployment by checking the status endpoint: http://localhost:8080/status
-```
-
-### Managing Multiple Projects
-
-You can bootstrap multiple projects on the same system:
-
-```bash
-beacon bootstrap webapp
-beacon bootstrap api
-beacon bootstrap anotherapp
-
-# Each project gets its own systemd service
-systemctl --user enable beacon@webapp
-systemctl --user enable beacon@api
-systemctl --user enable beacon@anotherapp
-```
-
-### Post-Bootstrap Configuration
-
-After bootstrap, you may want to:
-
-1. **Edit the environment file**:
-   ```bash
-   nano ~/.beacon/config/projects/myapp/env
-   ```
-
-2. **Set up secure environment variables**:
-   ```bash
-   sudo nano /etc/myapp/.env
-   sudo chmod 600 /etc/myapp/.env
-   ```
-
-> **Note:** With systemd, logs are stored in the systemd journal. View them with:
-> ```bash
-> journalctl -u beacon@myproject -f
-> ```
-3. **Create monitoring configuration**:
-   ```bash
-   cp beacon.monitor.example.yml ~/.beacon/config/projects/myapp/monitor.yml
-   nano ~/.beacon/config/projects/myapp/monitor.yml
-   ```
-
-
-## 📋 **Configuration Files**
-
-Beacon uses these configuration layers:
-
-1. **`~/.beacon/config.yaml`** (optional, for cloud reporting) — written by `beacon init`; holds user API key, device name, and API base URL for BeaconInfra. See [Cloud reporting (BeaconInfra)](#cloud-reporting-beaconinfra).
-
-2. **`beacon.env`** — Environment variables for deployment settings
-   - Repository URLs, deploy commands, polling intervals
-   - See: [beacon.env.example](./beacon.env.example)
-
-3. **`beacon.monitor.yml`** — YAML configuration for monitoring and log forwarding
-   - Health checks, system metrics, log sources, reporting
-   - See: [beacon.monitor.example.yml](./beacon.monitor.example.yml) for comprehensive examples
-   - See: [LOG_FORWARDING.md](./docs/LOG_FORWARDING.md) for detailed log forwarding setup
-
-### Application Environment Variables
-
-For your application's environment variables (API keys, database URLs, etc.), you should store them in a separate `.env` file that Beacon can access. This keeps sensitive data separate from Beacon's configuration.
-
-**Recommended locations:**
-- `/etc/yourproject/.env` (system-wide, requires sudo)
-- `~/.config/yourproject/.env` (user-specific)
-- `/opt/yourproject/.env` (application-specific)
-
-**Example setup:**
-```bash
-# Create secure environment file
-sudo nano /etc/myapp/.env
-
-# Add your application variables
-DATABASE_URL=postgresql://user:pass@localhost:5432/mydb
-API_KEY=your-secret-api-key
-REDIS_URL=redis://localhost:6379
-
-# Set proper permissions
-sudo chmod 600 /etc/myapp/.env
-sudo chown $USER:$USER /etc/myapp/.env
-```
-
-**Configure Beacon to use it:**
-```bash
-# In your beacon.env or bootstrap setup
-BEACON_SECURE_ENV_PATH=/etc/myapp/.env
-```
-
-**Quick Setup (without bootstrap):**
-```bash
-# Copy example configurations
-cp beacon.env.example beacon.env
-cp beacon.monitor.example.yml beacon.monitor.yml
-
-# Edit configurations for your environment
-nano beacon.env
-nano beacon.monitor.yml
+BEACON_API_KEY       # user API key
+BEACON_CLOUD_URL     # API base URL
+BEACON_DEVICE_NAME   # device name (defaults to hostname)
 ```
 
 ---
 
-## 📋 **Log Forwarding**
+## Project Setup
 
-Beacon supports comprehensive log forwarding to external monitoring systems like Beaconinfra. Configure multiple log sources in your `beacon.monitor.yml`:
-
-```yaml
-log_sources:
-  # File-based log forwarding
-  - name: "Application Logs"
-    type: file
-    enabled: true
-    file_path: "/var/log/app.log"
-    interval: 60s
-    max_lines: 100
-    filters:
-      - "ERROR"
-      - "WARN"
-
-  # Docker container logs
-  - name: "Container Logs"
-    type: docker
-    enabled: true
-    containers: ["web", "api", "worker"]
-    interval: 30s
-    since: "5m"
-
-
-  # System logs via commands
-  - name: "System Errors"
-    type: command
-    enabled: true
-    command: "journalctl --since '5 minutes ago' -p err -n 30"
-    interval: 300s
-
-  # Custom log processing
-  - name: "Nginx Access Logs"
-    type: file
-    enabled: true
-    file_path: "/var/log/nginx/access.log"
-    interval: 30s
-    command: "tail -n 50"
-```
-
-**Key Features:**
-- **Multiple Sources**: Files, Docker containers, commands, deploy logs
-- **Filtering**: Filter logs by keywords, severity levels
-- **Rate Limiting**: Control log volume with intervals and line limits
-- **External Reporting**: Send logs to monitoring systems
-- **Real-time Processing**: Stream logs as they're generated
-
-**📖 For complete log forwarding setup, filtering, Docker examples, and deploy integration:**
-👉 **[See LOG_FORWARDING.md](./docs/LOG_FORWARDING.md)**
-
----
-
-### Monitoring Configuration
-
-Create a monitoring configuration file (`beacon.monitor.yml`):
+Each project has its own `beacon.monitor.yml`:
 
 ```yaml
-# Device identification
 device:
-  name: "Production Server"
-  location: "Homelab"
-  tags: ["production", "web-server", "docker"]
-  environment: "production"
+  name: "my-pi"
 
-# Health checks
 checks:
-  # HTTP endpoint monitoring with custom headers
-  - name: "Homepage"
+  - name: "http_200"
     type: http
-    url: https://example.com/health
+    url: "http://localhost:8080/health"
     interval: 30s
-    expect_status: 200
-    timeout: 10s
-    headers:
-      User-Agent: "Beacon-Monitor/1.0"
-    alert_command: "curl -X POST https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK -d '{\"text\":\"🚨 Website is down! Check: $BEACON_CHECK_NAME, Error: $BEACON_CHECK_ERROR\"}'"
 
-  # Database connectivity
-  - name: "Database"
-    type: port
-    host: 127.0.0.1
-    port: 5432
-    interval: 60s
-    timeout: 5s
-    alert_command: "echo 'Database connection failed' | mail -s 'Alert: DB Down' admin@example.com"
+  - name: "process_running"
+    type: process
+    name: "myapp"
 
-  # Custom command checks with alert_command
-  - name: "Disk Usage"
-    type: command
-    command: "df -h / | awk 'NR==2 {print $5}' | sed 's/%//'"
-    interval: 300s
-    alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 90 ]; then echo 'Disk space critical: $BEACON_CHECK_OUTPUT%' | telegram-send --stdin; fi"
-
-  - name: "Nginx Process"
-    type: command
-    command: "pgrep nginx > /dev/null && echo 'running' || echo 'stopped'"
-    interval: 60s
-    alert_command: "if [ '$BEACON_CHECK_OUTPUT' = 'stopped' ]; then echo 'Nginx process stopped!' | curl -X POST -H 'Content-Type: application/json' -d '{\"text\":\"Nginx is down!\"}' ${DISCORD_WEBHOOK_URL}; fi"
-
-  - name: "Memory Usage"
-    type: command
-    command: "free | awk 'NR==2{printf \"%.0f\", $3*100/$2}'"
-    interval: 30s
-    alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 85 ]; then echo 'Memory usage high: $BEACON_CHECK_OUTPUT%' | mail -s 'Memory Alert' admin@example.com; fi"
-
-# Alert Command Variables
-# For command-type checks, alert_command always runs regardless of check status
-# Available variables in alert commands:
-#   $BEACON_CHECK_NAME     - Name of the check
-#   $BEACON_CHECK_TYPE     - Type of check (command, http, port)
-#   $BEACON_CHECK_STATUS   - Status (up, down, error)
-#   $BEACON_CHECK_OUTPUT   - Command output (for command checks only)
-#   $BEACON_CHECK_ERROR    - Error message if any
-#   $BEACON_CHECK_DURATION - Check duration in seconds
-#   $BEACON_DEVICE_NAME    - Device name
-#
-# Example alert commands:
-#   - Send to Telegram: "echo 'Alert: $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS' | telegram-send --stdin"
-#   - Send to Discord: "curl -X POST -H 'Content-Type: application/json' -d '{\"text\":\"$BEACON_CHECK_NAME: $BEACON_CHECK_STATUS\"}' ${DISCORD_WEBHOOK_URL}"
-#   - Send email: "echo 'Check $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS' | mail -s 'Beacon Alert' admin@example.com"
-#   - Log to syslog: "logger -p local0.err 'Beacon Alert: $BEACON_CHECK_NAME is $BEACON_CHECK_STATUS'"
-
-# System metrics
-system_metrics:
-  enabled: true
-  interval: 120s
-
-# Reporting configuration
-report:
-  send_to: https://beaconinfra.dev/api
-  # token: optional if ~/.beacon/config.yaml has api_key (beacon init)
-  token: YOUR_API_TOKEN
-  interval: 60s
-  prometheus_metrics: true
-  prometheus_port: 9100
-  prometheus_path: "/metrics"
+# Optional: application-specific metrics to include in heartbeat
+metrics:
+  http_response_ms: true    # adds response time to heartbeat payload
+  process_cpu_percent: true
 ```
 
-### Check Types
-
-#### HTTP Checks
-- **Type**: `http`
-- **Purpose**: Monitor HTTP/HTTPS endpoints for availability and performance
-- **Features**: 
-  - Custom headers and authentication
-  - Expected status codes
-  - Response time monitoring
-  - SSL certificate validation
-- **Metrics**: Response time, status code, duration, SSL expiry
-
-#### Port Checks
-- **Type**: `port`
-- **Purpose**: Verify TCP port availability on specified hosts
-- **Features**:
-  - Connection timeout configuration
-  - Multiple port ranges
-  - Custom connection tests
-- **Metrics**: Connection success/failure, duration, connection time
-
-#### Command Checks
-- **Type**: `command`
-- **Purpose**: Execute custom shell commands for system monitoring
-- **Features**:
-  - Full shell command support (pipes, redirects, etc.)
-  - Output validation with `expect_output`
-  - Exit code checking
-  - Custom alert commands
-- **Metrics**: Command success/failure, output capture, duration, exit code
-
-### Monitoring Output
-
-The monitor provides real-time health check results:
-
-```
-2025/08/26 10:24:51 [Beacon] Starting monitoring system...
-2025/08/26 10:24:51 [Beacon] Check (command) Disk usage: (0.01s) - Output: /dev/disk3s1s1 460Gi 10Gi 357Gi 3% 426k 3.7G 0% /, Error: 
-2025/08/26 10:24:51 [Beacon] Check (http) Homepage: up (0.20s)
-2025/08/26 10:25:21 [Beacon] Check (http) Homepage: up (0.17s)
-2025/08/26 10:25:51 [Beacon] Check (http) Homepage: up (0.16s)
-```
-
-### Prometheus Metrics
-
-When `prometheus_metrics: true` is enabled, Beacon exposes metrics at `/metrics`:
-
-```prometheus
-# Check status (1 = up, 0 = down/error)
-beacon_check_status{name="Homepage",type="http"} 1
-
-# Duration in seconds
-beacon_check_duration_seconds{name="Homepage",type="http"} 0.234
-
-# Response time for HTTP checks
-beacon_check_response_time_seconds{name="Homepage",type="http"} 0.123
-
-# Last check timestamp
-beacon_check_last_check_timestamp{name="Homepage",type="http"} 1703123456
-```
-
-### External Reporting
-
-Configure Beacon to send check results to external monitoring systems:
-
-```yaml
-report:
-  send_to: https://your-monitoring-api.com/checks
-  token: YOUR_API_TOKEN
-```
-
-Beacon will POST JSON results to the specified endpoint with authentication.
-
-### Example Use Cases
-
-- **Web Application**: Monitor homepage, API endpoints, database connectivity
-- **Infrastructure**: Check disk usage, process status, service availability
-- **IoT Devices**: Monitor sensor readings, network connectivity, system resources
-- **Microservices**: Health checks across multiple services and dependencies
-
+All metrics fields are opt-in. Leave the `metrics:` section out entirely to report only status (healthy/degraded/down).
 
 ---
 
-## 🚀 Installation
-
-### Available Commands
-
-Main commands:
-
-- **`beacon bootstrap`** — Project setup and systemd service creation ⭐ **Recommended**
-- **`beacon init`** — Local-only: writes `~/.beacon/config.yaml` for BeaconInfra (API key, device name, cloud URL). No HTTP.
-- **`beacon master`** — Machine-wide cloud heartbeat loop using `config.yaml` (often `beacon-master.service`).
-- **`beacon deploy`** — Deployment agent (polls Git repos for tags and deploys code automatically)
-- **`beacon monitor`** — Health monitoring (runs independently; reports to [BeaconInfra](https://beaconinfra.dev/) when configured)
-
-**Command separation:**
-- **Bootstrap** sets up deployment automation (runs `deploy` automatically via systemd) and may enable cloud reporting + master service.
-- **Deploy** runs continuously, polling for new release tags and deploying when found.
-- **Monitor** runs separately, providing health checks and log forwarding to the cloud dashboard.
-
-### Quick Install (Recommended)
-
-For most users, simply run:
+## Commands
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Bajusz15/beacon/main/scripts/install.sh | bash
+# Setup
+beacon init [--api-key <key>] [--name <name>] [--cloud-url <url>]
+beacon bootstrap <project> [-f config.yml]
+
+# Run
+beacon master                   # start master + all child agents (foreground)
+beacon monitor [-f config.yml]  # run a single child agent directly (dev/debug)
+
+# Manage
+beacon projects list            # list configured projects
+beacon projects status          # health summary
+beacon restart master           # systemctl --user restart beacon-master.service
+
+# Other
+beacon version
+beacon --help
 ```
 
-This will:
-- Detect your system architecture (ARM, ARM64, AMD64)
-- Download the latest release from GitHub
-- Install to `/usr/local/bin/beacon`
-- Set up systemd service template
-- Create necessary directories
+---
 
-### Manual Installation
+## Systemd (Production)
 
-If you prefer to build from source:
+`beacon bootstrap` installs and starts systemd user services automatically.
 
-1. Build the binary:
-   ```bash
-   GOOS=linux GOARCH=arm GOARM=7 go build -o beacon ./cmd/beacon
-   ```
-   For arm64:
-   ```bash
-   GOOS=linux GOARCH=arm64 go build -o beacon ./cmd/beacon
-   ```
-
-2. Copy to your system:
-   ```bash
-   chmod +x beacon
-   sudo cp beacon /usr/local/bin/beacon
-   ```
-
-3. Set up systemd (optional, bootstrap handles this automatically):
-   ```bash
-   sudo cp systemd/beacon@.service /etc/systemd/system/
-   sudo systemctl daemon-reload
-   ```
-
-> **Note:** The Beacon binary must be executable. If you encounter permission issues, run:
-> ```bash
-> sudo chmod +x /usr/local/bin/beacon
-> ```
-
-### Post-Installation Setup
-
-After installation, use the bootstrap command to set up your first project:
+For manual setup:
 
 ```bash
-# Set up a new project
-beacon bootstrap myapp
+# Master agent
+cat > ~/.config/systemd/user/beacon-master.service << 'EOF'
+[Unit]
+Description=Beacon Master Agent
+After=network-online.target
+Wants=network-online.target
 
-# Enable and start the service
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/beacon master
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target
+EOF
+
 systemctl --user daemon-reload
-systemctl --user enable beacon@myapp
-systemctl --user start beacon@myapp
-```
-
-
-## ⚙️ Alternative: Run in Background (without systemd)
-
-If you prefer not to use systemd, you can run `beacon` in the background and log output to a file:
-
-```bash
-nohup beacon monitor > beacon.log 2>&1 &
-```
-
-To stop it later:
-```bash
-kill $(pgrep beacon)
-```
-
-### 🧪 Example Run on Raspberry Pi
-
-```bash
-pi@raspberrypi:/media/pi/HIKSEMI/applications/beacon-tests/beacon $ beacon
-2025/07/11 17:40:54 [Beacon] Agent starting...
-Enter the Git repo URL [https://github.com/yourusername/yourrepo.git]: https://github.com/Bajusz15/beacon.git
-Enter the local path for the project [$HOME/beacon/project]: /media/pi/HIKSEMI/applications/beacon-tests/test
-Enter the port to run on [8080]: 8080
-Enter the SSH key path (optional): 
-Enter the Git token (optional): ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-2025/07/11 17:41:22 [Beacon] Status server listening on :8080
-2025/07/11 17:42:24 [Beacon] New tag found: v0.0.1 (prev: )
-2025/07/11 17:42:24 [Beacon] Deploying tag v0.0.1...
-2025/07/11 17:42:25 [Beacon] Deployment of tag v0.0.1 complete.
-```
-
-### 🧪 Example Monitoring Run
-
-```bash
-pi@raspberrypi:~ $ beacon monitor
-2025/08/26 10:24:51 [Beacon] Starting monitoring system...
-2025/08/26 10:24:51 [Beacon] Check (command) Disk usage: (0.01s) - Output: /dev/disk3s1s1 460Gi 10Gi 357Gi 3% 426k 3.7G 0% /, Error: 
-2025/08/26 10:24:51 [Beacon] Check (http) Homepage: up (0.20s)
-2025/08/26 10:25:21 [Beacon] Check (http) Homepage: up (0.17s)
-2025/08/26 10:25:51 [Beacon] Check (http) Homepage: up (0.16s)
+systemctl --user enable --now beacon-master.service
 ```
 
 ---
 
-[☕ Buy me a coffee](https://coff.ee/matebajusz)  
-If you find Beacon helpful, consider supporting my work!
+## CI & Quality
 
-## 📄 License
-
-Apache 2.0
+| Check | Description |
+|-------|-------------|
+| Tests | Go 1.24, all platforms |
+| Platforms | Linux ARM / ARM64 / AMD64, macOS ARM64 / AMD64 |
+| Security | gosec + govulncheck |
+| Lint | golangci-lint |
+| Coverage | [codecov](https://codecov.io/gh/Bajusz15/beacon) |
 
 ---
 
-## 🛠 Troubleshooting
+## Documentation
 
-### Permission denied when running `beacon`
-Make sure the binary is executable:
-```bash
-chmod +x beacon
-```
+- [docs/MASTER_AGENT.md](./docs/MASTER_AGENT.md) — master agent architecture and IPC contract
+- [docs/LOG_FORWARDING.md](./docs/LOG_FORWARDING.md) — log forwarding configuration
+- [beacon.monitor.example.yml](./beacon.monitor.yml) — monitoring config reference
+- [examples/](./examples/) — bootstrap and config examples
 
-### Bootstrap command fails
-If bootstrap encounters issues:
-```bash
-# Check if beacon binary exists
-which beacon
+---
 
-# Run with verbose output
-beacon bootstrap myapp --force
+## License
 
-# Skip systemd if having issues
-beacon bootstrap myapp --skip-systemd
-```
-
-### How do I test deployment manually?
-Run `beacon` in interactive mode:
-```bash
-beacon deploy
-```
-
-### Where are logs stored?
-If you're using systemd (recommended), check logs with:
-```bash
-# For user services
-journalctl --user -u beacon@myproject -f
-
-# For system services
-journalctl -u beacon@myproject -f
-```
-
-If running manually, redirect logs:
-```bash
-nohup beacon deploy > beacon.log 2>&1 &
-tail -f beacon.log
-```
-
-### Deployment command is not executing?
-Ensure your command is valid and executable. For scripts:
-```bash
-chmod +x install.sh
-```
-And use:
-```env
-BEACON_DEPLOY_CMD=./install.sh
-```
-
-If the command fails, Beacon will log the error and exit code.
-
-### Service won't start
-Check the service status and logs:
-```bash
-systemctl --user status beacon@myproject
-journalctl --user -u beacon@myproject --no-pager
-```
-
-Common issues:
-- Binary not found: Check `/usr/local/bin/beacon` exists
-- Permission issues: Ensure user has access to deployment directory
-- Configuration errors: Check environment file syntax
-
-### Command output is truncated?
-- Output is limited to 200 characters by default to keep logs readable
-- Full output is still captured in the `CheckResult` and sent to external APIs
-- Adjust `maxOutputLength` constant in the code if you need longer logs
-
-### Multiple projects not working
-Each project needs its own bootstrap setup:
-```bash
-beacon bootstrap project1
-beacon bootstrap project2
-beacon bootstrap project3
-
-# Enable all services
-systemctl --user enable beacon@project1
-systemctl --user enable beacon@project2
-systemctl --user enable beacon@project3
-```
-
+Apache 2.0 — see [LICENSE](./LICENSE)
