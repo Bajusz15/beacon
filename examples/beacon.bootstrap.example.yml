@@ -29,3 +29,6 @@ secure_env_path: "/etc/beacon/my-awesome-app.env"
 user: "deploy-user"
 working_dir: "$HOME/beacon/my-awesome-app"
 use_system_service: false  # Set to true for system-wide service
+
+# First-time only: written to ~/.beacon/config/global.yml when that file does not exist yet.
+# cloud_reporting_enabled: true

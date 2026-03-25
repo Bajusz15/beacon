@@ -167,7 +167,7 @@ func TestLogManagerInitialization(t *testing.T) {
 		},
 	}
 
-	lm := NewLogManager(config, &http.Client{})
+	lm := NewLogManager(config, &http.Client{}, nil)
 	if lm == nil {
 		t.Fatal("Expected LogManager to be created, got nil")
 	}
@@ -199,7 +199,7 @@ func TestLogManagerStartStop(t *testing.T) {
 		},
 	}
 
-	lm := NewLogManager(config, &http.Client{})
+	lm := NewLogManager(config, &http.Client{}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 

@@ -23,7 +23,8 @@ import (
 
 const (
 	defaultLogBatchSize     = 50
-	defaultLogFlushInterval = 15 * time.Second
+	minLogFlushInterval     = 60 * time.Second
+	defaultLogFlushInterval = minLogFlushInterval
 	logPositionsFilename    = "log_positions.json"
 )
 
@@ -95,6 +96,7 @@ type LogManager struct {
 	logsMux         sync.RWMutex
 	logCollectors   map[string]*LogCollector
 	httpClient      *http.Client
+	getAuthToken    func() string
 	seenLogs        map[string]time.Time // hash -> last seen timestamp for deduplication
 	seenLogsMux     sync.RWMutex
 	stateDir        string
@@ -116,8 +118,9 @@ func getStateDir() string {
 	return filepath.Join(home, ".beacon", "state")
 }
 
-// NewLogManager creates a new log manager
-func NewLogManager(config *Config, httpClient *http.Client) *LogManager {
+// NewLogManager creates a new log manager. getAuthToken returns the bearer/API secret (e.g. dtk_ or bci_live_);
+// if nil, report.token from config is used (tests and legacy).
+func NewLogManager(config *Config, httpClient *http.Client, getAuthToken func() string) *LogManager {
 	stateDir := getStateDir()
 	_ = os.MkdirAll(stateDir, 0755)
 	lm := &LogManager{
@@ -125,6 +128,7 @@ func NewLogManager(config *Config, httpClient *http.Client) *LogManager {
 		logs:           make([]LogEntry, 0),
 		logCollectors:  make(map[string]*LogCollector),
 		httpClient:     httpClient,
+		getAuthToken:   getAuthToken,
 		seenLogs:       make(map[string]time.Time),
 		stateDir:       stateDir,
 		logPositions:   make(map[string]logCursor),
@@ -132,6 +136,23 @@ func NewLogManager(config *Config, httpClient *http.Client) *LogManager {
 		lastFlush:      time.Now(),
 	}
 	return lm
+}
+
+func (lm *LogManager) authSecret() string {
+	if lm.getAuthToken != nil {
+		return lm.getAuthToken()
+	}
+	return lm.config.Report.Token
+}
+
+func (lm *LogManager) canForwardLogs() bool {
+	if lm.config.Report.SendTo == "" {
+		return false
+	}
+	if lm.getAuthToken != nil {
+		return lm.getAuthToken() != ""
+	}
+	return lm.config.Report.Token != "" || lm.config.Report.TokenName != ""
 }
 
 func (lm *LogManager) loadLogPositions() {
@@ -260,6 +281,9 @@ func (lm *LogManager) StartLogCollection(ctx context.Context) {
 	flushInterval := lm.config.Report.LogFlushInterval
 	if flushInterval <= 0 {
 		flushInterval = defaultLogFlushInterval
+	}
+	if flushInterval < minLogFlushInterval {
+		flushInterval = minLogFlushInterval
 	}
 	lm.flushStop = make(chan struct{})
 	lm.flushTicker = time.NewTicker(flushInterval)
@@ -1000,7 +1024,7 @@ func (lm *LogManager) flushPending(_ bool) {
 	if len(pending) == 0 {
 		return
 	}
-	if lm.config.Report.SendTo == "" || lm.config.Report.Token == "" {
+	if !lm.canForwardLogs() {
 		return
 	}
 	lm.reportLogs(pending)
@@ -1054,7 +1078,7 @@ func (lm *LogManager) addLogEntries(entries []LogEntry) {
 		batchSize = defaultLogBatchSize
 	}
 
-	if lm.config.Report.SendTo != "" && lm.config.Report.Token != "" {
+	if lm.canForwardLogs() {
 		lm.pendingMux.Lock()
 		lm.pendingEntries = append(lm.pendingEntries, filteredEntries...)
 		if len(lm.pendingEntries) >= batchSize {
@@ -1091,10 +1115,14 @@ func (lm *LogManager) reportLogs(logs []LogEntry) {
 		})
 	}
 
+	secret := lm.authSecret()
+	if secret == "" {
+		return
+	}
+
 	payload := map[string]interface{}{
-		"logs":  beaconinfraLogs,
-		"token": lm.config.Report.Token,
-		"type":  "logs",
+		"logs": beaconinfraLogs,
+		"type": "logs",
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -1111,7 +1139,7 @@ func (lm *LogManager) reportLogs(logs []LogEntry) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+lm.config.Report.Token)
+	setAgentAuthHeaders(req, secret)
 
 	resp, err := lm.httpClient.Do(req)
 	if err != nil {

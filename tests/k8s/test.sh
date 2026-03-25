@@ -7,7 +7,7 @@ set -euo pipefail
 MARKER="E2E_LOG_FORWARDING_MARKER"
 CLUSTER_NAME="${CLUSTER_NAME:-beacon-log-e2e}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-E2E_DIR="${ROOT_DIR}/deploy/kubernetes/e2e"
+E2E_DIR="${ROOT_DIR}/tests/k8s"
 TIMEOUT=120
 
 log_info()    { printf "[INFO] %s\n" "$*"; }

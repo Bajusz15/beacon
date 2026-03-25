@@ -289,3 +289,111 @@ func GetDefaultServiceConfig(projectName, environmentFile, workingDir string) *S
 		RestartSec:      5,
 	}
 }
+
+const masterServiceFile = "beacon-master.service"
+
+func (sm *ServiceManager) masterServiceUnitPath() string {
+	if sm.serviceType == UserService {
+		homeDir, _ := os.UserHomeDir()
+		return filepath.Join(homeDir, ".config", "systemd", "user", masterServiceFile)
+	}
+	return filepath.Join("/etc/systemd/system", masterServiceFile)
+}
+
+// CreateMasterService installs a project-independent unit that runs `beacon master` (cloud reporting).
+func (sm *ServiceManager) CreateMasterService(execStart, workingDir string) error {
+	if strings.TrimSpace(execStart) == "" {
+		return fmt.Errorf("execStart is empty")
+	}
+	if workingDir == "" {
+		homeDir, _ := os.UserHomeDir()
+		workingDir = homeDir
+	}
+	path := sm.masterServiceUnitPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create systemd dir: %w", err)
+	}
+	content := sm.generateMasterServiceContent(execStart, workingDir)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return fmt.Errorf("write master service: %w", err)
+	}
+	return nil
+}
+
+func (sm *ServiceManager) generateMasterServiceContent(execStart, workingDir string) string {
+	wantedBy := "default.target"
+	if sm.serviceType == SystemService {
+		wantedBy = "multi-user.target"
+	}
+	// systemd requires absolute paths; WorkingDirectory must exist for the user running the service.
+	return fmt.Sprintf(`[Unit]
+Description=Beacon master agent (cloud health reporting, project-independent)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%s
+WorkingDirectory=%s
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=%s
+`, execStart, workingDir, wantedBy)
+}
+
+// EnableMasterService enables beacon-master.service.
+func (sm *ServiceManager) EnableMasterService() error {
+	return sm.systemctlEnableDisable(masterServiceFile, true)
+}
+
+// StartMasterService starts beacon-master.service.
+func (sm *ServiceManager) StartMasterService() error {
+	return sm.systemctlStartStop(masterServiceFile, true)
+}
+
+// RemoveMasterService removes the master unit file.
+func (sm *ServiceManager) RemoveMasterService() error {
+	path := sm.masterServiceUnitPath()
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func (sm *ServiceManager) systemctlEnableDisable(unit string, enable bool) error {
+	var cmd *exec.Cmd
+	action := "disable"
+	if enable {
+		action = "enable"
+	}
+	if sm.serviceType == UserService {
+		cmd = exec.Command("systemctl", "--user", action, unit)
+	} else {
+		cmd = exec.Command("systemctl", action, unit)
+	}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("systemctl %s %s: %w", action, unit, err)
+	}
+	return nil
+}
+
+func (sm *ServiceManager) systemctlStartStop(unit string, start bool) error {
+	var cmd *exec.Cmd
+	action := "stop"
+	if start {
+		action = "start"
+	}
+	if sm.serviceType == UserService {
+		cmd = exec.Command("systemctl", "--user", action, unit)
+	} else {
+		cmd = exec.Command("systemctl", action, unit)
+	}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("systemctl %s %s: %w", action, unit, err)
+	}
+	return nil
+}

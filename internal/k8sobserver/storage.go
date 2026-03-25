@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"beacon/internal/sources"
+	"beacon/internal/k8sobserver/sources"
 )
 
 const (

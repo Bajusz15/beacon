@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,6 +22,7 @@ import (
 	"beacon/internal/config"
 	"beacon/internal/deploy"
 	"beacon/internal/errors"
+	"beacon/internal/identity"
 	"beacon/internal/keys"
 	"beacon/internal/plugins"
 	"beacon/internal/plugins/email"
@@ -87,7 +89,7 @@ type ReportConfig struct {
 	DeployOnRequest    bool            `yaml:"deploy_on_request,omitempty"` // run deploy when BeaconWatch sets deploy_requested
 	// Log batching: flush when batch full or interval elapsed
 	LogBatchSize     int           `yaml:"log_batch_size,omitempty"`     // max entries per HTTP request (default 50)
-	LogFlushInterval time.Duration `yaml:"log_flush_interval,omitempty"` // max time before sending partial batch (default 15s)
+	LogFlushInterval time.Duration `yaml:"log_flush_interval,omitempty"` // max time before sending partial batch; values below 60s use 60s; default 60s
 }
 
 type HeartbeatConfig struct {
@@ -97,15 +99,17 @@ type HeartbeatConfig struct {
 
 // heartbeatResponse is the server response to /agent/heartbeat (may include deploy_requested)
 type heartbeatResponse struct {
+	Ack             bool   `json:"ack,omitempty"`
 	DeviceID        string `json:"device_id,omitempty"`
 	DeployRequested bool   `json:"deploy_requested,omitempty"`
 }
 
 // deployResultPayload is sent to POST /agent/deploy-result after running deploy
 type deployResultPayload struct {
-	Success bool   `json:"success"`
-	Error   string `json:"error,omitempty"`
-	Log     string `json:"log,omitempty"`
+	DeviceID string `json:"device_id,omitempty"`
+	Success  bool   `json:"success"`
+	Error    string `json:"error,omitempty"`
+	Log      string `json:"log,omitempty"`
 }
 
 type CheckResult struct {
@@ -142,6 +146,8 @@ type AgentHeartbeatRequest struct {
 	Tags          []string          `json:"tags"`
 	AgentVersion  string            `json:"agent_version"`
 	DeviceName    string            `json:"device_name"`
+	OS            string            `json:"os,omitempty"`
+	Arch          string            `json:"arch,omitempty"`
 	Metadata      map[string]string `json:"metadata"`
 	SystemMetrics *AgentMetrics     `json:"system_metrics,omitempty"`
 }
@@ -174,6 +180,9 @@ type Monitor struct {
 	configPath                string
 	pluginManager             *plugins.Manager
 	lastSystemMetricsSendAt   time.Time
+	agentIdentity             *identity.Identity
+	agentYAMLPath             string
+	userConfigPath            string
 }
 
 // LinuxSystemMetricsCollector implements SystemMetricsCollector for Linux systems
@@ -239,44 +248,41 @@ func NewMonitor(cfg *Config, configPath string) (*Monitor, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Initialize rate limiter with sensible defaults
 	httpClient := ratelimit.NewHTTPClient(ratelimit.DefaultConfig())
-	logManager := NewLogManager(cfg, httpClient.Client)
 
-	// Initialize key manager
-	configDir := getConfigDir()
-	keyManager, err := keys.NewKeyManager(configDir)
-	if err != nil {
-		cancel() // Ensure context is canceled on error
-		return nil, fmt.Errorf("failed to initialize key manager: %w", err)
-	}
-
-	// Get current token
-	currentToken, err := getCurrentToken(cfg, keyManager)
-	if err != nil {
-		cancel() // Ensure context is canceled on error
-		return nil, fmt.Errorf("failed to get current token: %w", err)
-	}
-
-	// Initialize file watcher for config hot-reload
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create file watcher: %w", err)
 	}
 
-	// Initialize plugin manager
 	pluginManager := plugins.NewManager()
-
-	// Register built-in plugins
 	if err := registerBuiltinPlugins(pluginManager); err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to register built-in plugins: %w", err)
 	}
 
-	return &Monitor{
+	configDir := getConfigDir()
+	keyManager, err := keys.NewKeyManager(configDir)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to initialize key manager: %w", err)
+	}
+
+	agentYAMLPath, _ := identity.AgentYAMLPath()
+	userConfigPath, _ := identity.UserConfigPath()
+	uc, _ := identity.LoadUserConfig()
+	applyUserConfigToMonitorConfig(cfg, uc)
+	ag, _ := identity.LoadAgent()
+	applyAgentIdentityToMonitorConfig(cfg, ag)
+	currentToken, err := resolveMonitorAuthToken(cfg, keyManager, ag, uc)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to get current token: %w", err)
+	}
+
+	m := &Monitor{
 		config:           cfg,
-		logManager:       logManager,
 		results:          make(map[string]*CheckResult),
 		httpClient:       httpClient,
 		ctx:              ctx,
@@ -287,7 +293,13 @@ func NewMonitor(cfg *Config, configPath string) (*Monitor, error) {
 		configWatcher:    watcher,
 		configPath:       configPath,
 		pluginManager:    pluginManager,
-	}, nil
+		agentIdentity:    ag,
+		agentYAMLPath:    agentYAMLPath,
+		userConfigPath:   userConfigPath,
+	}
+	m.logManager = NewLogManager(cfg, httpClient.Client, func() string { return m.currentToken })
+
+	return m, nil
 }
 
 // getConfigDir returns the beacon configuration directory
@@ -352,14 +364,11 @@ func (m *Monitor) persistCheckResults() {
 	}
 }
 
-// getCurrentToken retrieves the current API token from config or key manager
+// getCurrentToken retrieves the API token from monitor YAML (inline or keyring name).
 func getCurrentToken(cfg *Config, keyManager *keys.KeyManager) (string, error) {
-	// If token is directly specified in config, use it
 	if cfg.Report.Token != "" {
 		return cfg.Report.Token, nil
 	}
-
-	// If token_name is specified, get it from key manager
 	if cfg.Report.TokenName != "" {
 		storedKey, err := keyManager.GetKey(cfg.Report.TokenName)
 		if err != nil {
@@ -367,8 +376,109 @@ func getCurrentToken(cfg *Config, keyManager *keys.KeyManager) (string, error) {
 		}
 		return storedKey.Key, nil
 	}
-
 	return "", fmt.Errorf("no token or token_name specified in report configuration")
+}
+
+func applyUserConfigToMonitorConfig(cfg *Config, uc *identity.UserConfig) {
+	if cfg == nil || uc == nil {
+		return
+	}
+	if cfg.Report.SendTo == "" && strings.TrimSpace(uc.CloudURL) != "" {
+		cfg.Report.SendTo = strings.TrimSpace(uc.CloudURL)
+	}
+	if strings.TrimSpace(cfg.Device.Name) == "" && strings.TrimSpace(uc.DeviceName) != "" {
+		cfg.Device.Name = strings.TrimSpace(uc.DeviceName)
+	}
+}
+
+func applyAgentIdentityToMonitorConfig(cfg *Config, ag *identity.Identity) {
+	if cfg == nil || ag == nil {
+		return
+	}
+	if cfg.Report.SendTo == "" && strings.TrimSpace(ag.ServerURL) != "" {
+		cfg.Report.SendTo = strings.TrimSpace(ag.ServerURL)
+	}
+	if strings.TrimSpace(cfg.Device.Name) == "" {
+		if dn := ag.EffectiveDeviceName(""); dn != "" {
+			cfg.Device.Name = dn
+		}
+	}
+}
+
+func resolveMonitorAuthToken(cfg *Config, keyManager *keys.KeyManager, ag *identity.Identity, uc *identity.UserConfig) (string, error) {
+	if uc != nil && strings.TrimSpace(uc.APIKey) != "" {
+		return strings.TrimSpace(uc.APIKey), nil
+	}
+	if ag != nil && strings.TrimSpace(ag.DeviceToken) != "" {
+		return strings.TrimSpace(ag.DeviceToken), nil
+	}
+	return getCurrentToken(cfg, keyManager)
+}
+
+func setAgentAuthHeaders(req *http.Request, token string) {
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-API-Key", token)
+}
+
+func (m *Monitor) reapplyAgentIdentity() {
+	uc, err := identity.LoadUserConfig()
+	if err != nil {
+		log.Printf("[Beacon] Failed to load user config: %v", err)
+	} else {
+		applyUserConfigToMonitorConfig(m.config, uc)
+	}
+	ag, err := identity.LoadAgent()
+	if err != nil {
+		log.Printf("[Beacon] Failed to load agent identity: %v", err)
+		return
+	}
+	m.agentIdentity = ag
+	applyAgentIdentityToMonitorConfig(m.config, ag)
+	tok, err := resolveMonitorAuthToken(m.config, m.keyManager, ag, uc)
+	if err != nil {
+		log.Printf("[Beacon] Failed to resolve agent credentials: %v", err)
+		return
+	}
+	m.currentToken = tok
+}
+
+func (m *Monitor) persistAgentDeviceIDIfNew(body []byte) {
+	var resp heartbeatResponse
+	if err := json.Unmarshal(body, &resp); err != nil || resp.DeviceID == "" {
+		return
+	}
+	if uc, err := identity.LoadUserConfig(); err == nil && uc != nil {
+		if uc.DeviceID != resp.DeviceID {
+			uc.DeviceID = resp.DeviceID
+			if err := uc.Save(); err != nil {
+				log.Printf("[Beacon] Failed to save device_id to config.yaml: %v", err)
+			}
+		}
+	}
+	ag, err := identity.LoadAgent()
+	if err != nil || ag == nil {
+		return
+	}
+	if ag.DeviceID == resp.DeviceID {
+		m.agentIdentity = ag
+		return
+	}
+	ag.DeviceID = resp.DeviceID
+	if err := ag.Save(); err != nil {
+		log.Printf("[Beacon] Failed to save device_id to agent.yml: %v", err)
+		return
+	}
+	m.agentIdentity = ag
+}
+
+func (m *Monitor) deployResultDeviceID() string {
+	if uc, err := identity.LoadUserConfig(); err == nil && uc != nil && strings.TrimSpace(uc.DeviceID) != "" {
+		return strings.TrimSpace(uc.DeviceID)
+	}
+	if m.agentIdentity != nil && strings.TrimSpace(m.agentIdentity.DeviceID) != "" {
+		return strings.TrimSpace(m.agentIdentity.DeviceID)
+	}
+	return ""
 }
 
 // registerBuiltinPlugins registers all built-in plugins with the manager
@@ -413,7 +523,7 @@ func (m *Monitor) Start() error {
 	}
 
 	// POST /agent/metrics only when heartbeat is off; with heartbeat, metrics ride on /agent/heartbeat
-	if m.config.SystemMetrics.Enabled && m.config.Report.SendTo != "" && m.config.Report.Token != "" && !m.config.Report.Heartbeat.Enabled {
+	if m.config.SystemMetrics.Enabled && m.config.Report.SendTo != "" && m.currentToken != "" && !m.config.Report.Heartbeat.Enabled {
 		interval := m.config.SystemMetrics.Interval
 		if interval == 0 {
 			interval = 1 * time.Minute // Default 1 minute
@@ -423,7 +533,7 @@ func (m *Monitor) Start() error {
 	}
 
 	// Start Prometheus file export when path set and not already updating via reportSystemMetrics (file-only)
-	if m.config.Report.PrometheusFilePath != "" && (!m.config.SystemMetrics.Enabled || m.config.Report.SendTo == "" || m.config.Report.Token == "") {
+	if m.config.Report.PrometheusFilePath != "" && (!m.config.SystemMetrics.Enabled || m.config.Report.SendTo == "" || m.currentToken == "") {
 		interval := m.config.SystemMetrics.Interval
 		if interval == 0 {
 			interval = 1 * time.Minute
@@ -432,7 +542,7 @@ func (m *Monitor) Start() error {
 	}
 
 	// Start log collection if enabled
-	if len(m.config.LogSources) > 0 && m.config.Report.SendTo != "" && m.config.Report.Token != "" {
+	if len(m.config.LogSources) > 0 && m.config.Report.SendTo != "" && m.currentToken != "" {
 		m.logManager.StartLogCollection(m.ctx)
 	}
 
@@ -454,7 +564,7 @@ func (m *Monitor) Start() error {
 	log.Println("[Beacon] Shutdown signal received, stopping monitoring...")
 
 	// Flush last logs synchronously before canceling
-	if len(m.config.LogSources) > 0 && m.config.Report.SendTo != "" && (m.config.Report.Token != "" || m.config.Report.TokenName != "") {
+	if len(m.config.LogSources) > 0 && m.config.Report.SendTo != "" && m.currentToken != "" {
 		flushCtx, flushCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		m.logManager.FlushAndStop(flushCtx)
 		flushCancel()
@@ -824,7 +934,7 @@ func (m *Monitor) shouldAttachSystemMetrics() bool {
 	if !m.config.SystemMetrics.Enabled {
 		return false
 	}
-	if m.config.Report.SendTo == "" || m.config.Report.Token == "" {
+	if m.config.Report.SendTo == "" || m.currentToken == "" {
 		return false
 	}
 	if !m.config.Report.Heartbeat.Enabled {
@@ -837,7 +947,7 @@ func (m *Monitor) buildAgentMetrics() *AgentMetrics {
 	if !m.config.SystemMetrics.Enabled {
 		return nil
 	}
-	if m.config.Report.SendTo == "" || m.config.Report.Token == "" {
+	if m.config.Report.SendTo == "" || m.currentToken == "" {
 		return nil
 	}
 
@@ -902,7 +1012,7 @@ func (m *Monitor) buildAgentMetrics() *AgentMetrics {
 }
 
 func (m *Monitor) reportSystemMetrics() {
-	if m.config.Report.SendTo == "" || m.config.Report.Token == "" {
+	if m.config.Report.SendTo == "" || m.currentToken == "" {
 		return
 	}
 	metrics := m.buildAgentMetrics()
@@ -953,6 +1063,8 @@ func (m *Monitor) sendHeartbeat() {
 		Tags:         m.config.Device.Tags,
 		AgentVersion: version.GetVersion(), // Get from build info
 		DeviceName:   m.config.Device.Name,
+		OS:           runtime.GOOS,
+		Arch:         runtime.GOARCH,
 		Metadata: map[string]string{
 			"location":    m.config.Device.Location,
 			"environment": m.config.Device.Environment,
@@ -974,6 +1086,7 @@ func (m *Monitor) sendHeartbeat() {
 		log.Printf("[Beacon] Heartbeat request failed: %v", err)
 		return
 	}
+	m.persistAgentDeviceIDIfNew(body)
 	if attachedSystemMetrics {
 		m.lastSystemMetricsSendAt = time.Now()
 	}
@@ -1000,13 +1113,17 @@ func (m *Monitor) doAPIRequest(url string, payload interface{}) ([]byte, error) 
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", m.currentToken)
+	setAgentAuthHeaders(req, m.currentToken)
 	resp, err := m.httpClient.Do(m.ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	defer util.DeferClose(resp.Body, "HTTP response body")()
-	return io.ReadAll(resp.Body)
+	body, rerr := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return body, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return body, rerr
 }
 
 func (m *Monitor) runDeployRequested() deployResultPayload {
@@ -1049,7 +1166,11 @@ func (m *Monitor) postDeployResult(result deployResultPayload) {
 		return
 	}
 	url := strings.TrimSuffix(m.config.Report.SendTo, "/") + "/agent/deploy-result"
-	_, _ = m.doAPIRequest(url, result)
+	payload := result
+	if id := m.deployResultDeviceID(); id != "" {
+		payload.DeviceID = id
+	}
+	_, _ = m.doAPIRequest(url, payload)
 }
 
 func (m *Monitor) sendToAPI(url string, payload interface{}) {
@@ -1066,7 +1187,7 @@ func (m *Monitor) sendToAPI(url string, payload interface{}) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", m.currentToken)
+	setAgentAuthHeaders(req, m.currentToken)
 
 	resp, err := m.httpClient.Do(m.ctx, req)
 	if err != nil {
@@ -1254,10 +1375,27 @@ func (m *Monitor) startConfigHotReload() {
 		return
 	}
 
-	// Watch the keys directory for key changes
 	keysDir := filepath.Join(getConfigDir(), "keys")
 	if err := m.configWatcher.Add(keysDir); err != nil {
 		log.Printf("[Beacon] Failed to watch keys directory: %v", err)
+	}
+
+	if m.agentYAMLPath != "" {
+		ap := filepath.Clean(m.agentYAMLPath)
+		cp := filepath.Clean(m.configPath)
+		if ap != cp {
+			if err := m.configWatcher.Add(m.agentYAMLPath); err != nil {
+				log.Printf("[Beacon] Failed to watch agent identity file: %v", err)
+			}
+		}
+	}
+	if m.userConfigPath != "" {
+		up := filepath.Clean(m.userConfigPath)
+		if up != filepath.Clean(m.configPath) && up != filepath.Clean(m.agentYAMLPath) {
+			if err := m.configWatcher.Add(m.userConfigPath); err != nil {
+				log.Printf("[Beacon] Failed to watch user config.yaml: %v", err)
+			}
+		}
 	}
 
 	go func() {
@@ -1289,9 +1427,15 @@ func (m *Monitor) handleConfigChange(event fsnotify.Event) {
 
 	switch {
 	case event.Op&fsnotify.Write == fsnotify.Write:
-		if event.Name == m.configPath {
+		if filepath.Clean(event.Name) == filepath.Clean(m.configPath) {
 			log.Printf("[Beacon] Config file changed, reloading...")
 			m.reloadConfig()
+		} else if m.agentYAMLPath != "" && filepath.Clean(event.Name) == filepath.Clean(m.agentYAMLPath) {
+			log.Printf("[Beacon] Agent identity file changed, reloading credentials...")
+			m.reloadToken()
+		} else if m.userConfigPath != "" && filepath.Clean(event.Name) == filepath.Clean(m.userConfigPath) {
+			log.Printf("[Beacon] User config.yaml changed, reloading credentials...")
+			m.reloadToken()
 		} else if strings.Contains(event.Name, "keys/") && strings.HasSuffix(event.Name, ".json") {
 			log.Printf("[Beacon] Key file changed, reloading token...")
 			m.reloadToken()
@@ -1312,10 +1456,9 @@ func (m *Monitor) reloadConfig() {
 		return
 	}
 
-	// Update configuration
 	m.config = newConfig
+	m.reapplyAgentIdentity()
 
-	// Reload plugin configurations
 	if err := m.pluginManager.LoadConfigs(m.config.Plugins, m.config.AlertRules); err != nil {
 		log.Printf("[Beacon] Failed to reload plugin configurations: %v", err)
 	}
@@ -1323,20 +1466,11 @@ func (m *Monitor) reloadConfig() {
 	log.Printf("[Beacon] Configuration reloaded successfully")
 }
 
-// reloadToken reloads the current token from the key manager
+// reloadToken reloads credentials from the keyring and agent.yml
 func (m *Monitor) reloadToken() {
-	if m.config.Report.TokenName == "" {
-		return // No token reload for hardcoded tokens
-	}
-
-	newToken, err := getCurrentToken(m.config, m.keyManager)
-	if err != nil {
-		log.Printf("[Beacon] Failed to reload token: %v", err)
-		return
-	}
-
-	if newToken != m.currentToken {
-		m.currentToken = newToken
-		log.Printf("[Beacon] Token reloaded successfully")
+	prev := m.currentToken
+	m.reapplyAgentIdentity()
+	if m.currentToken != prev {
+		log.Printf("[Beacon] Agent credentials reloaded")
 	}
 }

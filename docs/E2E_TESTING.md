@@ -184,8 +184,8 @@ The script will:
 
 ### Manifests
 
-- `deploy/kubernetes/e2e/mock-log-server.e2e.yaml` – Service + Deployment for the mock server.
-- `deploy/kubernetes/e2e/beacon-log-forwarding.e2e.yaml` – ConfigMap (monitor.yml) + Pod (log-writer + beacon sidecar).
+- `tests/k8s/mock-log-server.e2e.yaml` – Service + Deployment for the mock server.
+- `tests/k8s/beacon-log-forwarding.e2e.yaml` – ConfigMap (monitor.yml) + Pod (log-writer + beacon sidecar).
 
 ## Future Improvements
 
