@@ -96,7 +96,7 @@ func WriteUserInit(apiKey, deviceName, cloudURL string) error {
 		url = strings.TrimSpace(os.Getenv("BEACON_SERVER_URL"))
 	}
 	if url == "" {
-		return errors.New("cloud_url is required (--cloud-url or BEACON_CLOUD_URL / BEACON_SERVER_URL)")
+		url = "https://beaconinfra.dev/api"
 	}
 
 	p, err := UserConfigPath()

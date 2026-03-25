@@ -187,8 +187,10 @@ func (h *heartbeatLoop) tryBeat() {
 	if uc == nil || !uc.CloudReportingEnabled {
 		return
 	}
-	if strings.TrimSpace(uc.APIKey) == "" || strings.TrimSpace(uc.CloudURL) == "" {
-		log.Printf("[Beacon master] Skipping heartbeat: set api_key and cloud_url (beacon init)")
+	if strings.TrimSpace(uc.APIKey) == "" {
+		return
+	}
+	if strings.TrimSpace(uc.CloudURL) == "" {
 		return
 	}
 	name := strings.TrimSpace(uc.DeviceName)

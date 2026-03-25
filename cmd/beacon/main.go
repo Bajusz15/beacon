@@ -237,15 +237,22 @@ var initAgentCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Write local cloud identity to ~/.beacon/config.yaml (no network)",
 	Long: `Writes ~/.beacon/config.yaml with api_key, device_name, cloud_url, and heartbeat_interval.
-No HTTP requests; the device is created on the first successful POST /agent/heartbeat.
+No HTTP requests are made — the device is registered on the first heartbeat when you run beacon master.
 
-Environment: BEACON_API_KEY (or BEACON_USER_API_KEY), BEACON_CLOUD_URL or BEACON_SERVER_URL,
-BEACON_DEVICE_NAME.`,
-	Example: `  export BEACON_API_KEY=usr_...
-  export BEACON_CLOUD_URL=https://app.example.com/api
-  beacon init --name homelab-pi
+Cloud URL defaults to https://beaconinfra.dev/api if not specified.
+Device name defaults to the system hostname if not specified.
 
-  beacon init --api-key usr_... --cloud-url https://app.example.com/api --name homelab-pi`,
+Get your API key at https://beaconinfra.dev → Settings → API Keys.
+
+Environment: BEACON_API_KEY, BEACON_CLOUD_URL, BEACON_DEVICE_NAME.`,
+	Example: `  # Minimal — just your API key, everything else uses defaults
+  beacon init --api-key usr_abc123def456
+
+  # Explicit device name
+  beacon init --api-key usr_abc123def456 --name my-pi
+
+  # Self-hosted backend
+  beacon init --api-key usr_abc123def456 --cloud-url https://my-backend.example.com/api`,
 	Run: func(cmd *cobra.Command, args []string) {
 		cloudURL, _ := cmd.Flags().GetString("cloud-url")
 		if cloudURL == "" {
