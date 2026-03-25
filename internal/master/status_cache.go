@@ -38,10 +38,10 @@ type CheckSummary struct {
 
 // ChildStatus is one project child's view for /api/status.
 type ChildStatus struct {
-	Name    string     `json:"name"`
-	Version string     `json:"version,omitempty"`
-	Status  string     `json:"status"`
-	PID     int        `json:"pid,omitempty"`
+	Name       string       `json:"name"`
+	Version    string       `json:"version,omitempty"`
+	Status     string       `json:"status"`
+	PID        int          `json:"pid,omitempty"`
 	DeployedAt *time.Time   `json:"deployed_at,omitempty"`
 	Checks     CheckSummary `json:"checks"`
 }
@@ -195,9 +195,9 @@ func (sc *StatusCache) childFromReader(projectID string, reader *ipc.Reader) Chi
 	}
 
 	return ChildStatus{
-		Name:    report.ProjectID,
-		Version: report.Version,
-		Status:  report.Status,
+		Name:       report.ProjectID,
+		Version:    report.Version,
+		Status:     report.Status,
 		DeployedAt: report.DeployedAt,
 		Checks: CheckSummary{
 			Total:   len(report.Checks),

@@ -200,7 +200,7 @@ func TestRun_withDisabledCloudReporting(t *testing.T) {
 		close(done)
 	}()
 
-	// Should complete without error when context is cancelled
+	// Should complete without error when context is canceled
 	select {
 	case <-done:
 		// Success

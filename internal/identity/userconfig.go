@@ -20,17 +20,18 @@ type UserConfig struct {
 	CloudReportingEnabled bool            `yaml:"cloud_reporting_enabled,omitempty"`
 	DeviceID              string          `yaml:"device_id,omitempty"`
 	MetricsPort           int             `yaml:"metrics_port,omitempty"`
+	MetricsListenAddr     string          `yaml:"metrics_listen_addr,omitempty"` // default "127.0.0.1"; set "0.0.0.0" for Docker
 	Projects              []ProjectConfig `yaml:"projects,omitempty"`
 }
 
 // ProjectConfig defines a project that the master will spawn a child agent for.
 type ProjectConfig struct {
-	ID         string `yaml:"id"`                    // Unique project identifier
-	ConfigPath string `yaml:"config_path"`           // Path to the project's monitor.yml
+	ID         string `yaml:"id"`          // Unique project identifier
+	ConfigPath string `yaml:"config_path"` // Path to the project's monitor.yml
 	// Enabled is tri-state:
 	// nil => omitted in YAML (default: true)
 	// true/false => explicitly set.
-	Enabled *bool  `yaml:"enabled,omitempty"`
+	Enabled *bool `yaml:"enabled,omitempty"`
 }
 
 // UserConfigPath returns the path to ~/.beacon/config.yaml.

@@ -64,7 +64,7 @@ func getOutboundIP() string {
 	return addr.IP.String()
 }
 
-// Run blocks until ctx is cancelled. Reads ~/.beacon/config.yaml (v2 identity).
+// Run blocks until ctx is canceled. Reads ~/.beacon/config.yaml (v2 identity).
 // Spawns child agents for configured projects and sends heartbeats to the cloud.
 func Run(ctx context.Context) {
 	uc, err := identity.LoadUserConfig()
@@ -77,13 +77,11 @@ func Run(ctx context.Context) {
 		interval = uc.HeartbeatIntervalDuration()
 	}
 
-	// Create process manager for child agents
 	pm, err := NewProcessManager(ctx)
 	if err != nil {
 		log.Printf("[Beacon master] Failed to create process manager: %v", err)
 	}
 
-	// Create event log and status infrastructure
 	eventLog := NewEventLog()
 	if pm != nil {
 		pm.eventLog = eventLog
@@ -93,37 +91,22 @@ func Run(ctx context.Context) {
 	if uc != nil && uc.MetricsPort > 0 {
 		port = uc.MetricsPort
 	}
+	listenAddr := ""
+	if uc != nil {
+		listenAddr = uc.MetricsListenAddr
+	}
 
 	statusCache := NewStatusCache(pm, eventLog, uc)
 	statusCache.Refresh()
 
-	srv := NewStatusServer(statusCache, port)
-	go func() {
-		if err := srv.Start(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("[Beacon master] Status server: %v", err)
-		}
-	}()
+	startStatusServer(ctx, statusCache, port, listenAddr)
+	startCacheRefresh(ctx, statusCache)
 
-	go func() {
-		t := time.NewTicker(10 * time.Second)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				statusCache.Refresh()
-			}
-		}
-	}()
-
-	// Spawn children for all configured projects
 	if pm != nil && uc != nil && len(uc.Projects) > 0 {
 		log.Printf("[Beacon master] Spawning %d project(s)...", len(uc.Projects))
 		pm.SpawnAll(uc.Projects)
 	}
 
-	// Create command dispatcher for piggyback commands
 	dispatcher := NewCommandDispatcher(pm)
 
 	ticker := time.NewTicker(interval)
@@ -131,43 +114,16 @@ func Run(ctx context.Context) {
 
 	log.Printf("[Beacon master] Started (interval=%s)", interval)
 
-	tryBeat := func() {
-		uc2, err := identity.LoadUserConfig()
-		if err != nil {
-			log.Printf("[Beacon master] Reload config: %v", err)
-			return
-		}
-		if uc2 == nil || !uc2.CloudReportingEnabled {
-			return
-		}
-		if strings.TrimSpace(uc2.APIKey) == "" || strings.TrimSpace(uc2.CloudURL) == "" {
-			log.Printf("[Beacon master] Skipping heartbeat: set api_key and cloud_url (beacon init)")
-			return
-		}
-		name := strings.TrimSpace(uc2.DeviceName)
-		if name == "" {
-			name = getHostname()
-		}
-
-		statusCache.UpdateConfig(uc2)
-
-		// Collect any pending command results before heartbeat
-		dispatcher.CollectResults()
-
-		if err := sendCloudHeartbeat(ctx, uc2, name, pm, dispatcher); err != nil {
-			log.Printf("[Beacon master] Heartbeat: %v", err)
-		} else {
-			statusCache.UpdateCloudSync()
-			eventLog.Append(Event{
-				Timestamp: time.Now(),
-				Type:      EventSync,
-				Message:   "cloud heartbeat OK",
-			})
-		}
+	beat := &heartbeatLoop{
+		ctx:         ctx,
+		pm:          pm,
+		dispatcher:  dispatcher,
+		statusCache: statusCache,
+		eventLog:    eventLog,
 	}
 
 	if uc != nil && uc.CloudReportingEnabled {
-		tryBeat()
+		beat.tryBeat()
 	}
 
 	for {
@@ -179,8 +135,79 @@ func Run(ctx context.Context) {
 			}
 			return
 		case <-ticker.C:
-			tryBeat()
+			beat.tryBeat()
 		}
+	}
+}
+
+func startStatusServer(ctx context.Context, cache *StatusCache, port int, listenAddr string) {
+	var srv *StatusServer
+	if listenAddr != "" {
+		srv = NewStatusServerWithAddr(cache, port, listenAddr)
+	} else {
+		srv = NewStatusServer(cache, port)
+	}
+	go func() {
+		if err := srv.Start(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("[Beacon master] Status server: %v", err)
+		}
+	}()
+}
+
+func startCacheRefresh(ctx context.Context, cache *StatusCache) {
+	go func() {
+		t := time.NewTicker(10 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				cache.Refresh()
+			}
+		}
+	}()
+}
+
+// heartbeatLoop holds state for the recurring cloud heartbeat.
+type heartbeatLoop struct {
+	ctx         context.Context
+	pm          *ProcessManager
+	dispatcher  *CommandDispatcher
+	statusCache *StatusCache
+	eventLog    *EventLog
+}
+
+func (h *heartbeatLoop) tryBeat() {
+	uc, err := identity.LoadUserConfig()
+	if err != nil {
+		log.Printf("[Beacon master] Reload config: %v", err)
+		return
+	}
+	if uc == nil || !uc.CloudReportingEnabled {
+		return
+	}
+	if strings.TrimSpace(uc.APIKey) == "" || strings.TrimSpace(uc.CloudURL) == "" {
+		log.Printf("[Beacon master] Skipping heartbeat: set api_key and cloud_url (beacon init)")
+		return
+	}
+	name := strings.TrimSpace(uc.DeviceName)
+	if name == "" {
+		name = getHostname()
+	}
+
+	h.statusCache.UpdateConfig(uc)
+	h.dispatcher.CollectResults()
+
+	if err := sendCloudHeartbeat(h.ctx, uc, name, h.pm, h.dispatcher); err != nil {
+		log.Printf("[Beacon master] Heartbeat: %v", err)
+	} else {
+		h.statusCache.UpdateCloudSync()
+		h.eventLog.Append(Event{
+			Timestamp: time.Now(),
+			Type:      EventSync,
+			Message:   "cloud heartbeat OK",
+		})
 	}
 }
 

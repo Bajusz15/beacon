@@ -15,18 +15,26 @@ import (
 //go:embed dashboard.html
 var dashboardHTML []byte
 
+const defaultListenAddr = "127.0.0.1"
+
 // StatusServer is an HTTP server that serves the local metrics dashboard.
 type StatusServer struct {
-	cache *StatusCache
-	port  int
+	cache      *StatusCache
+	port       int
+	listenAddr string
 }
 
-// NewStatusServer creates a StatusServer on the given port.
+// NewStatusServer creates a StatusServer on the given port, bound to 127.0.0.1.
 func NewStatusServer(cache *StatusCache, port int) *StatusServer {
-	return &StatusServer{cache: cache, port: port}
+	return &StatusServer{cache: cache, port: port, listenAddr: defaultListenAddr}
 }
 
-// Start binds the listener and begins serving. Blocks until ctx is cancelled.
+// NewStatusServerWithAddr creates a StatusServer bound to a custom address (e.g. "0.0.0.0" for Docker).
+func NewStatusServerWithAddr(cache *StatusCache, port int, listenAddr string) *StatusServer {
+	return &StatusServer{cache: cache, port: port, listenAddr: listenAddr}
+}
+
+// Start binds the listener and begins serving. Blocks until ctx is canceled.
 func (s *StatusServer) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status", s.handleAPIStatus)
@@ -34,19 +42,20 @@ func (s *StatusServer) Start(ctx context.Context) error {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/", s.handleDashboard)
 
+	addr := fmt.Sprintf("%s:%d", s.listenAddr, s.port)
 	srv := &http.Server{
-		Addr:         fmt.Sprintf("0.0.0.0:%d", s.port),
+		Addr:         addr,
 		Handler:      mux,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
 
-	ln, err := net.Listen("tcp", srv.Addr)
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("status server bind %s: %w", srv.Addr, err)
+		return fmt.Errorf("status server bind %s: %w", addr, err)
 	}
 
-	log.Printf("[Beacon master] Dashboard: http://0.0.0.0:%d  API: http://0.0.0.0:%d/api/status", s.port, s.port)
+	log.Printf("[Beacon master] Dashboard: http://%s:%d  API: http://%s:%d/api/status", s.listenAddr, s.port, s.listenAddr, s.port)
 
 	go func() {
 		<-ctx.Done()

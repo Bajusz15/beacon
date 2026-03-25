@@ -108,7 +108,7 @@ func readMemInfo() (int64, int64, float64, error) {
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // read-only file
 
 	vals := make(map[string]int64)
 	scanner := bufio.NewScanner(f)
@@ -197,7 +197,7 @@ func readOSName() string {
 	if err != nil {
 		return runtime.GOOS
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // read-only file
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -231,7 +231,7 @@ func detectOutboundIP() string {
 	if err != nil {
 		return "unknown"
 	}
-	defer c.Close()
+	defer c.Close() //nolint:errcheck // UDP dial cleanup
 	addr, ok := c.LocalAddr().(*net.UDPAddr)
 	if !ok || addr == nil {
 		return "unknown"

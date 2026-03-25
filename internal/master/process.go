@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	maxRestarts    = 5
-	maxBackoff     = 60 * time.Second
-	shutdownWait   = 10 * time.Second
+	maxRestarts  = 5
+	maxBackoff   = 60 * time.Second
+	shutdownWait = 10 * time.Second
 )
 
 // ChildProcess represents a spawned child agent process.
@@ -117,7 +117,7 @@ func (pm *ProcessManager) Spawn(project identity.ProjectConfig) error {
 
 	// Start watcher goroutine
 	pm.wg.Add(1)
-	go pm.watchChild(child, project)
+	go pm.watchChild(child)
 
 	log.Printf("[Beacon master] Spawned child for project %s (PID %d)", project.ID, child.Cmd.Process.Pid)
 	return nil
@@ -152,7 +152,7 @@ func (pm *ProcessManager) spawnChild(child *ChildProcess) error {
 }
 
 // watchChild watches a child process and restarts it on crash.
-func (pm *ProcessManager) watchChild(child *ChildProcess, project identity.ProjectConfig) {
+func (pm *ProcessManager) watchChild(child *ChildProcess) {
 	defer pm.wg.Done()
 
 	for {
