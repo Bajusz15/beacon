@@ -10,6 +10,7 @@ type HealthReport struct {
 	Timestamp     time.Time         `json:"timestamp"`
 	Status        string            `json:"status"` // "healthy", "degraded", "down", "unknown"
 	UptimeSeconds int64             `json:"uptime_seconds"`
+	DeployedAt    *time.Time        `json:"deployed_at,omitempty"`
 	Version       string            `json:"version,omitempty"`
 	Metrics       map[string]any    `json:"metrics,omitempty"`
 	LogsTail      []string          `json:"logs_tail,omitempty"`

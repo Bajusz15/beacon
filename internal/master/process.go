@@ -39,6 +39,7 @@ type ProcessManager struct {
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 	ipcBase  string
+	eventLog *EventLog // may be nil; set by Run() after construction
 }
 
 // NewProcessManager creates a new process manager.
@@ -75,14 +76,15 @@ func (pm *ProcessManager) SpawnAll(projects []identity.ProjectConfig) {
 // isProjectEnabled returns true if the project should be spawned.
 // Projects are enabled by default if Enabled is not explicitly set.
 func (pm *ProcessManager) isProjectEnabled(project identity.ProjectConfig) bool {
-	// If Enabled is explicitly set to false, skip
-	// Note: Go's zero value for bool is false, so we need a way to distinguish
-	// "not set" from "explicitly false". For now, we treat it as: if config_path is set, it's enabled
-	// unless the ID is empty.
 	if project.ID == "" || project.ConfigPath == "" {
 		return false
 	}
-	return true // In YAML, if enabled is omitted we assume true
+
+	// Default: enabled when omitted.
+	if project.Enabled == nil {
+		return true
+	}
+	return *project.Enabled
 }
 
 // Spawn starts a child agent for the given project.
@@ -208,6 +210,15 @@ func (pm *ProcessManager) watchChild(child *ChildProcess, project identity.Proje
 		}
 		log.Printf("[Beacon master] Respawned child %s (PID %d)", child.ProjectID, child.Cmd.Process.Pid)
 		pm.mu.Unlock()
+
+		if pm.eventLog != nil {
+			pm.eventLog.Append(Event{
+				Timestamp: time.Now(),
+				Type:      EventRestart,
+				Child:     child.ProjectID,
+				Message:   fmt.Sprintf("child restarted (attempt %d)", child.Restarts),
+			})
+		}
 	}
 }
 
@@ -276,6 +287,19 @@ func (pm *ProcessManager) GetChildren() map[string]*ChildProcess {
 		}
 	}
 	return result
+}
+
+// GetChildPIDs returns a map of project ID to PID for all live, non-failed children.
+func (pm *ProcessManager) GetChildPIDs() map[string]int {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	pids := make(map[string]int, len(pm.children))
+	for id, child := range pm.children {
+		if child.Cmd != nil && child.Cmd.Process != nil && !child.Failed {
+			pids[id] = child.Cmd.Process.Pid
+		}
+	}
+	return pids
 }
 
 // GetIPCReaders returns IPC readers for all children (for health aggregation).

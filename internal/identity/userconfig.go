@@ -19,6 +19,7 @@ type UserConfig struct {
 	HeartbeatInterval     int             `yaml:"heartbeat_interval,omitempty"`
 	CloudReportingEnabled bool            `yaml:"cloud_reporting_enabled,omitempty"`
 	DeviceID              string          `yaml:"device_id,omitempty"`
+	MetricsPort           int             `yaml:"metrics_port,omitempty"`
 	Projects              []ProjectConfig `yaml:"projects,omitempty"`
 }
 
@@ -26,7 +27,10 @@ type UserConfig struct {
 type ProjectConfig struct {
 	ID         string `yaml:"id"`                    // Unique project identifier
 	ConfigPath string `yaml:"config_path"`           // Path to the project's monitor.yml
-	Enabled    bool   `yaml:"enabled,omitempty"`     // Whether to spawn a child (default: true if omitted)
+	// Enabled is tri-state:
+	// nil => omitted in YAML (default: true)
+	// true/false => explicitly set.
+	Enabled *bool  `yaml:"enabled,omitempty"`
 }
 
 // UserConfigPath returns the path to ~/.beacon/config.yaml.

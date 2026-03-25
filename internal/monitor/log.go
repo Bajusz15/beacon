@@ -23,7 +23,8 @@ import (
 
 const (
 	defaultLogBatchSize     = 50
-	defaultLogFlushInterval = 15 * time.Second
+	minLogFlushInterval     = 60 * time.Second
+	defaultLogFlushInterval = minLogFlushInterval
 	logPositionsFilename    = "log_positions.json"
 )
 
@@ -280,6 +281,9 @@ func (lm *LogManager) StartLogCollection(ctx context.Context) {
 	flushInterval := lm.config.Report.LogFlushInterval
 	if flushInterval <= 0 {
 		flushInterval = defaultLogFlushInterval
+	}
+	if flushInterval < minLogFlushInterval {
+		flushInterval = minLogFlushInterval
 	}
 	lm.flushStop = make(chan struct{})
 	lm.flushTicker = time.NewTicker(flushInterval)

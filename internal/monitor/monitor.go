@@ -89,7 +89,7 @@ type ReportConfig struct {
 	DeployOnRequest    bool            `yaml:"deploy_on_request,omitempty"` // run deploy when BeaconWatch sets deploy_requested
 	// Log batching: flush when batch full or interval elapsed
 	LogBatchSize     int           `yaml:"log_batch_size,omitempty"`     // max entries per HTTP request (default 50)
-	LogFlushInterval time.Duration `yaml:"log_flush_interval,omitempty"` // max time before sending partial batch (default 15s)
+	LogFlushInterval time.Duration `yaml:"log_flush_interval,omitempty"` // max time before sending partial batch; values below 60s use 60s; default 60s
 }
 
 type HeartbeatConfig struct {

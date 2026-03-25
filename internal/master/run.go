@@ -83,6 +83,40 @@ func Run(ctx context.Context) {
 		log.Printf("[Beacon master] Failed to create process manager: %v", err)
 	}
 
+	// Create event log and status infrastructure
+	eventLog := NewEventLog()
+	if pm != nil {
+		pm.eventLog = eventLog
+	}
+
+	port := defaultMetricsPort
+	if uc != nil && uc.MetricsPort > 0 {
+		port = uc.MetricsPort
+	}
+
+	statusCache := NewStatusCache(pm, eventLog, uc)
+	statusCache.Refresh()
+
+	srv := NewStatusServer(statusCache, port)
+	go func() {
+		if err := srv.Start(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("[Beacon master] Status server: %v", err)
+		}
+	}()
+
+	go func() {
+		t := time.NewTicker(10 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				statusCache.Refresh()
+			}
+		}
+	}()
+
 	// Spawn children for all configured projects
 	if pm != nil && uc != nil && len(uc.Projects) > 0 {
 		log.Printf("[Beacon master] Spawning %d project(s)...", len(uc.Projects))
@@ -115,11 +149,20 @@ func Run(ctx context.Context) {
 			name = getHostname()
 		}
 
+		statusCache.UpdateConfig(uc2)
+
 		// Collect any pending command results before heartbeat
 		dispatcher.CollectResults()
 
 		if err := sendCloudHeartbeat(ctx, uc2, name, pm, dispatcher); err != nil {
 			log.Printf("[Beacon master] Heartbeat: %v", err)
+		} else {
+			statusCache.UpdateCloudSync()
+			eventLog.Append(Event{
+				Timestamp: time.Now(),
+				Type:      EventSync,
+				Message:   "cloud heartbeat OK",
+			})
 		}
 	}
 

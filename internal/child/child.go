@@ -5,6 +5,7 @@ package child
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,6 +21,7 @@ import (
 
 	"beacon/internal/ipc"
 	"beacon/internal/monitor"
+	"beacon/internal/state"
 )
 
 const (
@@ -53,6 +56,62 @@ type checkResult struct {
 	LatencyMs int64
 	Error     string
 	Timestamp time.Time
+}
+
+// getConfigDir returns the beacon configuration directory (~/.beacon).
+func getConfigDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".beacon"
+	}
+	return filepath.Join(home, ".beacon")
+}
+
+// projectNameFromConfigPath derives project name from config path.
+// For paths like ~/.beacon/config/projects/<name>/monitor.yml it returns <name>.
+func projectNameFromConfigPath(configPath string, fallbackDeviceName string) string {
+	dir := filepath.Dir(configPath)
+	parent := filepath.Base(filepath.Dir(dir))
+	if parent == "projects" {
+		return filepath.Base(dir)
+	}
+	if fallbackDeviceName != "" {
+		return fallbackDeviceName
+	}
+	return "default"
+}
+
+// readDeployedAt attempts to load last deployment time from ~/.beacon/state/<project>/status.json.
+// If the file is missing/invalid (or last_deployed is zero), it returns nil.
+func (c *Child) readDeployedAt() *time.Time {
+	if c == nil || c.cfg == nil || c.cfg.ConfigPath == "" {
+		return nil
+	}
+
+	fallbackDeviceName := ""
+	if c.monitorCfg != nil {
+		fallbackDeviceName = c.monitorCfg.Device.Name
+	}
+
+	projectName := projectNameFromConfigPath(c.cfg.ConfigPath, fallbackDeviceName)
+	statusFile := filepath.Join(getConfigDir(), "state", projectName, "status.json")
+
+	// Avoid creating directories during periodic health writes.
+	data, err := os.ReadFile(statusFile)
+	if err != nil {
+		return nil
+	}
+
+	var st state.Status
+	if err := json.Unmarshal(data, &st); err != nil {
+		return nil
+	}
+	if st.LastDeployed.IsZero() {
+		return nil
+	}
+
+	t := st.LastDeployed.UTC()
+	return &t
 }
 
 // New creates a new child agent with the given configuration.
@@ -330,6 +389,7 @@ func (c *Child) writeHealthReport() {
 		Timestamp:     time.Now(),
 		Status:        status,
 		UptimeSeconds: int64(time.Since(c.startedAt).Seconds()),
+		DeployedAt:    c.readDeployedAt(),
 		Checks:        checks,
 	}
 

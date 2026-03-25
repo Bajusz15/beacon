@@ -42,6 +42,8 @@ go.work.sum
 .cursorrules
 PLAN.md
 CLAUDE.md
+prompts/
+.claude/
 
 # Monitor config
 beacon.monitor.yml
