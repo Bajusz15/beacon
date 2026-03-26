@@ -2,11 +2,9 @@
 
 <img src="./docs/logo.png" alt="Beacon Logo" width="120" height="120">
 
-**Local-first monitoring for self-hosted devices.**
+**Local-first monitoring and deployment for self-hosted devices.**
 
-Beacon is a lightweight agent for your Raspberry Pi, N100 mini PC, or any Linux or macOS machine. Install it, run **`beacon master`**, and get a local dashboard with CPU, RAM, disk, temperature, and per-project health when children are configured. **No account is required** for that: the UI and metrics run on your machine and work without internet. **Cloud is optional** — connect to [BeaconInfra](https://beaconinfra.dev) only if you want a hosted multi-device view (`beacon cloud login`).
-
-Optional: run **`beacon init`** first to write `~/.beacon/config.yaml` (device name, metrics port, project list). You can skip it: the master still starts and uses sensible defaults; init is the place to pin `device_name` and layout before you add projects.
+Beacon is a lightweight agent for your Raspberry Pi, N100 mini PC, or any Linux/macOS machine. It gives you a local dashboard with CPU, RAM, disk, temperature, and per-project health — no account, no cloud, no internet required. Optionally connect to [BeaconInfra](https://beaconinfra.dev) for a hosted multi-device view.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
@@ -17,114 +15,53 @@ Optional: run **`beacon init`** first to write `~/.beacon/config.yaml` (device n
 
 ---
 
-## Important: default command vs master
-
-Running **`beacon` with no subcommand starts deploy mode** (long-running Git/Docker tag polling). That is **not** the local dashboard.
-
-| Goal | Command |
-|------|---------|
-| Local dashboard + child agents | **`beacon master`** |
-| Poll repo/registry and deploy | **`beacon deploy`** (or plain `beacon`) |
-| Terminal view of master health | **`beacon status`** (master must be running) |
-
----
-
-## Quick Start (local, no account)
+## Quick Start
 
 ```bash
+# Install
 curl -fsSL https://raw.githubusercontent.com/Bajusz15/beacon/main/scripts/install.sh | bash
 
-# Optional: create ~/.beacon/config.yaml (local only; skip if you only want defaults)
-beacon init
-
+# Start the master agent
 beacon master
 ```
 
-Open **http://localhost:9100**. Cloud heartbeats only run after **`beacon cloud login`** (and can be stopped with **`beacon cloud logout`**).
+Open **http://localhost:9100** — that's your local dashboard. No config needed, works fully offline.
+
+> **Tip:** `beacon init` writes `~/.beacon/config.yaml` where you can pin a device name, metrics port, and project list. It's optional — the master uses sensible defaults without it.
 
 ---
 
-## End-to-end flow (recommended order)
-
-### Phase A — Run the master locally
-
-1. Install the binary (see above).
-2. Optionally: `beacon init` to write `~/.beacon/config.yaml` with `device_name` (default: hostname) and `cloud_reporting_enabled: false`.
-3. `beacon master` — local dashboard and (when configured) child agents.
-4. `beacon status` — colored summary (requires master on port 9100).
-
-### Phase B — Projects (deploy + monitoring)
-
-For each application:
-
-1. **`beacon bootstrap <project>`** (or `beacon bootstrap <project> -f bootstrap.yml`) — creates `~/.beacon/config/projects/<project>/`, deploy env, and **appends** this project to `~/.beacon/config.yaml` `projects:` pointing at `.../monitor.yml`.
-2. Start deploy: e.g. `systemctl --user start beacon@<project>` or run `beacon deploy` with that project’s env.
-3. Copy or edit **`~/.beacon/config/projects/<project>/monitor.yml`** (see [beacon.monitor.yml](./beacon.monitor.yml)) — health checks, alerts, etc.
-4. Restart **`beacon master`** so children pick up the monitor config.
-
-`beacon monitor -f <path>` is useful to **debug one project’s checks** without the master; production flow is master + children.
-
-### Phase C — BeaconInfra (optional, after local setup)
-
-1. Create an account and API key at [beaconinfra.dev](https://beaconinfra.dev) → Settings → API Keys.
-2. `beacon cloud login` (interactive), or `beacon cloud login --api-key usr_...` / `BEACON_API_KEY` for non-interactive use — saves the key and enables reporting. The default API base URL is compiled into the binary; self-hosted backends: `beacon cloud login --cloud-url https://your-host.example.com/api`.
-3. Restart `beacon master` (or `beacon-master.service`). First successful heartbeat registers the device.
-
----
-
-## Where files live (single Beacon home)
-
-All agent state lives under **`~/.beacon`** unless **`BEACON_HOME`** is set (absolute path recommended). Typical layout:
-
-```
-~/.beacon/
-  config.yaml              # Master identity + projects list (v2)
-  config/
-    projects/<id>/env      # Per-project deploy env
-    projects/<id>/monitor.yml
-    global.yml, agent.yml  # Legacy/auxiliary
-  state/                   # Check results, deploy status
-  ipc/                     # Master ↔ child
-  keys/                    # Encrypted store used by `beacon keys` (not the BeaconInfra API key)
-  templates/, logs/
-```
-
-- **`~/beacon`** (no leading dot) — default **clone/deploy working tree**, not the agent config root.
-- **`~/.config/systemd/user/`** — user systemd units (`beacon@…`, `beacon-master`), normal on Linux.
-
-Inspect paths: **`beacon config show`**.
-
----
-
-## Two different “keys”
-
-| Mechanism | Purpose |
-|-----------|---------|
-| **`api_key` in `~/.beacon/config.yaml`** | BeaconInfra user API key for **master heartbeats** (`beacon cloud login`, env `BEACON_API_KEY` for automation). |
-| **`beacon keys …`** | Encrypted local store for **monitoring/Git** tokens (e.g. legacy reporting integrations). **Not** the same as the cloud dashboard API key. |
-
----
-
-## What you get
+## What You Get
 
 ### Terminal — `beacon status`
 
-Connects to the master HTTP API (`http://127.0.0.1:9100/api/status` by default). Example output shape:
+Connects to the running master and shows a colored summary:
 
 ```
 ⬡ beacon v0.3.1-beta  ● master running  pid 1847  uptime 14d 3h
 
 DEVICE  pi-homelab  192.168.1.42  arm64  Debian 12
 
-SYSTEM  cpu 12% …  mem 67% …  disk 41% …
+SYSTEM  cpu 12% ████░░░░░░░░░░░░  mem 67% ██████████░░░░░░  disk 41% ██████░░░░░░░░░░
+        load 0.42 0.38 0.35  temp 48°C
 
 CHILDREN  3 healthy  1 warning  0 down
-  …
+
+  ● portfolio-site      v2.1.0   deployed 2h ago    3/3 checks passing
+  ● home-assistant      v2024.3  deployed 5d ago    2/2 checks passing
+  ◐ nextcloud           v28.0.1  deployed 3d ago    2/3 checks passing
+    └─ ⚠ HTTP https://cloud.local/status  timeout 5.2s > 3s threshold
 ```
+
+Flags: `--json`, `--watch` (refresh every 5s), `--no-color`, `--port <N>`.
 
 ### Browser — `http://localhost:9100`
 
-Self-contained dashboard, `/metrics`, `/api/status`.
+Self-contained HTML dashboard served by the master. No CDN, no external dependencies. Auto-refreshes every 10s.
+
+- `/api/status` — JSON API
+- `/metrics` — Prometheus format
+- `/health` — simple health check
 
 ### Architecture
 
@@ -135,88 +72,236 @@ Self-contained dashboard, `/metrics`, `/api/status`.
                     │ HTTPS
 ┌───────────────────┴──────────────────────────┐
 │             beacon master                     │
-│  Spawns child agents, local dashboard, IPC.   │
+│                                               │
+│  One per device. Collects system metrics,     │
+│  serves local dashboard, sends heartbeats.    │
+│  Spawns a child agent per project.            │
 └──────┬───────────────────────┬───────────────┘
        │  IPC (file-based)     │
 ┌──────┴──────────┐   ┌────────┴──────────┐
 │  child agent    │   │  child agent      │  ...
+│  project: myapp │   │  project: blog    │
+│  health checks  │   │  health checks    │
+│  log tailing    │   │  log tailing      │
 └─────────────────┘   └───────────────────┘
 ```
 
+The master is **stateless per project** — it doesn't know about Docker or systemd. Children are isolated: one crash doesn't affect others. The master auto-restarts failed children with exponential backoff.
+
 ---
 
-## Set up a project (summary)
+## Set Up a Project
+
+Beacon manages your apps end-to-end: clone from Git or pull from Docker registries, run your deploy command, poll for updates, health check, and tail logs. Each project gets its own isolated child agent.
+
+### Interactive setup
 
 ```bash
 beacon bootstrap myapp
-# or: beacon bootstrap myapp -f bootstrap.yml
 ```
 
-Bootstrap creates project dirs, optional `beacon@myapp` systemd service, and registers **`projects:`** in `~/.beacon/config.yaml`. Add checks under `~/.beacon/config/projects/myapp/monitor.yml` (copy from [beacon.monitor.example.yml](./examples/) or use **`beacon setup-wizard`** as an optional helper to generate monitor YAML elsewhere).
+The wizard asks for your deployment type (Git or Docker), repo URL, tokens, and deploy command. It creates a systemd service and **kicks off the first deployment** — then returns you to the terminal.
 
-### Bootstrap YAML (non-interactive)
+If systemd isn't available (containers, macOS, minimal installs), bootstrap still creates all the config files — just run `beacon deploy` yourself.
 
-See README examples in-repo; fields include `deployment_type`, `repo_url`, `local_path`, `deploy_command`, `poll_interval`, `secure_env_path`, etc.
+### From a config file
 
-### Cloud snippet (`~/.beacon/config.yaml`)
+```bash
+beacon bootstrap myapp -f bootstrap.yml
+```
+
+**Git deployment:**
 
 ```yaml
-api_key: "usr_…"                       # after you choose to use the cloud
-device_name: "my-pi"                   # default: hostname
-cloud_url: "https://beaconinfra.dev/api"
-heartbeat_interval: 30
-cloud_reporting_enabled: true
-metrics_port: 9100
+# bootstrap.yml
+deployment_type: "git"
+repo_url: "https://github.com/you/myapp.git"
+git_token: "ghp_xxxxxxxxxxxx"           # or use ssh_key_path for SSH
+local_path: "$HOME/beacon/myapp"
+deploy_command: "./scripts/deploy.sh"
+poll_interval: "60s"
+port: "8080"
+secure_env_path: "/etc/beacon/myapp.env"
+```
 
+**Docker deployment:**
+
+```yaml
+# bootstrap.yml
+deployment_type: "docker"
+local_path: "$HOME/beacon/myapp"
+poll_interval: "60s"
+docker_images:
+  - image: "ghcr.io/you/web-app"
+    token: "ghp_xxxxxxxxxxxx"
+    deploy_command: "docker compose up -d"
+    docker_compose_files:
+      - "docker-compose.yml"
+  - image: "docker.io/you/api-server"
+    deploy_command: "docker stop api && docker rm api && docker run -d --name api ${BEACON_DOCKER_IMAGE}"
+```
+
+Supports Docker Hub, GitHub Container Registry (ghcr.io), and any Docker Registry v2-compatible registry. Each image is tracked independently — if `web-app` gets a new tag but `api-server` doesn't, only `web-app` redeploys.
+
+See [examples/](./examples/) for more bootstrap configs (multi-image, private registries, compose overrides).
+
+### What bootstrap creates
+
+- `~/.beacon/config/projects/myapp/env` — deploy environment (tokens, paths, commands)
+- `~/.beacon/config/projects/myapp/monitor.yml` — health check config
+- `beacon@myapp.service` — systemd service that runs `beacon deploy` (skipped if systemd unavailable)
+- Appends the project to `~/.beacon/config.yaml` so the master spawns a child for it
+
+### How deploy works
+
+`beacon deploy` is a long-running process that polls for new releases and deploys automatically. Bootstrap sets it up as a systemd service, but you can also run it directly.
+
+**Git mode:** every `poll_interval`, runs `git fetch --tags`, detects the newest tag, clones it, and runs your `deploy_command`. Auth supports HTTPS tokens (GitHub, GitLab) and SSH keys.
+
+**Docker mode:** every `poll_interval`, queries the registry API for the latest image tag, runs `docker pull`, then runs your `deploy_command` with these environment variables:
+
+| Variable | Example |
+|----------|---------|
+| `BEACON_DOCKER_IMAGE` | `ghcr.io/you/app:v1.2.0` |
+| `BEACON_DOCKER_TAG` | `v1.2.0` |
+| `BEACON_DOCKER_COMPOSE_FILES` | `docker-compose.yml docker-compose.prod.yml` |
+
+### Health checks
+
+Add checks to the monitor config:
+
+```yaml
+# ~/.beacon/config/projects/myapp/monitor.yml
+checks:
+  - name: "http_200"
+    type: http
+    url: "http://localhost:8080/health"
+    interval: 30s
+
+  - name: "process_running"
+    type: process
+    name: "myapp"
+```
+
+Wire the project into the master via `~/.beacon/config.yaml`:
+
+```yaml
 projects:
   - id: "myapp"
     config_path: "/home/user/.beacon/config/projects/myapp/monitor.yml"
 ```
 
-Run **`beacon init`** for a local-only file (no API key), then **`beacon cloud login`** when you want the cloud.
+Restart the master and the project appears in `beacon status` and the dashboard.
+
+### Application secrets
+
+`secure_env_path` in your bootstrap config points to **your application's** environment file — where you keep `DATABASE_URL`, `API_SECRET`, etc. Beacon loads it at deploy time so your app has its secrets. This file is separate from Beacon's own config.
 
 ---
 
-## Command reference
+## Cloud Dashboard (Optional)
+
+Everything above works without an internet connection. The cloud is purely additive — connect to [BeaconInfra](https://beaconinfra.dev) to view all your devices from anywhere.
+
+**Without an API key, Beacon makes zero network requests.**
+
+```bash
+# Save credentials and enable cloud reporting
+beacon cloud login --api-key usr_abc123def456
+
+# Restart master to begin heartbeats
+beacon master
+```
+
+The first successful heartbeat registers the device — there's no separate registration step.
+
+To disable: `beacon cloud logout` clears the key and stops all cloud reporting.
+
+For self-hosted backends: `beacon cloud login --cloud-url https://your-host.example.com/api`
+
+### `~/.beacon/config.yaml`
+
+Created by `beacon init` (local-only) or `beacon cloud login` (with API key). You can also edit it directly.
+
+```yaml
+api_key: "usr_abc123def456"       # set by beacon cloud login (omit for offline)
+device_name: "my-pi"              # defaults to hostname
+cloud_url: "https://beaconinfra.dev/api"
+heartbeat_interval: 30            # seconds
+cloud_reporting_enabled: true
+metrics_port: 9100                # local dashboard port
+
+projects:
+  - id: "myapp"
+    config_path: "/home/user/.beacon/config/projects/myapp/monitor.yml"
+  - id: "blog"
+    config_path: "/home/user/.beacon/config/projects/blog/monitor.yml"
+    enabled: false                # temporarily disabled
+```
+
+---
+
+## Where Files Live
+
+All state lives under **`~/.beacon`** (override with `BEACON_HOME`):
+
+```
+~/.beacon/
+  config.yaml                    # Master config + project list
+  config/projects/<id>/env       # Per-project deploy environment
+  config/projects/<id>/monitor.yml
+  state/                         # Check results, deploy status
+  ipc/                           # Master <-> child communication
+  keys/                          # Encrypted token store (beacon keys)
+  templates/                     # Alert templates
+  logs/
+```
+
+Note: `~/beacon` (no dot) is the default **deploy working tree** for cloned repos, not the agent config root.
+
+Inspect paths: `beacon config show`
+
+---
+
+## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `beacon master` | Master agent: dashboard, children, optional heartbeats |
-| `beacon status` | Terminal status from running master (`--json`, `--watch`, `--port`) |
-| `beacon init` | Write local `config.yaml` (optional `--name`, `--metrics-port`; no network) |
-| `beacon cloud login` / `beacon cloud logout` | Save API key and enable reporting / clear key and set `cloud_reporting_enabled: false` |
-| `beacon config show` | Print `BEACON_HOME`, config path, device name, project count, API base URLs |
-| `beacon bootstrap <name>` | New project layout + inventory + global `projects:` entry |
-| `beacon deploy` | Deploy/poll loop (default when no subcommand) |
-| `beacon monitor` | Single-project monitor (debug) |
-| `beacon projects …` | List/add/status/remove projects (inventory) |
-| `beacon keys …` | Local encrypted key store (not BeaconInfra `api_key`) |
+| `beacon master` | Start master agent (dashboard at :9100, child agents, optional heartbeats) |
+| `beacon status` | Terminal health view from running master (`--json`, `--watch`, `--no-color`) |
+| `beacon init` | Write local `config.yaml` (`--name`, `--metrics-port`; no network) |
+| `beacon cloud login` / `logout` | Enable/disable cloud reporting |
+| `beacon config show` | Print resolved paths, identity, and project count |
+| `beacon bootstrap <name>` | Set up a new project (interactive or `-f config.yml`) |
+| `beacon deploy` | Git/Docker tag polling loop (also the default with no subcommand) |
+| `beacon monitor [-f config.yml]` | Run one project's health checks (debug) |
+| `beacon projects list\|add\|remove\|status\|info` | Project inventory management |
+| `beacon keys list\|add\|rotate\|delete\|validate` | Encrypted local token store |
+| `beacon alerts init\|status\|test\|acknowledge\|resolve` | Alert routing |
+| `beacon template list\|add\|remove\|show\|init` | Alert templates (Discord, Slack, email, webhook) |
 | `beacon setup-wizard` | Interactive monitor YAML + env helper |
-| `beacon alerts …` | Simple alerting CLI |
-| `beacon template …` | Alert templates |
-| `beacon source …` | Observation sources (e.g. Kubernetes) |
-| `beacon mcp …` | MCP server for editors |
+| `beacon source add\|list\|remove\|status` | Observation sources (e.g. Kubernetes) |
+| `beacon mcp serve` | MCP server for Cursor / Claude Desktop |
 | `beacon version` | Version info |
-| `beacon restart …` | Placeholder restart helper |
 
-Hidden: `beacon agent` (spawned by master only).
+Hidden: `beacon agent` (child process, spawned by master only).
 
 ---
 
-## Environment variables
+## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `BEACON_HOME` | Override Beacon data directory (default: `~/.beacon`) |
-| `BEACON_API_KEY` | User API key for `beacon cloud login` when not passed as a flag |
-| `BEACON_DEVICE_NAME` | Default device name for `beacon init` / `beacon cloud login` when `--name` is omitted |
+| `BEACON_HOME` | Override data directory (default: `~/.beacon`) |
+| `BEACON_API_KEY` | API key for `beacon cloud login` when not passed as a flag |
+| `BEACON_DEVICE_NAME` | Device name when `--name` is omitted |
 | `NO_COLOR` | Disable ANSI colors in `beacon status` |
 
 ---
 
-## Run as a service
+## Run as a Service
 
-`beacon bootstrap` can install user systemd units. Manual master unit example:
+`beacon bootstrap` installs systemd services automatically. For manual setup:
 
 ```bash
 cat > ~/.config/systemd/user/beacon-master.service << 'EOF'
@@ -241,7 +326,7 @@ systemctl --user enable --now beacon-master.service
 
 ---
 
-## CI and quality
+## CI & Quality
 
 | Check | Description |
 |-------|-------------|
@@ -255,11 +340,13 @@ systemctl --user enable --now beacon-master.service
 
 ## Documentation
 
-- [docs/MASTER_AGENT.md](./docs/MASTER_AGENT.md) — master agent and heartbeats
-- [docs/LOG_FORWARDING.md](./docs/LOG_FORWARDING.md) — log forwarding
-- [docs/E2E_TESTING.md](./docs/E2E_TESTING.md) — E2E tests
-- [beacon.monitor.yml](./beacon.monitor.yml) — monitor schema reference
-- [examples/](./examples/) — bootstrap and wizard examples
+- [docs/MASTER_AGENT.md](./docs/MASTER_AGENT.md) — master/child architecture and heartbeats
+- [docs/LOG_FORWARDING.md](./docs/LOG_FORWARDING.md) — log forwarding configuration
+- [docs/KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md) — encrypted key store
+- [docs/MCP.md](./docs/MCP.md) — MCP server for editors
+- [docs/E2E_TESTING.md](./docs/E2E_TESTING.md) — E2E test setup
+- [beacon.monitor.yml](./beacon.monitor.yml) — monitoring config reference
+- [examples/](./examples/) — bootstrap, monitor, alert, and wizard examples
 
 ---
 
