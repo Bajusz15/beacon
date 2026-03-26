@@ -8,8 +8,8 @@ release/
 *.dll
 *.so
 *.dylib
-# Beacon binary
-beacon
+# Beacon binary (repo root only — do not use bare "beacon" or it ignores cmd/beacon/)
+/beacon
 beacon-linux_amd64
 beacon-linux_arm64
 beacon-linux_arm
