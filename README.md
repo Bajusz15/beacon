@@ -56,15 +56,6 @@ The **first successful heartbeat** registers the device. To go fully local again
 
 ---
 
-## 💡 FAQ — “Oh, *that’s* what it does”
-
-- **“Can I automate deploys from GitHub *and* Docker?”** → ✅ Yes — `beacon bootstrap` for setup; `beacon deploy` is the long-running poll loop (also what runs when you invoke `beacon` with **no** subcommand — see Quick Start below).
-- **“Local monitoring only — terminal + UI?”** → ✅ **`beacon master`** + **`beacon status`** + **`:9100` dashboard**. Polished enough for daily ops; no external frontend bundle.
-- **“What if I want a cloud dashboard / multi-machine / logs in one place?”** → ✅ **BeaconInfra** + **`beacon cloud login`** — same binary, API key on the device, heartbeats when you want them.
-- **“Do I need an account to try Beacon?”** → ❌ **No.** Install, run **`beacon master`**, open the dashboard. Accounts are only for optional cloud features.
-
----
-
 ## ⚡ Quick Start
 
 ```bash
@@ -249,7 +240,7 @@ Self-hosted backend: `beacon cloud login --cloud-url https://your-host.example.c
 
 ### 📝 `~/.beacon/config.yaml`
 
-Created by `beacon init` (local-only) or `beacon cloud login` (with API key). You can also edit it directly.
+Created by `beacon init`. You can also edit it directly.
 
 ```yaml
 api_key: "usr_abc123def456"       # set by beacon cloud login (omit for offline)
