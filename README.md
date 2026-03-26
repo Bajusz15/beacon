@@ -386,6 +386,10 @@ The master is **stateless per project** — it doesn't know about Docker or syst
 
 ---
 
+☕ **[Buy me a coffee](https://buymeacoffee.com/matebajusz)** — if Beacon saves you time.
+
+---
+
 ## 📄 License
 
 Apache 2.0 — see [LICENSE](./LICENSE)
