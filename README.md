@@ -30,7 +30,7 @@ That last step is **opt-in**. Skip it and Beacon never sends heartbeats or telem
 
 ---
 
-## 🤔 Still fuzzy? Here’s the story arc
+## 🤔 Still unsure what it does?
 
 1. **“I want GitHub / Docker to deploy my app without me logging in every time.”**  
    → `beacon bootstrap` + `beacon deploy` (poll loop; often systemd). Git tags or new image tags trigger your commands.
@@ -38,7 +38,7 @@ That last step is **opt-in**. Skip it and Beacon never sends heartbeats or telem
 2. **“I want to *see* that it’s healthy — terminal *and* a proper UI.”**  
    → `beacon master` serves a **clean local dashboard** (auto-refresh, no CDN). **`beacon status`** is the CLI view (`--watch` is great).
 
-3. **“Okay, now I want remote visibility / logs / coordination from a browser.”**  
+3. **“Okay, what if I want remote visibility / logs / coordination from a browser.”**  
    → Sign up at **BeaconInfra**, create an **API key**, run **`beacon cloud login`**, restart **`beacon master`**. First heartbeat registers the device — no separate “register this box” wizard. **`beacon cloud logout`** turns it all off again.
 
 ---
