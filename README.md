@@ -4,9 +4,9 @@
 
 **Local-first monitoring for self-hosted devices.**
 
-Beacon is a lightweight agent for your Raspberry Pi, N100 mini PC, or any Linux box. Install it, run `beacon master`, and get a local dashboard with CPU, RAM, disk, temperature, and project health. Everything runs on your device — no account, no cloud, no internet required.
+Beacon is a lightweight agent for your Raspberry Pi, N100 mini PC, or any Linux or macOS machine. Install it, run **`beacon master`**, and get a local dashboard with CPU, RAM, disk, temperature, and per-project health when children are configured. **No account is required** for that: the UI and metrics run on your machine and work without internet. **Cloud is optional** — connect to [BeaconInfra](https://beaconinfra.dev) only if you want a hosted multi-device view (`beacon cloud login`).
 
-Optionally connect to [BeaconInfra](https://beaconinfra.dev) to view all your devices from anywhere.
+Optional: run **`beacon init`** first to write `~/.beacon/config.yaml` (device name, metrics port, project list). You can skip it: the master still starts and uses sensible defaults; init is the place to pin `device_name` and layout before you add projects.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
@@ -34,13 +34,13 @@ Running **`beacon` with no subcommand starts deploy mode** (long-running Git/Doc
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Bajusz15/beacon/main/scripts/install.sh | bash
 
-# Optional: write ~/.beacon/config.yaml (local only; no API key, no cloud heartbeats)
+# Optional: create ~/.beacon/config.yaml (local only; skip if you only want defaults)
 beacon init
 
 beacon master
 ```
 
-Open **http://localhost:9100**. Without an API key, the master does **not** send cloud heartbeats.
+Open **http://localhost:9100**. Cloud heartbeats only run after **`beacon cloud login`** (and can be stopped with **`beacon cloud logout`**).
 
 ---
 

@@ -311,9 +311,10 @@ func renderStatus(snap *master.StatusSnapshot, noColor bool, port int) {
 			chkColor = colorAmber
 		}
 		nameColor := colorWhite
-		if ch.Status == "down" {
+		switch ch.Status {
+		case "down":
 			nameColor = colorRed
-		} else if ch.Status == "degraded" || ch.Status == "warning" {
+		case "degraded", "warning":
 			nameColor = colorAmber
 		}
 

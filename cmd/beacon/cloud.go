@@ -63,7 +63,7 @@ func runCloudLogin(cmd *cobra.Command, args []string) {
 	if apiKey == "" {
 		if term.IsTerminal(int(os.Stdin.Fd())) {
 			fmt.Fprint(os.Stderr, "BeaconInfra API key: ")
-			b, err := term.ReadPassword(int(syscall.Stdin))
+			b, err := term.ReadPassword(syscall.Stdin)
 			if err != nil {
 				log.Fatalf("beacon cloud login: read API key: %v", err)
 			}
