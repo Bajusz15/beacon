@@ -18,27 +18,29 @@ The master agent is ideal when you want:
 
 ## Quick Start
 
-### 1. Initialize Identity
+### 1. Initialize identity
 
-First, set up your cloud identity (no network requests are made):
+`beacon init` does not perform network requests.
+
+**Local-first (no API key yet):**
 
 ```bash
-# Set environment variables
-export BEACON_API_KEY="usr_your_api_key"    # From BeaconInfra UI
-export BEACON_CLOUD_URL="https://app.beaconinfra.dev/api"
-
-# Initialize (writes ~/.beacon/config.yaml)
 beacon init --name my-homelab-server
 ```
 
-Or provide all values as flags:
+**BeaconInfra API key** (from Settings → API Keys), after local setup:
 
 ```bash
-beacon init \
-  --api-key "usr_your_api_key" \
-  --cloud-url "https://app.beaconinfra.dev/api" \
-  --name my-homelab-server
+beacon cloud login
+# or non-interactive:
+beacon cloud login --api-key "usr_your_api_key" --name my-homelab-server
 ```
+
+The default API base URL is **compiled into the binary** (`beacon config show` prints `cloud_api_base_default`). For a self-hosted backend, pass **`beacon cloud login --cloud-url https://your-host.example.com/api`**.
+
+Use **`beacon config show`** to print paths, device name, effective API base, and whether an API key is set.
+
+To stop sending heartbeats and remove the stored key, run **`beacon cloud logout`** (sets `cloud_reporting_enabled: false` and clears `api_key` / `cloud_url`).
 
 ### 2. Start the Master Agent
 
@@ -65,12 +67,12 @@ Your device should appear in the BeaconInfra dashboard.
 
 ### ~/.beacon/config.yaml
 
-The `beacon init` command creates this file:
+After **`beacon init`** (local) and **`beacon cloud login`** (API key), the file typically looks like:
 
 ```yaml
 api_key: usr_your_api_key
 device_name: my-homelab-server
-cloud_url: https://app.beaconinfra.dev/api
+cloud_url: https://beaconinfra.dev/api
 heartbeat_interval: 30        # seconds
 cloud_reporting_enabled: true
 device_id: ""                 # populated after first successful heartbeat
@@ -89,9 +91,9 @@ device_id: ""                 # populated after first successful heartbeat
 
 | Variable | Description |
 |----------|-------------|
-| `BEACON_API_KEY` | User API key (alternative to config file) |
-| `BEACON_CLOUD_URL` | Cloud API URL (alternative to config file) |
-| `BEACON_DEVICE_NAME` | Device name (alternative to config file) |
+| `BEACON_API_KEY` | User API key for `beacon cloud login` when not using `--api-key` |
+| `BEACON_DEVICE_NAME` | Default device name when `--name` is omitted |
+| `BEACON_HOME` | Override Beacon data directory (default `~/.beacon`) |
 
 ## Systemd Service
 

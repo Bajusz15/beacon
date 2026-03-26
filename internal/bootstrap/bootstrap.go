@@ -145,6 +145,10 @@ func (bm *BootstrapManager) BootstrapProject(projectName string, skipSystemd boo
 	// Register project in inventory
 	bm.addProjectToInventory(config)
 
+	if err := identity.AppendProjectIfMissing(config.ProjectName, bm.paths.GetProjectMonitorFile(config.ProjectName)); err != nil {
+		fmt.Printf("Warning: could not add project to master config: %v\n", err)
+	}
+
 	// Display success message
 	bm.displaySuccessMessage(config, systemdCreated)
 
@@ -212,6 +216,10 @@ func (bm *BootstrapManager) BootstrapProjectFromConfig(projectName, configFile s
 
 	// Register project in inventory
 	bm.addProjectToInventory(config)
+
+	if err := identity.AppendProjectIfMissing(config.ProjectName, bm.paths.GetProjectMonitorFile(config.ProjectName)); err != nil {
+		fmt.Printf("Warning: could not add project to master config: %v\n", err)
+	}
 
 	// Display success message
 	bm.displaySuccessMessage(config, systemdCreated)
@@ -414,10 +422,13 @@ func (bm *BootstrapManager) displaySuccessMessage(config *BootstrapConfig, syste
 			fmt.Printf("   # Check if deploy command ran: %s\n", config.DeployCommand)
 		}
 		fmt.Printf("   systemctl --user status beacon@%s\n", config.ProjectName)
-		fmt.Println("4. Set up monitoring configuration:")
+		fmt.Println("4. Add health checks (monitor config) for this project:")
 		fmt.Printf("   cp beacon.monitor.example.yml %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
-		fmt.Println("   # Or use the wizard BEFORE bootstrap: beacon setup-wizard")
-		fmt.Println("5. Start monitoring:")
+		fmt.Println("   # Optional: beacon setup-wizard generates a monitor YAML elsewhere — copy or merge checks into the path above.")
+		fmt.Println("5. Run the master agent (spawns child agents per project; local dashboard):")
+		fmt.Println("   beacon master")
+		fmt.Println("   # In another terminal: beacon status")
+		fmt.Println("6. Debug a single project’s monitor without the master (optional):")
 		fmt.Printf("   beacon monitor -f %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
 	} else {
 		fmt.Println("2. Verify deployment succeeded:")
@@ -425,10 +436,11 @@ func (bm *BootstrapManager) displaySuccessMessage(config *BootstrapConfig, syste
 		if config.DeployCommand != "" {
 			fmt.Printf("   # Verify deploy command completed: %s\n", config.DeployCommand)
 		}
-		fmt.Println("3. Set up monitoring configuration:")
+		fmt.Println("3. Add health checks (monitor config):")
 		fmt.Printf("   cp beacon.monitor.example.yml %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
-		fmt.Println("   # Or use the wizard BEFORE bootstrap: beacon setup-wizard")
-		fmt.Println("4. Start monitoring:")
+		fmt.Println("4. Run the master agent:")
+		fmt.Println("   beacon master")
+		fmt.Println("5. Optional — debug monitor only:")
 		fmt.Printf("   beacon monitor -f %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
 	}
 	fmt.Println()
@@ -436,9 +448,9 @@ func (bm *BootstrapManager) displaySuccessMessage(config *BootstrapConfig, syste
 	uc, _ := identity.LoadUserConfig()
 	if uc != nil && uc.CloudReportingEnabled {
 		fmt.Println()
-		fmt.Println("Cloud master agent (project-independent):")
-		fmt.Println("  beacon init   # writes ~/.beacon/config.yaml; then: systemctl --user restart beacon-master.service")
-		fmt.Println("  systemctl --user status beacon-master.service")
+		fmt.Println("Cloud (optional): add BeaconInfra API key, then restart the master:")
+		fmt.Println("  beacon cloud login              # or: beacon init first, then cloud later")
+		fmt.Println("  systemctl --user restart beacon-master.service")
 	}
 }
 

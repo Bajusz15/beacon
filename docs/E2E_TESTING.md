@@ -2,7 +2,14 @@
 
 ## Overview
 
-The Beacon E2E (End-to-End) tests verify the complete workflow from wizard setup through bootstrap, deployment, and monitoring. All tests run in a Docker container with a mock Git HTTP server.
+The Beacon E2E (End-to-End) tests run in a Docker container with a mock Git HTTP server. They cover:
+
+1. **Canonical local-first flow** — `beacon init`, `beacon config show`, and verification of `~/.beacon/config.yaml` (no API key).
+2. **Cloud credentials** — `beacon cloud login` (non-interactive flags in CI), then `beacon cloud logout`; asserts `cloud_reporting_enabled` toggles and API key is cleared.
+3. **Legacy wizard path** — `beacon setup-wizard` with expect (optional; requires `expect`).
+4. **Bootstrap → deploy → monitor** — config-file bootstrap, clone, tag polling, and monitor parsing.
+
+The primary user journey documented in the README is **local master → projects → optional cloud**; the wizard remains an optional helper for generating monitor YAML.
 
 ## What is Expect-Based Wizard Input Simulation?
 
@@ -48,19 +55,21 @@ The expect script watches for prompts and sends responses, simulating a user typ
 ## Test Flow
 
 1. **Prerequisites Check** - Verify beacon, git, expect are available
-2. **Create Mock Git Repo** - Set up bare Git repository with initial content
-3. **Start Git HTTP Server** - Serve repo over HTTP on port 8080
-4. **Test Wizard** - Use expect to automate wizard, verify all 3 files generated
-5. **Bootstrap Project** - Bootstrap using config file
-6. **Verify Bootstrap** - Check env file, config directory created
-7. **Verify Repository Cloned** - Confirm repo was cloned correctly
-8. **Test Deployment Execution** - Run deploy script manually, verify output
-9. **Test Bootstrap Runs Deploy** - Verify bootstrap triggers deploy
-10. **Test Secure Env File** - Test secure env file loading
-11. **Create New Tag** - Push new tag to repo
-12. **Verify Tag Polling** - Test that beacon can fetch new tags
-13. **Test Monitoring** - Verify monitor config parsing
-14. **Full Workflow Test** - Verify complete integration
+2. **Canonical local init** - `beacon init`, `beacon config show`, assert `cloud_reporting_enabled: false` in config
+3. **Cloud login / logout** - `beacon cloud login --api-key … --cloud-url …`, then `beacon cloud logout`; assert reporting off and no API key in `beacon config show`
+4. **Create Mock Git Repo** - Set up bare Git repository with initial content
+5. **Start Git HTTP Server** - Serve repo over HTTP on port 8080
+6. **Test Wizard** - Use expect to automate wizard, verify generated files (optional if expect prompts drift)
+7. **Bootstrap Project** - Bootstrap using config file
+8. **Verify Bootstrap** - Check env file, config directory created
+9. **Verify Repository Cloned** - Confirm repo was cloned correctly
+10. **Test Deployment Execution** - Run deploy script manually, verify output
+11. **Test Bootstrap Runs Deploy** - Verify bootstrap triggers deploy
+12. **Test Secure Env File** - Test secure env file loading
+13. **Create New Tag** - Push new tag to repo
+14. **Verify Tag Polling** - Test that beacon can fetch new tags
+15. **Test Monitoring** - Verify monitor config parsing
+16. **Full Workflow Test** - Verify complete integration
 
 ## Running E2E Tests
 

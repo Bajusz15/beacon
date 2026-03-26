@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"beacon/internal/config"
 	"beacon/internal/ipc"
 	"beacon/internal/monitor"
 	"beacon/internal/state"
@@ -58,13 +59,13 @@ type checkResult struct {
 	Timestamp time.Time
 }
 
-// getConfigDir returns the beacon configuration directory (~/.beacon).
+// getConfigDir returns the beacon configuration directory (~/.beacon or $BEACON_HOME).
 func getConfigDir() string {
-	home, err := os.UserHomeDir()
+	base, err := config.BeaconHomeDir()
 	if err != nil {
 		return ".beacon"
 	}
-	return filepath.Join(home, ".beacon")
+	return base
 }
 
 // projectNameFromConfigPath derives project name from config path.

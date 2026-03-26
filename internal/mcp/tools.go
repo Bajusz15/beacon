@@ -262,7 +262,11 @@ func (b *ToolBackend) ToolDeploy(project, ref, confirmationToken string) (Deploy
 		}
 		_ = os.Setenv("BEACON_PROJECT_NAME", project)
 		cfg := config.Load()
-		statusPath := filepath.Join(os.Getenv("HOME"), ".beacon", cfg.ProjectDir)
+		base, berr := config.BeaconHomeDir()
+		if berr != nil {
+			base = filepath.Join(os.Getenv("HOME"), ".beacon")
+		}
+		statusPath := filepath.Join(base, cfg.ProjectDir)
 		st := state.NewStatus(statusPath)
 		if err := deployProject(cfg, refVal, st); err != nil {
 			return DeployOutput{}, err

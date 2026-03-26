@@ -37,8 +37,11 @@ var rootCmd = &cobra.Command{
 	Short: "Beacon - IoT deployment and monitoring agent",
 	Long: `Beacon is a lightweight agent for self-hosted devices — deploy, monitor, and report health.
 
-  beacon init      write ~/.beacon/config.yaml (no network)
-  beacon master    start the master agent — spawns child agents, sends heartbeats
+  With no subcommand, runs deploy mode (poll Git/Docker). For the local dashboard, use beacon master.
+
+  beacon init      write local ~/.beacon/config.yaml (no network)
+  beacon cloud login  save BeaconInfra API key (after local setup)
+  beacon master    start the master agent — spawns child agents, local dashboard
   beacon bootstrap set up a new project (interactive or from a config file)
   beacon monitor   run a single project's health checks (dev/debug)
   beacon deploy    poll a Git repo for new tags and deploy
@@ -235,36 +238,18 @@ func init() {
 
 var initAgentCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Write local cloud identity to ~/.beacon/config.yaml (no network)",
-	Long: `Writes ~/.beacon/config.yaml with api_key, device_name, cloud_url, and heartbeat_interval.
-No HTTP requests are made — the device is registered on the first heartbeat when you run beacon master.
+	Short: "Write local machine config to ~/.beacon/config.yaml (no network)",
+	Long: `Creates or updates ~/.beacon/config.yaml with local settings only. No HTTP requests are made.
 
-Cloud URL defaults to https://beaconinfra.dev/api if not specified.
-Device name defaults to the system hostname if not specified.
+Sets device_name (default: system hostname), cloud_reporting_enabled: false, and optional metrics port.
+Does not store an API key — use "beacon cloud login" after you have a BeaconInfra account.
 
-Get your API key at https://beaconinfra.dev → Settings → API Keys.
-
-Environment: BEACON_API_KEY, BEACON_CLOUD_URL, BEACON_DEVICE_NAME.`,
-	Example: `  # Minimal — just your API key, everything else uses defaults
-  beacon init --api-key usr_abc123def456
-
-  # Explicit device name
-  beacon init --api-key usr_abc123def456 --name my-pi
-
-  # Self-hosted backend
-  beacon init --api-key usr_abc123def456 --cloud-url https://my-backend.example.com/api`,
+Environment: BEACON_DEVICE_NAME for default device name when --name is omitted.`,
+	Example: `  beacon init
+  beacon init --name my-pi
+  beacon init --metrics-port 9100`,
 	Run: func(cmd *cobra.Command, args []string) {
-		cloudURL, _ := cmd.Flags().GetString("cloud-url")
-		if cloudURL == "" {
-			cloudURL, _ = cmd.Flags().GetString("server")
-		}
-		apiKey, _ := cmd.Flags().GetString("api-key")
-		if apiKey == "" {
-			apiKey = os.Getenv("BEACON_API_KEY")
-		}
-		if apiKey == "" {
-			apiKey = os.Getenv("BEACON_USER_API_KEY")
-		}
+		metricsPort, _ := cmd.Flags().GetInt("metrics-port")
 		name, _ := cmd.Flags().GetString("name")
 		if name == "" {
 			name, _ = cmd.Flags().GetString("device-name")
@@ -273,7 +258,7 @@ Environment: BEACON_API_KEY, BEACON_CLOUD_URL, BEACON_DEVICE_NAME.`,
 			name = os.Getenv("BEACON_DEVICE_NAME")
 		}
 
-		if err := identity.WriteUserInit(apiKey, name, cloudURL); err != nil {
+		if err := identity.WriteUserLocalInit(name, metricsPort); err != nil {
 			log.Fatalf("beacon init: %v", err)
 		}
 		p, err := identity.UserConfigPath()
@@ -290,8 +275,8 @@ var masterCmd = &cobra.Command{
 	Short: "Run the machine-wide cloud reporter (foreground)",
 	Long: `Runs independently of any project. Reads ~/.beacon/config.yaml.
 
-When cloud_reporting_enabled is true and api_key, cloud_url, and device_name are set (via beacon init),
-sends POST /agent/heartbeat every heartbeat_interval (default 60s if unset).
+When cloud_reporting_enabled is true and an api_key is set (via beacon cloud login),
+sends POST /agent/heartbeat every heartbeat_interval (default 60s if unset). API base URL defaults to the compile-time BeaconInfra URL unless overridden in config.
 
 Typical install: beacon bootstrap creates beacon-master.service; it runs this command in the background.`,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -321,9 +306,7 @@ The configuration file should contain device info, checks, and alert rules.`,
 func init() {
 	monitorCmd.Flags().StringP("config", "f", "", "Path to configuration file")
 
-	initAgentCmd.Flags().String("cloud-url", "", "API base URL including /api (BEACON_CLOUD_URL or BEACON_SERVER_URL)")
-	initAgentCmd.Flags().String("server", "", "Alias for --cloud-url (BEACON_SERVER_URL)")
-	initAgentCmd.Flags().String("api-key", "", "User API key (BEACON_API_KEY or BEACON_USER_API_KEY)")
+	initAgentCmd.Flags().Int("metrics-port", 0, "Metrics/dashboard port (0 = leave unchanged)")
 	initAgentCmd.Flags().String("name", "", "Device name (BEACON_DEVICE_NAME; default: hostname)")
 	initAgentCmd.Flags().String("device-name", "", "Alias for --name")
 
@@ -392,6 +375,8 @@ func main() {
 	rootCmd.AddCommand(projects.CreateProjectCommand())
 	rootCmd.AddCommand(createSourceCommand())
 	rootCmd.AddCommand(createMCPCommand())
+	rootCmd.AddCommand(createConfigCommand())
+	rootCmd.AddCommand(createCloudCommand())
 
 	// If no subcommand is provided, run in deploy mode
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {

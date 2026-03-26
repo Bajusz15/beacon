@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"beacon/internal/config"
 )
 
 const (
@@ -167,11 +169,11 @@ func atomicWriteJSON(path string, v any) error {
 
 // IPCDir returns the base IPC directory for a user.
 func IPCDir() (string, error) {
-	home, err := os.UserHomeDir()
+	base, err := config.BeaconHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("get home directory: %w", err)
+		return "", err
 	}
-	return filepath.Join(home, ".beacon", "ipc"), nil
+	return filepath.Join(base, "ipc"), nil
 }
 
 // ProjectIPCDir returns the IPC directory for a specific project.

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"beacon/internal/config"
 )
 
 // TemplateConfig represents a template configuration
@@ -171,11 +173,11 @@ func (tm *TemplateManager) saveTemplates() error {
 
 // getConfigDir returns the beacon config directory
 func getConfigDir() string {
-	homeDir, err := os.UserHomeDir()
+	base, err := config.BeaconHomeDir()
 	if err != nil {
-		homeDir = "/tmp"
+		return filepath.Join("/tmp", ".beacon")
 	}
-	return filepath.Join(homeDir, ".beacon")
+	return base
 }
 
 // calculateChecksum calculates SHA256 checksum of a file

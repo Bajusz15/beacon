@@ -69,7 +69,11 @@ func CheckForNewImageTag(cfg *config.Config, status *state.Status) {
 
 	// Get the base storage directory from the existing status
 	// We'll use the same directory structure but with image-specific subdirectories
-	statusStorageDir := filepath.Join(os.Getenv("HOME"), ".beacon", cfg.ProjectDir)
+	base, err := config.BeaconHomeDir()
+	if err != nil {
+		base = filepath.Join(os.Getenv("HOME"), ".beacon")
+	}
+	statusStorageDir := filepath.Join(base, cfg.ProjectDir)
 
 	// Check each configured image
 	for _, imgCfg := range cfg.DockerImages {

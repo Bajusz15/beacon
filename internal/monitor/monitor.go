@@ -304,11 +304,11 @@ func NewMonitor(cfg *Config, configPath string) (*Monitor, error) {
 
 // getConfigDir returns the beacon configuration directory
 func getConfigDir() string {
-	homeDir, err := os.UserHomeDir()
+	base, err := config.BeaconHomeDir()
 	if err != nil {
 		return ".beacon"
 	}
-	return filepath.Join(homeDir, ".beacon")
+	return base
 }
 
 // getProjectNameFromConfigPath derives project name from config path (e.g. .../projects/myapp/monitor.yml -> myapp)
@@ -1280,11 +1280,7 @@ func (m *Monitor) getPrometheusMetricsText() string {
 func (m *Monitor) writePrometheusFile() {
 	path := m.config.Report.PrometheusFilePath
 	if path == "" {
-		home, _ := os.UserHomeDir()
-		if home == "" {
-			return
-		}
-		path = filepath.Join(home, ".beacon", "metrics.prom")
+		path = filepath.Join(getConfigDir(), "metrics.prom")
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {

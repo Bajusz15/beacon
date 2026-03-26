@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"beacon/internal/config"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,11 +22,11 @@ type Identity struct {
 }
 
 func beaconConfigDir() (string, error) {
-	home, err := os.UserHomeDir()
+	base, err := config.BeaconHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("user home: %w", err)
+		return "", err
 	}
-	return filepath.Join(home, ".beacon", "config"), nil
+	return filepath.Join(base, "config"), nil
 }
 
 // AgentYAMLPath returns the absolute path to agent.yml.

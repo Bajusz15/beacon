@@ -6,7 +6,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN go build -o beacon cmd/beacon/main.go
+RUN go build -ldflags "-X beacon/internal/cloud.DefaultBeaconInfraAPIURL=https://beaconinfra.dev/api" -o beacon ./cmd/beacon
 
 RUN cp beacon /usr/local/bin/beacon && chmod +x /usr/local/bin/beacon
 

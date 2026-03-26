@@ -77,13 +77,13 @@ func TestLoadUserConfig_invalidYAML(t *testing.T) {
 	require.Contains(t, err.Error(), "parse")
 }
 
-func TestWriteUserInit_success(t *testing.T) {
+func TestWriteCloudLogin_success(t *testing.T) {
 	tmpDir := t.TempDir()
 	origHome := os.Getenv("HOME")
 	t.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	err := WriteUserInit("usr_my_api_key", "my-device", "https://cloud.example.com/api")
+	err := WriteCloudLogin("usr_my_api_key", "my-device", "https://cloud.example.com/api")
 	require.NoError(t, err)
 
 	loaded, err := LoadUserConfig()
@@ -96,49 +96,35 @@ func TestWriteUserInit_success(t *testing.T) {
 	require.Equal(t, 30, loaded.HeartbeatInterval) // default
 }
 
-func TestWriteUserInit_missingAPIKey(t *testing.T) {
+func TestWriteCloudLogin_missingAPIKey(t *testing.T) {
 	tmpDir := t.TempDir()
 	origHome := os.Getenv("HOME")
 	t.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	err := WriteUserInit("", "device", "https://cloud.example.com/api")
+	err := WriteCloudLogin("", "device", "https://cloud.example.com/api")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "api_key is required")
 }
 
-func TestWriteUserInit_missingCloudURL(t *testing.T) {
+func TestWriteCloudLogin_emptyCloudURLUsesCompileDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 	origHome := os.Getenv("HOME")
 	t.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// Clear env vars that might provide cloud URL
 	t.Setenv("BEACON_CLOUD_URL", "")
 	t.Setenv("BEACON_SERVER_URL", "")
 
-	err := WriteUserInit("usr_key", "device", "")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "cloud_url is required")
-}
-
-func TestWriteUserInit_usesEnvVarForCloudURL(t *testing.T) {
-	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	t.Setenv("HOME", tmpDir)
-	defer func() { _ = os.Setenv("HOME", origHome) }()
-
-	t.Setenv("BEACON_CLOUD_URL", "https://env-cloud.example.com/api")
-
-	err := WriteUserInit("usr_key", "device", "")
+	err := WriteCloudLogin("usr_key", "device", "")
 	require.NoError(t, err)
 
 	loaded, err := LoadUserConfig()
 	require.NoError(t, err)
-	require.Equal(t, "https://env-cloud.example.com/api", loaded.CloudURL)
+	require.Equal(t, "https://beaconinfra.dev/api", loaded.CloudURL)
 }
 
-func TestWriteUserInit_usesHostnameWhenNoDeviceName(t *testing.T) {
+func TestWriteCloudLogin_usesHostnameWhenNoDeviceName(t *testing.T) {
 	tmpDir := t.TempDir()
 	origHome := os.Getenv("HOME")
 	t.Setenv("HOME", tmpDir)
@@ -147,7 +133,7 @@ func TestWriteUserInit_usesHostnameWhenNoDeviceName(t *testing.T) {
 	hostname, err := os.Hostname()
 	require.NoError(t, err)
 
-	err = WriteUserInit("usr_key", "", "https://cloud.example.com/api")
+	err = WriteCloudLogin("usr_key", "", "https://cloud.example.com/api")
 	require.NoError(t, err)
 
 	loaded, err := LoadUserConfig()
@@ -155,13 +141,32 @@ func TestWriteUserInit_usesHostnameWhenNoDeviceName(t *testing.T) {
 	require.Equal(t, hostname, loaded.DeviceName)
 }
 
-func TestWriteUserInit_mergesExistingConfig(t *testing.T) {
+func TestWriteCloudLogout_clearsKeyAndDisablesReporting(t *testing.T) {
 	tmpDir := t.TempDir()
 	origHome := os.Getenv("HOME")
 	t.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// Create initial config with device_id
+	require.NoError(t, WriteCloudLogin("usr_before", "dev", "https://cloud.example.com/api"))
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.True(t, loaded.CloudReportingEnabled)
+
+	require.NoError(t, WriteCloudLogout())
+	after, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.Empty(t, after.APIKey)
+	require.Empty(t, after.CloudURL)
+	require.False(t, after.CloudReportingEnabled)
+	require.Equal(t, "dev", after.DeviceName)
+}
+
+func TestWriteCloudLogin_mergesExistingConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	t.Setenv("HOME", tmpDir)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+
 	initial := &UserConfig{
 		DeviceID: "existing-device-id",
 		Projects: []ProjectConfig{
@@ -171,16 +176,15 @@ func TestWriteUserInit_mergesExistingConfig(t *testing.T) {
 	}
 	require.NoError(t, initial.Save())
 
-	// WriteUserInit should preserve existing fields
-	err := WriteUserInit("usr_new_key", "new-device", "https://new-cloud.example.com/api")
+	err := WriteCloudLogin("usr_new_key", "new-device", "https://new-cloud.example.com/api")
 	require.NoError(t, err)
 
 	loaded, err := LoadUserConfig()
 	require.NoError(t, err)
 	require.Equal(t, "usr_new_key", loaded.APIKey)
 	require.Equal(t, "new-device", loaded.DeviceName)
-	require.Equal(t, "existing-device-id", loaded.DeviceID) // preserved
-	require.Len(t, loaded.Projects, 2)                      // preserved
+	require.Equal(t, "existing-device-id", loaded.DeviceID)
+	require.Len(t, loaded.Projects, 2)
 }
 
 func TestMergeBootstrapCloudOnly(t *testing.T) {
@@ -234,11 +238,60 @@ func TestUserConfigPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	origHome := os.Getenv("HOME")
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("BEACON_HOME", "")
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	p, err := UserConfigPath()
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(tmpDir, ".beacon", "config.yaml"), p)
+}
+
+func TestUserConfigPath_BEACON_HOME(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	origBH := os.Getenv("BEACON_HOME")
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("BEACON_HOME", filepath.Join(tmpDir, "custom-beacon"))
+	defer func() {
+		_ = os.Setenv("HOME", origHome)
+		_ = os.Setenv("BEACON_HOME", origBH)
+	}()
+
+	p, err := UserConfigPath()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(tmpDir, "custom-beacon", "config.yaml"), p)
+}
+
+func TestWriteUserLocalInit(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	t.Setenv("HOME", tmpDir)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+
+	require.NoError(t, WriteUserLocalInit("my-box", 9100))
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.Equal(t, "my-box", loaded.DeviceName)
+	require.False(t, loaded.CloudReportingEnabled)
+	require.Equal(t, 9100, loaded.MetricsPort)
+}
+
+func TestAppendProjectIfMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	t.Setenv("HOME", tmpDir)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+
+	require.NoError(t, AppendProjectIfMissing("p1", "/x/monitor.yml"))
+	require.NoError(t, AppendProjectIfMissing("p2", "/y/monitor.yml"))
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.Len(t, loaded.Projects, 2)
+	require.NoError(t, AppendProjectIfMissing("p1", "/z/monitor.yml"))
+	loaded, err = LoadUserConfig()
+	require.NoError(t, err)
+	require.Len(t, loaded.Projects, 2)
+	require.Equal(t, "/z/monitor.yml", loaded.Projects[0].ConfigPath)
 }
 
 func TestUserConfig_YAMLStructure(t *testing.T) {

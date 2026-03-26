@@ -190,9 +190,6 @@ func (h *heartbeatLoop) tryBeat() {
 	if strings.TrimSpace(uc.APIKey) == "" {
 		return
 	}
-	if strings.TrimSpace(uc.CloudURL) == "" {
-		return
-	}
 	name := strings.TrimSpace(uc.DeviceName)
 	if name == "" {
 		name = getHostname()
@@ -214,7 +211,7 @@ func (h *heartbeatLoop) tryBeat() {
 }
 
 func sendCloudHeartbeat(ctx context.Context, cfg *identity.UserConfig, deviceName string, pm *ProcessManager, dispatcher *CommandDispatcher) error {
-	base := strings.TrimSuffix(strings.TrimSpace(cfg.CloudURL), "/")
+	base := cfg.EffectiveCloudAPIBase()
 	token := strings.TrimSpace(cfg.APIKey)
 
 	// Get pending command results to include in heartbeat

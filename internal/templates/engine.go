@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"text/template"
 
+	"beacon/internal/config"
 	"beacon/internal/plugins"
 )
 
@@ -174,9 +175,9 @@ func CreateDefaultTemplates(templateDir string) error {
 
 // GetDefaultTemplatePath returns the default template directory
 func GetDefaultTemplatePath() string {
-	homeDir, err := os.UserHomeDir()
+	base, err := config.BeaconHomeDir()
 	if err != nil {
-		homeDir = "/tmp"
+		return filepath.Join("/tmp", ".beacon", "templates")
 	}
-	return filepath.Join(homeDir, ".beacon", "templates")
+	return filepath.Join(base, "templates")
 }

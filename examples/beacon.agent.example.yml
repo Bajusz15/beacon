@@ -1,5 +1,5 @@
 # Optional global agent identity (~/.beacon/config/agent.yml).
-# Created by: beacon init
+# Global identity lives in ~/.beacon/config.yaml (beacon init, beacon cloud login)
 #
 # When present, beacon monitor uses device_token (dtk_...) for API auth if set,
 # otherwise it uses report.token / report.token_name from monitor.yml.

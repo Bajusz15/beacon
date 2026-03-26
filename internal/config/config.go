@@ -91,7 +91,11 @@ func Load() *Config {
 		}
 
 		// Load Docker images from docker-images.yml if it exists
-		dockerImagesPath := filepath.Join(os.Getenv("HOME"), ".beacon", "config", "projects", projectName, "docker-images.yml")
+		base, err := BeaconHomeDir()
+		if err != nil {
+			base = filepath.Join(os.Getenv("HOME"), ".beacon")
+		}
+		dockerImagesPath := filepath.Join(base, "config", "projects", projectName, "docker-images.yml")
 		if images, err := loadDockerImagesConfig(dockerImagesPath); err == nil {
 			cfg.DockerImages = images
 		} else if !os.IsNotExist(err) {

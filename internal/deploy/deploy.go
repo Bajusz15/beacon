@@ -256,9 +256,9 @@ func setupGitAuth(cfg *config.Config, gitToken string) {
 
 // getConfigDir returns the beacon configuration directory
 func getConfigDir() string {
-	homeDir, err := os.UserHomeDir()
+	base, err := config.BeaconHomeDir()
 	if err != nil {
 		return ".beacon"
 	}
-	return filepath.Join(homeDir, ".beacon")
+	return base
 }

@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"beacon/internal/config"
 	"beacon/internal/util"
 	"bufio"
 	"context"
@@ -111,11 +112,11 @@ type LogManager struct {
 
 // getStateDir returns ~/.beacon/state for cursor persistence
 func getStateDir() string {
-	home, _ := os.UserHomeDir()
-	if home == "" {
+	base, err := config.BeaconHomeDir()
+	if err != nil {
 		return ".beacon/state"
 	}
-	return filepath.Join(home, ".beacon", "state")
+	return filepath.Join(base, "state")
 }
 
 // NewLogManager creates a new log manager. getAuthToken returns the bearer/API secret (e.g. dtk_ or bci_live_);

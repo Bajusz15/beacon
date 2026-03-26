@@ -33,25 +33,13 @@ jobs:
         echo "Build Date: $BUILD_DATE"
         
         # Build with version injection
-        GOOS=linux GOARCH=amd64 go build \
-          -ldflags="-s -w -X beacon/internal/version.Version=$VERSION -X beacon/internal/version.Commit=$COMMIT -X beacon/internal/version.BuildDate=$BUILD_DATE" \
-          -o beacon-linux_amd64 ./cmd/beacon
-        
-        GOOS=linux GOARCH=arm64 go build \
-          -ldflags="-s -w -X beacon/internal/version.Version=$VERSION -X beacon/internal/version.Commit=$COMMIT -X beacon/internal/version.BuildDate=$BUILD_DATE" \
-          -o beacon-linux_arm64 ./cmd/beacon
-        
-        GOOS=linux GOARCH=arm GOARM=7 go build \
-          -ldflags="-s -w -X beacon/internal/version.Version=$VERSION -X beacon/internal/version.Commit=$COMMIT -X beacon/internal/version.BuildDate=$BUILD_DATE" \
-          -o beacon-linux_arm ./cmd/beacon
-        
-        GOOS=darwin GOARCH=amd64 go build \
-          -ldflags="-s -w -X beacon/internal/version.Version=$VERSION -X beacon/internal/version.Commit=$COMMIT -X beacon/internal/version.BuildDate=$BUILD_DATE" \
-          -o beacon-darwin_amd64 ./cmd/beacon
-        
-        GOOS=darwin GOARCH=arm64 go build \
-          -ldflags="-s -w -X beacon/internal/version.Version=$VERSION -X beacon/internal/version.Commit=$COMMIT -X beacon/internal/version.BuildDate=$BUILD_DATE" \
-          -o beacon-darwin_arm64 ./cmd/beacon
+        RELDFLAGS="-s -w -X beacon/internal/version.Version=$VERSION -X beacon/internal/version.Commit=$COMMIT -X beacon/internal/version.BuildDate=$BUILD_DATE -X beacon/internal/cloud.DefaultBeaconInfraAPIURL=https://beaconinfra.dev/api"
+
+        GOOS=linux GOARCH=amd64 go build -ldflags="$RELDFLAGS" -o beacon-linux_amd64 ./cmd/beacon
+        GOOS=linux GOARCH=arm64 go build -ldflags="$RELDFLAGS" -o beacon-linux_arm64 ./cmd/beacon
+        GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="$RELDFLAGS" -o beacon-linux_arm ./cmd/beacon
+        GOOS=darwin GOARCH=amd64 go build -ldflags="$RELDFLAGS" -o beacon-darwin_amd64 ./cmd/beacon
+        GOOS=darwin GOARCH=arm64 go build -ldflags="$RELDFLAGS" -o beacon-darwin_arm64 ./cmd/beacon
     
     - name: Generate checksums
       run: |

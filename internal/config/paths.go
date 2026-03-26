@@ -7,6 +7,23 @@ import (
 	"strings"
 )
 
+// BeaconHomeDir returns the root directory for Beacon data (configuration, state, IPC).
+// If BEACON_HOME is set, it is used (absolute path recommended). Otherwise $HOME/.beacon is used.
+func BeaconHomeDir() (string, error) {
+	if v := strings.TrimSpace(os.Getenv("BEACON_HOME")); v != "" {
+		abs, err := filepath.Abs(filepath.Clean(v))
+		if err != nil {
+			return filepath.Clean(v), nil
+		}
+		return abs, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".beacon"), nil
+}
+
 // BeaconPaths manages all Beacon-related paths in a unified way
 type BeaconPaths struct {
 	BaseDir       string // ~/.beacon
@@ -27,13 +44,18 @@ func NewBeaconPaths() (*BeaconPaths, error) {
 		return nil, fmt.Errorf("failed to get user home directory: %v", err)
 	}
 
+	base, err := BeaconHomeDir()
+	if err != nil {
+		return nil, err
+	}
+
 	paths := &BeaconPaths{
-		BaseDir:       filepath.Join(homeDir, ".beacon"),
-		ConfigDir:     filepath.Join(homeDir, ".beacon", "config"),
-		ProjectsDir:   filepath.Join(homeDir, ".beacon", "config", "projects"),
-		StateDir:      filepath.Join(homeDir, ".beacon", "state"),
-		TemplatesDir:  filepath.Join(homeDir, ".beacon", "templates"),
-		LogsDir:       filepath.Join(homeDir, ".beacon", "logs"),
+		BaseDir:       base,
+		ConfigDir:     filepath.Join(base, "config"),
+		ProjectsDir:   filepath.Join(base, "config", "projects"),
+		StateDir:      filepath.Join(base, "state"),
+		TemplatesDir:  filepath.Join(base, "templates"),
+		LogsDir:       filepath.Join(base, "logs"),
 		SystemdDir:    filepath.Join(homeDir, ".config", "systemd", "user"),
 		SystemdDirSys: "/etc/systemd/system",
 		WorkingDir:    filepath.Join(homeDir, "beacon"),

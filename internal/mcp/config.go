@@ -1,9 +1,10 @@
 package mcp
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
+
+	beaconcfg "beacon/internal/config"
 
 	"gopkg.in/yaml.v3"
 )
@@ -19,9 +20,9 @@ type Config struct {
 // LoadConfig loads MCP config from the given path (e.g. ~/.beacon/mcp.yml)
 func LoadConfig(configPath string) *Config {
 	if configPath == "" {
-		home, _ := os.UserHomeDir()
-		if home != "" {
-			configPath = filepath.Join(home, ".beacon", "mcp.yml")
+		base, err := beaconcfg.BeaconHomeDir()
+		if err == nil {
+			configPath = filepath.Join(base, "mcp.yml")
 		}
 	}
 	if configPath == "" {
@@ -66,9 +67,9 @@ func (c *Config) GetAuditLogPath() string {
 	if c.AuditLogPath != "" {
 		return c.AuditLogPath
 	}
-	home, _ := os.UserHomeDir()
-	if home == "" {
+	base, err := beaconcfg.BeaconHomeDir()
+	if err != nil {
 		return ""
 	}
-	return fmt.Sprintf("%s/.beacon/logs/mcp_audit.jsonl", home)
+	return filepath.Join(base, "logs", "mcp_audit.jsonl")
 }

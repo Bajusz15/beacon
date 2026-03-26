@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"beacon/internal/cloud"
+	"beacon/internal/config"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,7 +20,7 @@ type UserConfig struct {
 	DeviceName            string          `yaml:"device_name,omitempty"`
 	CloudURL              string          `yaml:"cloud_url,omitempty"`
 	HeartbeatInterval     int             `yaml:"heartbeat_interval,omitempty"`
-	CloudReportingEnabled bool            `yaml:"cloud_reporting_enabled,omitempty"`
+	CloudReportingEnabled bool            `yaml:"cloud_reporting_enabled"`
 	DeviceID              string          `yaml:"device_id,omitempty"`
 	MetricsPort           int             `yaml:"metrics_port,omitempty"`
 	MetricsListenAddr     string          `yaml:"metrics_listen_addr,omitempty"` // default "127.0.0.1"; set "0.0.0.0" for Docker
@@ -34,13 +37,13 @@ type ProjectConfig struct {
 	Enabled *bool `yaml:"enabled,omitempty"`
 }
 
-// UserConfigPath returns the path to ~/.beacon/config.yaml.
+// UserConfigPath returns the path to config.yaml under the Beacon home directory.
 func UserConfigPath() (string, error) {
-	home, err := os.UserHomeDir()
+	base, err := config.BeaconHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("user home: %w", err)
+		return "", fmt.Errorf("beacon home: %w", err)
 	}
-	return filepath.Join(home, ".beacon", "config.yaml"), nil
+	return filepath.Join(base, "config.yaml"), nil
 }
 
 // LoadUserConfig reads config.yaml. Returns (nil, nil) if the file is missing.
@@ -74,11 +77,85 @@ func (f *UserConfig) Save() error {
 	return saveUserConfig(p, f)
 }
 
-// WriteUserInit writes or updates ~/.beacon/config.yaml with API key, device name, and cloud URL.
-func WriteUserInit(apiKey, deviceName, cloudURL string) error {
+// EffectiveCloudAPIBase returns the API base URL for heartbeats: config cloud_url if set, else the
+// compile-time default (see beacon/internal/cloud).
+func (uc *UserConfig) EffectiveCloudAPIBase() string {
+	if uc == nil {
+		return ""
+	}
+	if s := strings.TrimSpace(uc.CloudURL); s != "" {
+		return strings.TrimSuffix(s, "/")
+	}
+	return cloud.BeaconInfraAPIBase()
+}
+
+// WriteUserLocalInit writes or merges ~/.beacon/config.yaml for local-only use: no API key required,
+// cloud_reporting_enabled false. Preserves existing api_key and projects if present.
+func WriteUserLocalInit(deviceName string, metricsPort int) error {
+	name := strings.TrimSpace(deviceName)
+	if name == "" {
+		h, err := os.Hostname()
+		if err != nil || strings.TrimSpace(h) == "" {
+			return errors.New("device name is required (--name) or hostname must be set")
+		}
+		name = strings.TrimSpace(h)
+	}
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		f = &UserConfig{}
+	}
+	f.DeviceName = name
+	f.CloudReportingEnabled = false
+	if f.HeartbeatInterval <= 0 {
+		f.HeartbeatInterval = 30
+	}
+	if metricsPort > 0 {
+		f.MetricsPort = metricsPort
+	}
+	return saveUserConfig(p, f)
+}
+
+// AppendProjectIfMissing adds or updates a project entry in ~/.beacon/config.yaml for the master agent.
+func AppendProjectIfMissing(projectID, configPath string) error {
+	projectID = strings.TrimSpace(projectID)
+	configPath = strings.TrimSpace(configPath)
+	if projectID == "" || configPath == "" {
+		return errors.New("project id and config path are required")
+	}
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		f = &UserConfig{}
+	}
+	for i := range f.Projects {
+		if f.Projects[i].ID == projectID {
+			f.Projects[i].ConfigPath = configPath
+			return saveUserConfig(p, f)
+		}
+	}
+	f.Projects = append(f.Projects, ProjectConfig{ID: projectID, ConfigPath: configPath})
+	return saveUserConfig(p, f)
+}
+
+// WriteCloudLogin writes BeaconInfra API credentials and enables cloud reporting.
+// If cloudURL is empty, the compile-time default URL is used (not environment variables).
+func WriteCloudLogin(apiKey, deviceName, cloudURL string) error {
 	key := strings.TrimSpace(apiKey)
 	if key == "" {
-		return errors.New("api_key is required (--api-key or BEACON_API_KEY)")
+		return errors.New("api_key is required")
 	}
 	name := strings.TrimSpace(deviceName)
 	if name == "" {
@@ -90,13 +167,9 @@ func WriteUserInit(apiKey, deviceName, cloudURL string) error {
 	}
 	url := strings.TrimSpace(cloudURL)
 	if url == "" {
-		url = strings.TrimSpace(os.Getenv("BEACON_CLOUD_URL"))
-	}
-	if url == "" {
-		url = strings.TrimSpace(os.Getenv("BEACON_SERVER_URL"))
-	}
-	if url == "" {
-		url = "https://beaconinfra.dev/api"
+		url = cloud.BeaconInfraAPIBase()
+	} else {
+		url = strings.TrimSuffix(url, "/")
 	}
 
 	p, err := UserConfigPath()
@@ -117,6 +190,25 @@ func WriteUserInit(apiKey, deviceName, cloudURL string) error {
 		f.HeartbeatInterval = 30
 	}
 	f.CloudReportingEnabled = true
+	return saveUserConfig(p, f)
+}
+
+// WriteCloudLogout clears cloud credentials and disables reporting.
+func WriteCloudLogout() error {
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		f = &UserConfig{}
+	}
+	f.APIKey = ""
+	f.CloudURL = ""
+	f.CloudReportingEnabled = false
 	return saveUserConfig(p, f)
 }
 

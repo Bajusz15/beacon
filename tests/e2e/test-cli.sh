@@ -121,6 +121,71 @@ check_prerequisites() {
     log_success "Prerequisites check passed"
 }
 
+# Local-first init: no API key, matches README "Phase A"
+test_canonical_local_flow() {
+    log_info "Testing canonical local-first init (beacon init)..."
+    export HOME="$HOME_DIR"
+    mkdir -p "$HOME/.beacon"
+    rm -f "$HOME/.beacon/config.yaml"
+
+    if ! beacon init --name "e2e-local-device"; then
+        log_error "beacon init failed"
+        exit 1
+    fi
+    if ! grep -q "cloud_reporting_enabled: false" "$HOME/.beacon/config.yaml"; then
+        log_error "Expected cloud_reporting_enabled: false in ~/.beacon/config.yaml"
+        cat "$HOME/.beacon/config.yaml" 2>/dev/null || true
+        exit 1
+    fi
+    if ! beacon config show 2>/dev/null | grep -q "device_name: e2e-local-device"; then
+        log_error "beacon config show did not list expected device_name"
+        beacon config show || true
+        exit 1
+    fi
+    log_success "Canonical local-first init OK"
+}
+
+# Cloud credentials: login enables reporting; logout clears key and disables reporting
+test_cloud_login_logout() {
+    log_info "Testing beacon cloud login / cloud logout..."
+    export HOME="$HOME_DIR"
+    mkdir -p "$HOME/.beacon"
+    rm -f "$HOME/.beacon/config.yaml"
+
+    if ! beacon init --name "e2e-cloud-device"; then
+        log_error "beacon init failed (cloud flow)"
+        exit 1
+    fi
+    if ! beacon cloud login --api-key "usr_e2e_fake" --cloud-url "https://e2e.example.com/api" --name "e2e-cloud-device"; then
+        log_error "beacon cloud login failed"
+        exit 1
+    fi
+    if ! grep -q "cloud_reporting_enabled: true" "$HOME/.beacon/config.yaml"; then
+        log_error "Expected cloud_reporting_enabled: true after cloud login"
+        cat "$HOME/.beacon/config.yaml" 2>/dev/null || true
+        exit 1
+    fi
+    if ! grep -q "usr_e2e_fake" "$HOME/.beacon/config.yaml"; then
+        log_error "Expected api_key in config after cloud login"
+        exit 1
+    fi
+    if ! beacon cloud logout; then
+        log_error "beacon cloud logout failed"
+        exit 1
+    fi
+    if ! grep -q "cloud_reporting_enabled: false" "$HOME/.beacon/config.yaml"; then
+        log_error "Expected cloud_reporting_enabled: false after cloud logout"
+        cat "$HOME/.beacon/config.yaml" 2>/dev/null || true
+        exit 1
+    fi
+    if ! beacon config show 2>/dev/null | grep -q "api_key: (not set)"; then
+        log_error "beacon config show should report api_key not set after logout"
+        beacon config show || true
+        exit 1
+    fi
+    log_success "beacon cloud login / cloud logout OK"
+}
+
 # Create mock Git repository (local bare repo)
 create_mock_git_repo() {
     log_info "Setting up mock Git repository..."
@@ -1004,6 +1069,8 @@ main() {
     
     # Run test steps
     check_prerequisites
+    test_canonical_local_flow
+    test_cloud_login_logout
     create_mock_git_repo
     start_git_http_server
     test_wizard
