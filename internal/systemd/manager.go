@@ -244,13 +244,14 @@ Description={{.Description}}
 After=network.target
 
 [Service]
-EnvironmentFile={{.EnvironmentFile}}
-Type=simple
+{{if .EnvironmentFile}}EnvironmentFile={{.EnvironmentFile}}
+{{end}}Type=simple
 ExecStart={{.ExecStart}}
 WorkingDirectory={{.WorkingDir}}
+{{if .User}}User={{.User}}
+{{end}}Environment=HOME={{.HomeDir}}
 Restart=always
 RestartSec={{.RestartSec}}
-{{if .User}}User={{.User}}{{end}}
 
 # Logging
 StandardOutput=journal
@@ -265,13 +266,17 @@ StandardError=journal
 		return "", err
 	}
 
+	homeDir, _ := os.UserHomeDir()
+
 	var buf strings.Builder
 	err = t.Execute(&buf, struct {
 		*ServiceConfig
 		ServiceType ServiceType
+		HomeDir     string
 	}{
 		ServiceConfig: config,
 		ServiceType:   sm.serviceType,
+		HomeDir:       homeDir,
 	})
 
 	return buf.String(), err
@@ -326,6 +331,7 @@ func (sm *ServiceManager) generateMasterServiceContent(execStart, workingDir str
 		wantedBy = "multi-user.target"
 	}
 	// systemd requires absolute paths; WorkingDirectory must exist for the user running the service.
+	// --foreground is required because beacon master daemonizes by default, but systemd manages the lifecycle.
 	return fmt.Sprintf(`[Unit]
 Description=Beacon master agent (cloud health reporting, project-independent)
 After=network-online.target
@@ -333,8 +339,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%s
+ExecStart=%s --foreground
 WorkingDirectory=%s
+Environment=HOME=%s
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -342,7 +349,7 @@ StandardError=journal
 
 [Install]
 WantedBy=%s
-`, execStart, workingDir, wantedBy)
+`, execStart, workingDir, workingDir, wantedBy)
 }
 
 // EnableMasterService enables beacon-master.service.

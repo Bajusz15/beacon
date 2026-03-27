@@ -1,23 +1,34 @@
+# Example systemd service template for Beacon project agents.
+#
+# DO NOT install this file directly — beacon bootstrap generates per-project
+# service files with the correct absolute paths for WorkingDirectory,
+# EnvironmentFile, and HOME.
+#
+# This file is a reference only. To set up a project:
+#   beacon bootstrap
+#
+# Or to create a master service:
+#   beacon cloud login --api-key usr_xxx
+#   beacon master  (will daemonize automatically)
+
 [Unit]
-Description=Beacon Agent for %i - Lightweight deployment and reporting for IoT
+Description=Beacon Agent for %i - Lightweight deployment and monitoring
 After=network.target
 
 [Service]
-EnvironmentFile=/etc/beacon/projects/%i/env
+# These paths must be absolute — edit to match your setup.
+# EnvironmentFile=/home/youruser/.beacon/config/projects/%i/env
 Type=simple
-ExecStart=/usr/local/bin/beacon
-# WorkingDirectory should be set to the root of your project directory.
-# This directory must exist before the service starts.
-# You can set this to an environment variable if desired, e.g.:
-# WorkingDirectory=%h/beacon/%i or same as ${BEACON_LOCAL_PATH}
-WorkingDirectory=%h/beacon/%i
+ExecStart=/usr/local/bin/beacon deploy
+# WorkingDirectory=/home/youruser/projects/%i
 Restart=always
 RestartSec=5
-User=pi
 
-# Logging
+# Critical: HOME must be set for beacon to find ~/.beacon/config.yaml
+# Environment=HOME=/home/youruser
+
 StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=multi-user.target 
+WantedBy=multi-user.target

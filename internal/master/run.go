@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"beacon/internal/identity"
+	"beacon/internal/tunnel"
 	"beacon/internal/version"
 )
 
@@ -107,6 +108,24 @@ func Run(ctx context.Context) {
 		pm.SpawnAll(uc.Projects)
 	}
 
+	// Start tunnel goroutines for enabled tunnels
+	var tm *tunnel.TunnelManager
+	if uc != nil && len(uc.Tunnels) > 0 && uc.CloudReportingEnabled && strings.TrimSpace(uc.APIKey) != "" {
+		var tmErr error
+		tm, tmErr = tunnel.NewTunnelManager(ctx)
+		if tmErr != nil {
+			log.Printf("[Beacon master] Failed to create tunnel manager: %v", tmErr)
+		} else {
+			name := strings.TrimSpace(uc.DeviceName)
+			if name == "" {
+				name = getHostname()
+			}
+			tm.StartAll(uc.Tunnels, uc.EffectiveCloudAPIBase(), strings.TrimSpace(uc.APIKey), name)
+			log.Printf("[Beacon master] Started %d tunnel(s)", len(uc.Tunnels))
+		}
+	}
+	statusCache.SetTunnelManager(tm)
+
 	dispatcher := NewCommandDispatcher(pm)
 
 	ticker := time.NewTicker(interval)
@@ -130,6 +149,9 @@ func Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			log.Printf("[Beacon master] Stopping")
+			if tm != nil {
+				tm.Shutdown()
+			}
 			if pm != nil {
 				pm.Shutdown()
 			}

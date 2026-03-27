@@ -356,6 +356,34 @@ func renderStatus(snap *master.StatusSnapshot, noColor bool, port int) {
 		fmt.Println()
 	}
 
+	// TUNNELS
+	tunnels := snap.Tunnels
+	if len(tunnels) > 0 {
+		fmt.Printf("%sTUNNELS%s\n", c(noColor, colorMuted), c(noColor, colorReset))
+		fmt.Println()
+		for _, t := range tunnels {
+			dot := statusDot("unknown", noColor)
+			nameColor := colorWhite
+			switch t.Status {
+			case "connected":
+				dot = c(noColor, colorTeal) + "●" + c(noColor, colorReset)
+			case "reconnecting":
+				dot = c(noColor, colorAmber) + "◐" + c(noColor, colorReset)
+				nameColor = colorAmber
+			case "failed":
+				dot = c(noColor, colorRed) + "✕" + c(noColor, colorReset)
+				nameColor = colorRed
+			}
+			fmt.Printf("  %s %s%-20s%s %slocalhost:%d%s  %s%s%s\n",
+				dot,
+				c(noColor, nameColor), t.ID, c(noColor, colorReset),
+				c(noColor, colorSubtle), t.LocalPort, c(noColor, colorReset),
+				c(noColor, colorBody), t.Status, c(noColor, colorReset),
+			)
+		}
+		fmt.Println()
+	}
+
 	// RECENT EVENTS
 	events := snap.Events
 	if len(events) > 0 {

@@ -25,6 +25,7 @@ type UserConfig struct {
 	MetricsPort           int             `yaml:"metrics_port,omitempty"`
 	MetricsListenAddr     string          `yaml:"metrics_listen_addr,omitempty"` // default "127.0.0.1"; set "0.0.0.0" for Docker
 	Projects              []ProjectConfig `yaml:"projects,omitempty"`
+	Tunnels               []TunnelConfig  `yaml:"tunnels,omitempty"`
 }
 
 // ProjectConfig defines a project that the master will spawn a child agent for.
@@ -34,6 +35,14 @@ type ProjectConfig struct {
 	// Enabled is tri-state:
 	// nil => omitted in YAML (default: true)
 	// true/false => explicitly set.
+	Enabled *bool `yaml:"enabled,omitempty"`
+}
+
+// TunnelConfig defines a tunnel that the master will manage as a goroutine.
+type TunnelConfig struct {
+	ID        string `yaml:"id"`
+	LocalPort int    `yaml:"local_port"`
+	// Enabled is tri-state: nil => omitted in YAML (default: true), true/false => explicitly set.
 	Enabled *bool `yaml:"enabled,omitempty"`
 }
 
@@ -148,6 +157,89 @@ func AppendProjectIfMissing(projectID, configPath string) error {
 	}
 	f.Projects = append(f.Projects, ProjectConfig{ID: projectID, ConfigPath: configPath})
 	return saveUserConfig(p, f)
+}
+
+// AppendTunnelIfMissing adds or updates a tunnel entry in ~/.beacon/config.yaml.
+func AppendTunnelIfMissing(tunnelID string, localPort int) error {
+	tunnelID = strings.TrimSpace(tunnelID)
+	if tunnelID == "" {
+		return errors.New("tunnel id is required")
+	}
+	if localPort <= 0 || localPort > 65535 {
+		return errors.New("local_port must be between 1 and 65535")
+	}
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		f = &UserConfig{}
+	}
+	for i := range f.Tunnels {
+		if f.Tunnels[i].ID == tunnelID {
+			f.Tunnels[i].LocalPort = localPort
+			return saveUserConfig(p, f)
+		}
+	}
+	f.Tunnels = append(f.Tunnels, TunnelConfig{ID: tunnelID, LocalPort: localPort})
+	return saveUserConfig(p, f)
+}
+
+// RemoveTunnel removes a tunnel entry from ~/.beacon/config.yaml.
+func RemoveTunnel(tunnelID string) error {
+	tunnelID = strings.TrimSpace(tunnelID)
+	if tunnelID == "" {
+		return errors.New("tunnel id is required")
+	}
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		return nil
+	}
+	filtered := f.Tunnels[:0]
+	for _, t := range f.Tunnels {
+		if t.ID != tunnelID {
+			filtered = append(filtered, t)
+		}
+	}
+	f.Tunnels = filtered
+	return saveUserConfig(p, f)
+}
+
+// SetTunnelEnabled enables or disables a tunnel in ~/.beacon/config.yaml.
+func SetTunnelEnabled(tunnelID string, enabled bool) error {
+	tunnelID = strings.TrimSpace(tunnelID)
+	if tunnelID == "" {
+		return errors.New("tunnel id is required")
+	}
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		return fmt.Errorf("tunnel %q not found", tunnelID)
+	}
+	for i := range f.Tunnels {
+		if f.Tunnels[i].ID == tunnelID {
+			f.Tunnels[i].Enabled = &enabled
+			return saveUserConfig(p, f)
+		}
+	}
+	return fmt.Errorf("tunnel %q not found", tunnelID)
 }
 
 // WriteCloudLogin writes BeaconInfra API credentials and enables cloud reporting.

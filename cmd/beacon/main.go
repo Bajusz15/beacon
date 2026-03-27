@@ -272,14 +272,53 @@ Environment: BEACON_DEVICE_NAME for default device name when --name is omitted.`
 
 var masterCmd = &cobra.Command{
 	Use:   "master",
-	Short: "Run the machine-wide cloud reporter (foreground)",
-	Long: `Runs independently of any project. Reads ~/.beacon/config.yaml.
+	Short: "Start the master agent (detaches to background by default)",
+	Long: `Reads ~/.beacon/config.yaml, spawns child agents for projects and tunnels,
+serves a local dashboard, and sends heartbeats to BeaconInfra cloud.
 
-When cloud_reporting_enabled is true and an api_key is set (via beacon cloud login),
-sends POST /agent/heartbeat every heartbeat_interval (default 60s if unset). API base URL defaults to the compile-time BeaconInfra URL unless overridden in config.
-
-Typical install: beacon bootstrap creates beacon-master.service; it runs this command in the background.`,
+By default the process detaches from the terminal. Use --foreground to keep it
+in the foreground (useful for systemd, Docker, or debugging).`,
 	Run: func(cmd *cobra.Command, args []string) {
+		foreground, _ := cmd.Flags().GetBool("foreground")
+
+		if !foreground {
+			// Re-exec ourselves with --foreground in a detached process
+			execPath, err := os.Executable()
+			if err != nil {
+				log.Fatalf("[Beacon] Cannot find executable: %v", err)
+			}
+
+			// Build args: beacon master --foreground (pass through any other flags)
+			childArgs := []string{"master", "--foreground"}
+
+			logPath := filepath.Join(os.Getenv("HOME"), ".beacon", "master.log")
+			if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+				log.Fatalf("[Beacon] Cannot create log dir: %v", err)
+			}
+			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err != nil {
+				log.Fatalf("[Beacon] Cannot open log file %s: %v", logPath, err)
+			}
+
+			proc := &os.ProcAttr{
+				Dir:   "/",
+				Env:   os.Environ(),
+				Files: []*os.File{os.Stdin, logFile, logFile},
+				Sys:   daemonSysProcAttr(),
+			}
+			p, err := os.StartProcess(execPath, append([]string{execPath}, childArgs...), proc)
+			if err != nil {
+				log.Fatalf("[Beacon] Failed to start background process: %v", err)
+			}
+			_ = logFile.Close()
+			_ = p.Release()
+
+			fmt.Printf("Beacon master started (pid %d)\n", p.Pid)
+			fmt.Printf("Logs: %s\n", logPath)
+			fmt.Printf("Dashboard: http://127.0.0.1:9100\n")
+			return
+		}
+
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		master.Run(ctx)
@@ -305,6 +344,8 @@ The configuration file should contain device info, checks, and alert rules.`,
 
 func init() {
 	monitorCmd.Flags().StringP("config", "f", "", "Path to configuration file")
+
+	masterCmd.Flags().Bool("foreground", false, "Run in the foreground (don't detach)")
 
 	initAgentCmd.Flags().Int("metrics-port", 0, "Metrics/dashboard port (0 = leave unchanged)")
 	initAgentCmd.Flags().String("name", "", "Device name (BEACON_DEVICE_NAME; default: hostname)")
@@ -377,6 +418,7 @@ func main() {
 	rootCmd.AddCommand(createMCPCommand())
 	rootCmd.AddCommand(createConfigCommand())
 	rootCmd.AddCommand(createCloudCommand())
+	rootCmd.AddCommand(createTunnelCommand())
 
 	// If no subcommand is provided, run in deploy mode
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {
