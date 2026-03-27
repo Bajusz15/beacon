@@ -125,15 +125,15 @@ func TestWriteCloudLogin_usesHostnameWhenNoDeviceName(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	hostname, err := os.Hostname()
-	require.NoError(t, err)
+	expected := DetectHostname()
+	require.NotEmpty(t, expected, "DetectHostname must resolve for this test")
 
-	err = WriteCloudLogin("usr_key", "")
+	err := WriteCloudLogin("usr_key", "")
 	require.NoError(t, err)
 
 	loaded, err := LoadUserConfig()
 	require.NoError(t, err)
-	require.Equal(t, hostname, loaded.DeviceName)
+	require.Equal(t, expected, loaded.DeviceName)
 }
 
 func TestWriteCloudLogout_clearsKeyAndDisablesReporting(t *testing.T) {

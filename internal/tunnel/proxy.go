@@ -13,7 +13,28 @@ import (
 
 // ProxyHTTPRequest forwards an HTTP request message to a local service and returns the response message.
 func ProxyHTTPRequest(localPort int, msg *Message) (*Message, error) {
-	url := fmt.Sprintf("http://127.0.0.1:%d%s", localPort, msg.Path)
+	method := strings.TrimSpace(msg.Method)
+	if method == "" {
+		method = http.MethodGet
+	}
+	if !validHTTPMethod(method) {
+		return &Message{
+			Type:      MsgHTTPResponse,
+			RequestID: msg.RequestID,
+			Status:    502,
+			Error:     "unsupported HTTP method",
+		}, nil
+	}
+
+	target, err := buildLoopbackURL("http", localPort, msg.Path)
+	if err != nil {
+		return &Message{
+			Type:      MsgHTTPResponse,
+			RequestID: msg.RequestID,
+			Status:    502,
+			Error:     "invalid request path",
+		}, nil
+	}
 
 	var bodyReader io.Reader
 	if msg.Body != "" {
@@ -29,14 +50,18 @@ func ProxyHTTPRequest(localPort int, msg *Message) (*Message, error) {
 		bodyReader = strings.NewReader(string(decoded))
 	}
 
-	req, err := http.NewRequest(msg.Method, url, bodyReader)
-	if err != nil {
-		return &Message{
-			Type:      MsgHTTPResponse,
-			RequestID: msg.RequestID,
-			Status:    502,
-			Error:     fmt.Sprintf("create request: %v", err),
-		}, nil
+	var reqBody io.ReadCloser
+	if bodyReader != nil {
+		reqBody = io.NopCloser(bodyReader)
+	}
+	req := &http.Request{
+		Method:     method,
+		URL:        target,
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Header:     make(http.Header),
+		Body:       reqBody,
 	}
 
 	for k, v := range msg.Headers {
@@ -87,7 +112,10 @@ func ProxyHTTPRequest(localPort int, msg *Message) (*Message, error) {
 
 // ProxyWSOpen dials a local WebSocket and returns the connection.
 func ProxyWSOpen(ctx context.Context, localPort int, path string, headers map[string]string) (*websocket.Conn, error) {
-	url := fmt.Sprintf("ws://127.0.0.1:%d%s", localPort, path)
+	target, err := buildLoopbackURL("ws", localPort, path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ws path: %w", err)
+	}
 
 	reqHeaders := http.Header{}
 	for k, v := range headers {
@@ -100,9 +128,9 @@ func ProxyWSOpen(ctx context.Context, localPort int, path string, headers map[st
 	}
 
 	dialer := websocket.Dialer{}
-	conn, _, err := dialer.DialContext(ctx, url, reqHeaders)
+	conn, _, err := dialer.DialContext(ctx, target.String(), reqHeaders)
 	if err != nil {
-		return nil, fmt.Errorf("dial local ws %s: %w", url, err)
+		return nil, fmt.Errorf("dial local ws %s: %w", target.String(), err)
 	}
 	return conn, nil
 }

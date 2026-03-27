@@ -52,10 +52,10 @@ The tunnel will be active next time the master agent starts.`,
 	}
 
 	listCmd := &cobra.Command{
-		Use:   "list",
-		Short: "List configured tunnels",
+		Use:     "list",
+		Short:   "List configured tunnels",
 		Aliases: []string{"ls"},
-		Run:  runTunnelList,
+		Run:     runTunnelList,
 	}
 
 	enableCmd := &cobra.Command{
@@ -111,7 +111,7 @@ func runTunnelList(cmd *cobra.Command, args []string) {
 	liveStatus := fetchTunnelStatus()
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tPORT\tENABLED\tSTATUS")
+	_, _ = fmt.Fprintln(w, "ID\tPORT\tENABLED\tSTATUS")
 	for _, t := range cfg.Tunnels {
 		enabled := "true"
 		if t.Enabled != nil && !*t.Enabled {
@@ -121,7 +121,7 @@ func runTunnelList(cmd *cobra.Command, args []string) {
 		if s, ok := liveStatus[t.ID]; ok {
 			status = s
 		}
-		fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", t.ID, t.LocalPort, enabled, status)
+		_, _ = fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", t.ID, t.LocalPort, enabled, status)
 	}
 	_ = w.Flush()
 }
