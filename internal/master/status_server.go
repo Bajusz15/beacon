@@ -120,10 +120,10 @@ func (s *StatusServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	metric("beacon_load_5m", "5-minute load average", "gauge", sys.Load5m)
 	metric("beacon_load_15m", "15-minute load average", "gauge", sys.Load15m)
 	metric("beacon_master_uptime_seconds", "Master process uptime in seconds", "counter", float64(snap.Master.UptimeSeconds))
-	metric("beacon_children_total", "Total number of child agents", "gauge", float64(len(snap.Children)))
-	metric("beacon_children_healthy", "Number of healthy child agents", "gauge", float64(healthy))
-	metric("beacon_children_degraded", "Number of degraded child agents", "gauge", float64(degraded))
-	metric("beacon_children_down", "Number of down child agents", "gauge", float64(down))
+	metric("beacon_projects_total", "Total number of managed projects", "gauge", float64(len(snap.Children)))
+	metric("beacon_projects_healthy", "Number of healthy projects", "gauge", float64(healthy))
+	metric("beacon_projects_degraded", "Number of degraded projects", "gauge", float64(degraded))
+	metric("beacon_projects_down", "Number of down projects", "gauge", float64(down))
 	if sys.TempCelsius > 0 {
 		metric("beacon_temperature_celsius", "CPU temperature in Celsius", "gauge", sys.TempCelsius)
 	}

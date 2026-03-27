@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"beacon/internal/cloud"
 	"beacon/internal/identity"
 	"beacon/internal/ipc"
 	"beacon/internal/tunnel"
@@ -37,7 +38,7 @@ type CheckSummary struct {
 	Details []CheckDetail `json:"details"`
 }
 
-// ChildStatus is one project child's view for /api/status.
+// ChildStatus is one project's view for /api/status.
 type ChildStatus struct {
 	Name       string       `json:"name"`
 	Version    string       `json:"version,omitempty"`
@@ -69,7 +70,7 @@ type StatusSnapshot struct {
 	Master   MasterInfo         `json:"master"`
 	Device   DeviceInfo         `json:"device"`
 	System   DeviceMetrics      `json:"system"`
-	Children []ChildStatus      `json:"children"`
+	Children []ChildStatus      `json:"projects"`
 	Tunnels  []TunnelStatusInfo `json:"tunnels,omitempty"`
 	Events   []Event            `json:"events"`
 	Cloud    CloudStatus        `json:"cloud"`
@@ -136,8 +137,8 @@ func (sc *StatusCache) Refresh() {
 	// Preserve cloud sync state and apply config
 	sc.mu.Lock()
 	snap.Cloud = sc.snapshot.Cloud
-	if sc.cfg != nil && sc.cfg.CloudURL != "" {
-		snap.Cloud.Endpoint = sc.cfg.CloudURL
+	if sc.cfg != nil && sc.cfg.CloudReportingEnabled {
+		snap.Cloud.Endpoint = cloud.BeaconInfraAPIBase()
 	}
 	sc.snapshot = snap
 	sc.mu.Unlock()
@@ -170,8 +171,8 @@ func (sc *StatusCache) UpdateConfig(cfg *identity.UserConfig) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	sc.cfg = cfg
-	if cfg != nil && cfg.CloudURL != "" {
-		sc.snapshot.Cloud.Endpoint = cfg.CloudURL
+	if cfg != nil && cfg.CloudReportingEnabled {
+		sc.snapshot.Cloud.Endpoint = cloud.BeaconInfraAPIBase()
 	}
 }
 

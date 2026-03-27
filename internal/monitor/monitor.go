@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"beacon/internal/cloud"
 	"beacon/internal/config"
 	"beacon/internal/deploy"
 	"beacon/internal/errors"
@@ -383,8 +384,8 @@ func applyUserConfigToMonitorConfig(cfg *Config, uc *identity.UserConfig) {
 	if cfg == nil || uc == nil {
 		return
 	}
-	if cfg.Report.SendTo == "" && strings.TrimSpace(uc.CloudURL) != "" {
-		cfg.Report.SendTo = strings.TrimSpace(uc.CloudURL)
+	if cfg.Report.SendTo == "" && uc.CloudReportingEnabled {
+		cfg.Report.SendTo = cloud.BeaconInfraAPIBase()
 	}
 	if strings.TrimSpace(cfg.Device.Name) == "" && strings.TrimSpace(uc.DeviceName) != "" {
 		cfg.Device.Name = strings.TrimSpace(uc.DeviceName)

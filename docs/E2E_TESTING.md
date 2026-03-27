@@ -56,7 +56,7 @@ The expect script watches for prompts and sends responses, simulating a user typ
 
 1. **Prerequisites Check** - Verify beacon, git, expect are available
 2. **Canonical local init** - `beacon init`, `beacon config show`, assert `cloud_reporting_enabled: false` in config
-3. **Cloud login / logout** - `beacon cloud login --api-key … --cloud-url …`, then `beacon cloud logout`; assert reporting off and no API key in `beacon config show`
+3. **Cloud login / logout** - `beacon cloud login --api-key …`, then `beacon cloud logout`; assert reporting off and no API key in `beacon config show` (cloud URL is compile-time only)
 4. **Create Mock Git Repo** - Set up bare Git repository with initial content
 5. **Start Git HTTP Server** - Serve repo over HTTP on port 8080
 6. **Test Wizard** - Use expect to automate wizard, verify generated files (optional if expect prompts drift)

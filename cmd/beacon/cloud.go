@@ -18,7 +18,7 @@ func createCloudCommand() *cobra.Command {
 		Use:   "login",
 		Short: "Save BeaconInfra API credentials (interactive or --api-key)",
 		Long: `Writes your API key to ~/.beacon/config.yaml and enables cloud heartbeats.
-The API base URL is baked into this binary (see "beacon config show") unless you pass --cloud-url for a self-hosted backend.
+The API base URL is baked into this binary at compile time (see "beacon config show").
 
 Get an API key at https://beaconinfra.dev (Settings → API Keys).
 
@@ -29,7 +29,6 @@ Or: BEACON_API_KEY=usr_... beacon cloud login`,
 	loginCmd.Flags().String("api-key", "", "User API key (non-interactive); else BEACON_API_KEY")
 	loginCmd.Flags().String("name", "", "Device name (default: hostname)")
 	loginCmd.Flags().String("device-name", "", "Alias for --name")
-	loginCmd.Flags().String("cloud-url", "", "Override API base URL (self-hosted); default is compile-time production URL")
 
 	logoutCmd := &cobra.Command{
 		Use:   "logout",
@@ -82,9 +81,7 @@ func runCloudLogin(cmd *cobra.Command, args []string) {
 		name = strings.TrimSpace(os.Getenv("BEACON_DEVICE_NAME"))
 	}
 
-	cloudURL, _ := cmd.Flags().GetString("cloud-url")
-
-	if err := identity.WriteCloudLogin(apiKey, name, cloudURL); err != nil {
+	if err := identity.WriteCloudLogin(apiKey, name); err != nil {
 		log.Fatalf("beacon cloud login: %v", err)
 	}
 	p, err := identity.UserConfigPath()

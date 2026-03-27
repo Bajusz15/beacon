@@ -11,10 +11,19 @@ import (
 	"testing"
 	"time"
 
+	"beacon/internal/cloud"
 	"beacon/internal/identity"
 
 	"github.com/stretchr/testify/require"
 )
+
+// setTestCloudURL overrides the compile-time cloud URL for the duration of a test.
+func setTestCloudURL(t *testing.T, url string) {
+	t.Helper()
+	old := cloud.DefaultBeaconInfraAPIURL
+	cloud.DefaultBeaconInfraAPIURL = url
+	t.Cleanup(func() { cloud.DefaultBeaconInfraAPIURL = old })
+}
 
 func TestGetHostname(t *testing.T) {
 	hostname := getHostname()
@@ -93,9 +102,10 @@ func TestSendCloudHeartbeat_success(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
+	setTestCloudURL(t, server.URL)
+
 	cfg := &identity.UserConfig{
-		APIKey:   "usr_test_api_key",
-		CloudURL: server.URL,
+		APIKey: "usr_test_api_key",
 	}
 
 	ctx := context.Background()
@@ -123,9 +133,10 @@ func TestSendCloudHeartbeat_savesDeviceID(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
+	setTestCloudURL(t, server.URL)
+
 	cfg := &identity.UserConfig{
 		APIKey:   "usr_test_key",
-		CloudURL: server.URL,
 		DeviceID: "", // initially empty
 	}
 	require.NoError(t, cfg.Save())
@@ -150,9 +161,10 @@ func TestSendCloudHeartbeat_httpError(t *testing.T) {
 	}))
 	defer server.Close()
 
+	setTestCloudURL(t, server.URL)
+
 	cfg := &identity.UserConfig{
-		APIKey:   "invalid_key",
-		CloudURL: server.URL,
+		APIKey: "invalid_key",
 	}
 
 	ctx := context.Background()
@@ -162,9 +174,10 @@ func TestSendCloudHeartbeat_httpError(t *testing.T) {
 }
 
 func TestSendCloudHeartbeat_networkError(t *testing.T) {
+	setTestCloudURL(t, "http://localhost:59999") // unlikely to be listening
+
 	cfg := &identity.UserConfig{
-		APIKey:   "key",
-		CloudURL: "http://localhost:59999", // unlikely to be listening
+		APIKey: "key",
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -183,7 +196,6 @@ func TestRun_withDisabledCloudReporting(t *testing.T) {
 	// Create config with cloud reporting disabled
 	cfg := &identity.UserConfig{
 		APIKey:                "key",
-		CloudURL:              "http://localhost:9999",
 		CloudReportingEnabled: false,
 		HeartbeatInterval:     1, // 1 second for fast test
 	}
@@ -226,9 +238,10 @@ func TestRun_sendsHeartbeats(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
+	setTestCloudURL(t, server.URL)
+
 	cfg := &identity.UserConfig{
 		APIKey:                "usr_key",
-		CloudURL:              server.URL,
 		DeviceName:            "test-device",
 		CloudReportingEnabled: true,
 		HeartbeatInterval:     1, // 1 second
@@ -322,10 +335,11 @@ func TestRun_reloadsConfigOnTick(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
+	setTestCloudURL(t, server.URL)
+
 	// Start with cloud reporting disabled
 	cfg := &identity.UserConfig{
 		APIKey:                "usr_key",
-		CloudURL:              server.URL,
 		DeviceName:            "test-device",
 		CloudReportingEnabled: false,
 		HeartbeatInterval:     1,
@@ -370,9 +384,10 @@ func TestHeartbeatRequest_includesSystemInfo(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
+	setTestCloudURL(t, server.URL)
+
 	cfg := &identity.UserConfig{
-		APIKey:   "key",
-		CloudURL: server.URL,
+		APIKey: "key",
 	}
 
 	ctx := context.Background()

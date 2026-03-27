@@ -68,7 +68,7 @@ func (pm *ProcessManager) SpawnAll(projects []identity.ProjectConfig) {
 		}
 
 		if err := pm.Spawn(project); err != nil {
-			log.Printf("[Beacon master] Failed to spawn child for %s: %v", project.ID, err)
+			log.Printf("[Beacon master] Failed to start project %s: %v", project.ID, err)
 		}
 	}
 }
@@ -119,7 +119,7 @@ func (pm *ProcessManager) Spawn(project identity.ProjectConfig) error {
 	pm.wg.Add(1)
 	go pm.watchChild(child)
 
-	log.Printf("[Beacon master] Spawned child for project %s (PID %d)", project.ID, child.Cmd.Process.Pid)
+	log.Printf("[Beacon master] Started project %s (PID %d)", project.ID, child.Cmd.Process.Pid)
 	return nil
 }
 
@@ -162,7 +162,7 @@ func (pm *ProcessManager) watchChild(child *ChildProcess) {
 		// Check if we're shutting down
 		select {
 		case <-pm.ctx.Done():
-			log.Printf("[Beacon master] Child %s exited during shutdown", child.ProjectID)
+			log.Printf("[Beacon master] Project %s exited during shutdown", child.ProjectID)
 			return
 		default:
 		}
@@ -172,13 +172,13 @@ func (pm *ProcessManager) watchChild(child *ChildProcess) {
 		if child.Cmd.ProcessState != nil {
 			exitCode = child.Cmd.ProcessState.ExitCode()
 		}
-		log.Printf("[Beacon master] Child %s exited (code=%d, err=%v)", child.ProjectID, exitCode, err)
+		log.Printf("[Beacon master] Project %s exited (code=%d, err=%v)", child.ProjectID, exitCode, err)
 
 		pm.mu.Lock()
 		child.Restarts++
 
 		if child.Restarts > maxRestarts {
-			log.Printf("[Beacon master] Child %s exceeded max restarts (%d), giving up", child.ProjectID, maxRestarts)
+			log.Printf("[Beacon master] Project %s exceeded max restarts (%d), giving up", child.ProjectID, maxRestarts)
 			child.Failed = true
 			pm.mu.Unlock()
 			return
@@ -191,7 +191,7 @@ func (pm *ProcessManager) watchChild(child *ChildProcess) {
 		}
 		pm.mu.Unlock()
 
-		log.Printf("[Beacon master] Restarting child %s in %v (attempt %d/%d)", child.ProjectID, backoff, child.Restarts, maxRestarts)
+		log.Printf("[Beacon master] Restarting project %s in %v (attempt %d/%d)", child.ProjectID, backoff, child.Restarts, maxRestarts)
 
 		// Wait for backoff
 		select {
@@ -203,12 +203,12 @@ func (pm *ProcessManager) watchChild(child *ChildProcess) {
 		// Respawn
 		pm.mu.Lock()
 		if err := pm.spawnChild(child); err != nil {
-			log.Printf("[Beacon master] Failed to respawn child %s: %v", child.ProjectID, err)
+			log.Printf("[Beacon master] Failed to restart project %s: %v", child.ProjectID, err)
 			child.Failed = true
 			pm.mu.Unlock()
 			return
 		}
-		log.Printf("[Beacon master] Respawned child %s (PID %d)", child.ProjectID, child.Cmd.Process.Pid)
+		log.Printf("[Beacon master] Restarted project %s (PID %d)", child.ProjectID, child.Cmd.Process.Pid)
 		pm.mu.Unlock()
 
 		if pm.eventLog != nil {
@@ -216,7 +216,7 @@ func (pm *ProcessManager) watchChild(child *ChildProcess) {
 				Timestamp: time.Now(),
 				Type:      EventRestart,
 				Child:     child.ProjectID,
-				Message:   fmt.Sprintf("child restarted (attempt %d)", child.Restarts),
+				Message:   fmt.Sprintf("project restarted (attempt %d)", child.Restarts),
 			})
 		}
 	}
@@ -224,7 +224,7 @@ func (pm *ProcessManager) watchChild(child *ChildProcess) {
 
 // Shutdown gracefully stops all child processes.
 func (pm *ProcessManager) Shutdown() {
-	log.Printf("[Beacon master] Stopping all children...")
+	log.Printf("[Beacon master] Stopping all projects...")
 
 	// Cancel context to stop respawn attempts
 	pm.cancel()
@@ -240,7 +240,7 @@ func (pm *ProcessManager) Shutdown() {
 
 	// Send SIGTERM to all children
 	for _, child := range children {
-		log.Printf("[Beacon master] Sending SIGTERM to child %s (PID %d)", child.ProjectID, child.Cmd.Process.Pid)
+		log.Printf("[Beacon master] Stopping project %s (PID %d)", child.ProjectID, child.Cmd.Process.Pid)
 		_ = child.Cmd.Process.Signal(os.Interrupt)
 	}
 
@@ -253,9 +253,9 @@ func (pm *ProcessManager) Shutdown() {
 
 	select {
 	case <-done:
-		log.Printf("[Beacon master] All children stopped gracefully")
+		log.Printf("[Beacon master] All projects stopped gracefully")
 	case <-time.After(shutdownWait):
-		log.Printf("[Beacon master] Timeout waiting for children, sending SIGKILL")
+		log.Printf("[Beacon master] Timeout waiting for projects to stop, forcing shutdown")
 		for _, child := range children {
 			if child.Cmd.ProcessState == nil {
 				_ = child.Cmd.Process.Kill()

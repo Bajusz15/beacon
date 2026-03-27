@@ -41,7 +41,7 @@ var rootCmd = &cobra.Command{
 
   beacon init      write local ~/.beacon/config.yaml (no network)
   beacon cloud login  save BeaconInfra API key (after local setup)
-  beacon master    start the master agent — spawns child agents, local dashboard
+  beacon master    start the master agent — manages projects, tunnels, local dashboard
   beacon bootstrap set up a new project (interactive or from a config file)
   beacon monitor   run a single project's health checks (dev/debug)
   beacon deploy    poll a Git repo for new tags and deploy
@@ -273,7 +273,7 @@ Environment: BEACON_DEVICE_NAME for default device name when --name is omitted.`
 var masterCmd = &cobra.Command{
 	Use:   "master",
 	Short: "Start the master agent (detaches to background by default)",
-	Long: `Reads ~/.beacon/config.yaml, spawns child agents for projects and tunnels,
+	Long: `Reads ~/.beacon/config.yaml, manages project agents and tunnel connections,
 serves a local dashboard, and sends heartbeats to BeaconInfra cloud.
 
 By default the process detaches from the terminal. Use --foreground to keep it

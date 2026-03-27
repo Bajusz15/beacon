@@ -18,7 +18,6 @@ import (
 type UserConfig struct {
 	APIKey                string          `yaml:"api_key,omitempty"`
 	DeviceName            string          `yaml:"device_name,omitempty"`
-	CloudURL              string          `yaml:"cloud_url,omitempty"`
 	HeartbeatInterval     int             `yaml:"heartbeat_interval,omitempty"`
 	CloudReportingEnabled bool            `yaml:"cloud_reporting_enabled"`
 	DeviceID              string          `yaml:"device_id,omitempty"`
@@ -86,14 +85,11 @@ func (f *UserConfig) Save() error {
 	return saveUserConfig(p, f)
 }
 
-// EffectiveCloudAPIBase returns the API base URL for heartbeats: config cloud_url if set, else the
-// compile-time default (see beacon/internal/cloud).
+// EffectiveCloudAPIBase returns the compile-time API base URL for heartbeats.
+// The URL is baked into the binary and cannot be overridden at runtime (security).
 func (uc *UserConfig) EffectiveCloudAPIBase() string {
 	if uc == nil {
 		return ""
-	}
-	if s := strings.TrimSpace(uc.CloudURL); s != "" {
-		return strings.TrimSuffix(s, "/")
 	}
 	return cloud.BeaconInfraAPIBase()
 }
@@ -103,11 +99,10 @@ func (uc *UserConfig) EffectiveCloudAPIBase() string {
 func WriteUserLocalInit(deviceName string, metricsPort int) error {
 	name := strings.TrimSpace(deviceName)
 	if name == "" {
-		h, err := os.Hostname()
-		if err != nil || strings.TrimSpace(h) == "" {
+		name = DetectHostname()
+		if name == "" {
 			return errors.New("device name is required (--name) or hostname must be set")
 		}
-		name = strings.TrimSpace(h)
 	}
 	p, err := UserConfigPath()
 	if err != nil {
@@ -243,25 +238,12 @@ func SetTunnelEnabled(tunnelID string, enabled bool) error {
 }
 
 // WriteCloudLogin writes BeaconInfra API credentials and enables cloud reporting.
-// If cloudURL is empty, the compile-time default URL is used (not environment variables).
-func WriteCloudLogin(apiKey, deviceName, cloudURL string) error {
+// The cloud URL is baked into the binary at compile time and cannot be overridden.
+// If deviceName is empty and config already has a device_name, the existing name is preserved.
+func WriteCloudLogin(apiKey, deviceName string) error {
 	key := strings.TrimSpace(apiKey)
 	if key == "" {
 		return errors.New("api_key is required")
-	}
-	name := strings.TrimSpace(deviceName)
-	if name == "" {
-		h, err := os.Hostname()
-		if err != nil || strings.TrimSpace(h) == "" {
-			return errors.New("device name is required (--name) or hostname must be set")
-		}
-		name = strings.TrimSpace(h)
-	}
-	url := strings.TrimSpace(cloudURL)
-	if url == "" {
-		url = cloud.BeaconInfraAPIBase()
-	} else {
-		url = strings.TrimSuffix(url, "/")
 	}
 
 	p, err := UserConfigPath()
@@ -276,8 +258,19 @@ func WriteCloudLogin(apiKey, deviceName, cloudURL string) error {
 		f = &UserConfig{}
 	}
 	f.APIKey = key
-	f.DeviceName = name
-	f.CloudURL = url
+
+	// Only update device name if explicitly provided or not yet set
+	name := strings.TrimSpace(deviceName)
+	if name != "" {
+		f.DeviceName = name
+	}
+	if strings.TrimSpace(f.DeviceName) == "" {
+		f.DeviceName = DetectHostname()
+		if f.DeviceName == "" {
+			return errors.New("device name is required (--name) or hostname must be set")
+		}
+	}
+
 	if f.HeartbeatInterval <= 0 {
 		f.HeartbeatInterval = 30
 	}
@@ -299,7 +292,6 @@ func WriteCloudLogout() error {
 		f = &UserConfig{}
 	}
 	f.APIKey = ""
-	f.CloudURL = ""
 	f.CloudReportingEnabled = false
 	return saveUserConfig(p, f)
 }

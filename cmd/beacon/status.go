@@ -280,7 +280,7 @@ func renderStatus(snap *master.StatusSnapshot, noColor bool, port int) {
 	)
 	fmt.Println()
 
-	// CHILDREN
+	// PROJECTS
 	children := snap.Children
 	healthy, warn, down := 0, 0, 0
 	for _, ch := range children {
@@ -296,7 +296,7 @@ func renderStatus(snap *master.StatusSnapshot, noColor bool, port int) {
 		}
 	}
 
-	fmt.Printf("%sCHILDREN%s  %s%d healthy%s  %s%d warning%s  %s%d down%s\n",
+	fmt.Printf("%sPROJECTS%s  %s%d healthy%s  %s%d warning%s  %s%d down%s\n",
 		c(noColor, colorMuted), c(noColor, colorReset),
 		c(noColor, colorTeal), healthy, c(noColor, colorReset),
 		c(noColor, colorAmber), warn, c(noColor, colorReset),
@@ -406,9 +406,9 @@ func renderStatus(snap *master.StatusSnapshot, noColor bool, port int) {
 				typeColor = colorAmber
 			}
 
-			childPart := ""
+			sourcePart := ""
 			if e.Child != "" {
-				childPart = e.Child + " "
+				sourcePart = e.Child + " "
 			}
 
 			durPart := ""
@@ -419,7 +419,7 @@ func renderStatus(snap *master.StatusSnapshot, noColor bool, port int) {
 			fmt.Printf("  %s%s%s  %s%-10s%s %s%s%s%s\n",
 				c(noColor, colorSubtle), timeStr, c(noColor, colorReset),
 				c(noColor, typeColor), string(e.Type), c(noColor, colorReset),
-				c(noColor, colorBody), childPart+e.Message, c(noColor, colorReset),
+				c(noColor, colorBody), sourcePart+e.Message, c(noColor, colorReset),
 				durPart,
 			)
 		}

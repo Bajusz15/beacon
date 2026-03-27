@@ -90,7 +90,7 @@ DEVICE  pi-homelab  192.168.1.42  arm64  Debian 12
 SYSTEM  cpu 12% ████░░░░░░░░░░░░  mem 67% ██████████░░░░░░  disk 41% ██████░░░░░░░░░░
         load 0.42 0.38 0.35  temp 48°C
 
-CHILDREN  3 healthy  1 warning  0 down
+PROJECTS  3 healthy  1 warning  0 down
 
   ● portfolio-site      v2.1.0   deployed 2h ago    3/3 checks passing
   ● home-assistant      v2024.3  deployed 5d ago    2/2 checks passing
@@ -112,7 +112,7 @@ Self-contained HTML dashboard served by the master. No CDN, no external dependen
 
 ## 🧱 Set up a project
 
-Beacon manages your apps end-to-end: clone from Git or pull from Docker registries, run your deploy command, poll for updates, health check, and tail logs. Each project gets its own isolated child agent.
+Beacon manages your apps end-to-end: clone from Git or pull from Docker registries, run your deploy command, poll for updates, health check, and tail logs. Each project runs as its own isolated agent process.
 
 ### 🧙 Interactive setup
 
@@ -170,7 +170,7 @@ See [examples/](./examples/) for more bootstrap configs (multi-image, private re
 - `~/.beacon/config/projects/myapp/env` — deploy environment (tokens, paths, commands)
 - `~/.beacon/config/projects/myapp/monitor.yml` — health check config
 - `beacon@myapp.service` — systemd service that runs `beacon deploy` (skipped if systemd unavailable)
-- Appends the project to `~/.beacon/config.yaml` so the master spawns a child for it
+- Appends the project to `~/.beacon/config.yaml` so the master manages it
 
 ### 🔄 How deploy works
 
@@ -236,7 +236,7 @@ beacon cloud login --api-key usr_abc123def456
 beacon master
 ```
 
-Self-hosted backend: `beacon cloud login --cloud-url https://your-host.example.com/api`. Disable cloud: **`beacon cloud logout`**.
+Self-hosted backend: build from source with `go build -ldflags "-X beacon/internal/cloud.DefaultBeaconInfraAPIURL=https://your-host.example.com/api"`. Disable cloud: **`beacon cloud logout`**.
 
 ### 📝 `~/.beacon/config.yaml`
 
@@ -245,8 +245,7 @@ Created by `beacon init`. You can also edit it directly.
 ```yaml
 api_key: "usr_abc123def456"       # set by beacon cloud login (omit for offline)
 device_name: "my-pi"              # defaults to hostname
-cloud_url: "https://beaconinfra.dev/api"
-heartbeat_interval: 30            # seconds
+heartbeat_interval: 30            # seconds (cloud URL is compile-time only)
 cloud_reporting_enabled: true
 metrics_port: 9100                # local dashboard port
 
@@ -270,7 +269,7 @@ All state lives under **`~/.beacon`** (override with `BEACON_HOME`):
   config/projects/<id>/env       # Per-project deploy environment
   config/projects/<id>/monitor.yml
   state/                         # Check results, deploy status
-  ipc/                           # Master <-> child communication
+  ipc/                           # Master <-> project agent communication
   keys/                          # Encrypted token store (beacon keys)
   templates/                     # Alert templates
   logs/
@@ -286,7 +285,7 @@ Inspect paths: `beacon config show`
 
 | Command | Purpose |
 |---------|---------|
-| `beacon master` | Start master agent (dashboard at :9100, child agents, optional heartbeats) |
+| `beacon master` | Start master agent (dashboard at :9100, manages projects + tunnels, optional heartbeats) |
 | `beacon status` | Terminal health view from running master (`--json`, `--watch`, `--no-color`) |
 | `beacon init` | Write local `config.yaml` (`--name`, `--metrics-port`; no network) |
 | `beacon cloud login` / `logout` | Enable/disable cloud reporting |
@@ -303,7 +302,7 @@ Inspect paths: `beacon config show`
 | `beacon mcp serve` | MCP server for Cursor / Claude Desktop |
 | `beacon version` | Version info |
 
-Hidden: `beacon agent` (child process, spawned by master only).
+Hidden: `beacon agent` (project agent process, spawned by master only).
 
 ---
 
@@ -349,7 +348,7 @@ systemctl --user enable --now beacon-master.service
 
 ## 📚 Documentation
 
-- [docs/MASTER_AGENT.md](./docs/MASTER_AGENT.md) — master/child architecture and heartbeats
+- [docs/MASTER_AGENT.md](./docs/MASTER_AGENT.md) — master agent architecture and heartbeats
 - [docs/LOG_FORWARDING.md](./docs/LOG_FORWARDING.md) — log forwarding configuration
 - [docs/KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md) — encrypted key store
 - [docs/MCP.md](./docs/MCP.md) — MCP server for editors
@@ -362,27 +361,29 @@ systemctl --user enable --now beacon-master.service
 ## 🏗️ Architecture (how it fits together)
 
 ```
-┌──────────────────────────────────────────────┐
-│          BeaconInfra Cloud (optional)        │
-└───────────────────┬──────────────────────────┘
-                    │ HTTPS
-┌───────────────────┴──────────────────────────┐
-│             beacon master                    │
-│                                              │
-│  One per device. Collects system metrics,    │
-│  serves local dashboard, sends heartbeats.   │
-│  Spawns a child agent per project.           │
-└──────┬───────────────────────┬───────────────┘
-       │  IPC (file-based)     │
-┌──────┴──────────┐   ┌────────┴──────────┐
-│  child agent    │   │  child agent      │  ...
-│  project: myapp │   │  project: blog    │
-│  health checks  │   │  health checks    │
-│  log tailing    │   │  log tailing      │
-└─────────────────┘   └───────────────────┘
+┌──────────────────────────────────────────────────────┐
+│             BeaconInfra Cloud (optional)              │
+│  heartbeats, commands, tunnel proxy (/home-away/*)    │
+└──────────┬───────────────────────────┬───────────────┘
+           │ HTTPS                     │ WebSocket
+┌──────────┴───────────────────────────┴───────────────┐
+│                  beacon master                        │
+│                                                       │
+│  One per device. Collects system metrics, serves      │
+│  local dashboard (:9100), sends heartbeats.           │
+│  Manages project agents (processes) and tunnels       │
+│  (goroutines).                                        │
+└──┬──────────────┬──────────────┬─────────────────────┘
+   │ IPC          │ IPC          │ goroutines
+┌──┴───────────┐ ┌┴────────────┐ ┌┴────────────────────┐
+│ project agent│ │project agent│ │ tunnels              │
+│ myapp        │ │ blog        │ │ homeassistant :8123  │
+│ health checks│ │ health check│ │ nextcloud     :8080  │
+│ log tailing  │ │ log tailing │ │ (reverse WS proxy)   │
+└──────────────┘ └─────────────┘ └──────────────────────┘
 ```
 
-The master is **stateless per project** — it doesn't know about Docker or systemd. Children are isolated: one crash doesn't affect others. The master auto-restarts failed children with exponential backoff.
+The master is **stateless per project** — it doesn't know about Docker or systemd. Projects are isolated: one crash doesn't affect others. The master auto-restarts failed projects with exponential backoff. Tunnels run as lightweight goroutines inside the master process, connecting outbound to the cloud via WebSocket so local services are accessible without opening ports.
 
 ---
 
