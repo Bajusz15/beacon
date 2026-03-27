@@ -109,7 +109,7 @@ func TestSendCloudHeartbeat_success(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := sendCloudHeartbeat(ctx, cfg, "test-device", nil, nil)
+	err := sendCloudHeartbeat(ctx, cfg, "test-device", nil, nil, nil)
 	require.NoError(t, err)
 
 	// Verify request
@@ -142,7 +142,7 @@ func TestSendCloudHeartbeat_savesDeviceID(t *testing.T) {
 	require.NoError(t, cfg.Save())
 
 	ctx := context.Background()
-	err := sendCloudHeartbeat(ctx, cfg, "device", nil, nil)
+	err := sendCloudHeartbeat(ctx, cfg, "device", nil, nil, nil)
 	require.NoError(t, err)
 
 	// Verify device_id was saved
@@ -168,7 +168,7 @@ func TestSendCloudHeartbeat_httpError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := sendCloudHeartbeat(ctx, cfg, "device", nil, nil)
+	err := sendCloudHeartbeat(ctx, cfg, "device", nil, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "401")
 }
@@ -183,7 +183,7 @@ func TestSendCloudHeartbeat_networkError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err := sendCloudHeartbeat(ctx, cfg, "device", nil, nil)
+	err := sendCloudHeartbeat(ctx, cfg, "device", nil, nil, nil)
 	require.Error(t, err)
 }
 
@@ -391,7 +391,7 @@ func TestHeartbeatRequest_includesSystemInfo(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_ = sendCloudHeartbeat(ctx, cfg, "device", nil, nil)
+	_ = sendCloudHeartbeat(ctx, cfg, "device", nil, nil, nil)
 
 	require.NotEmpty(t, receivedRequest.OS)
 	require.NotEmpty(t, receivedRequest.Arch)

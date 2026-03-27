@@ -25,6 +25,20 @@ type UserConfig struct {
 	MetricsListenAddr     string          `yaml:"metrics_listen_addr,omitempty"` // default "127.0.0.1"; set "0.0.0.0" for Docker
 	Projects              []ProjectConfig `yaml:"projects,omitempty"`
 	Tunnels               []TunnelConfig  `yaml:"tunnels,omitempty"`
+	// SystemMetrics configures host metrics sent with cloud heartbeats (~/.beacon/config.yaml only).
+	// Per-project monitor.yml should not duplicate this; omit system_metrics there.
+	SystemMetrics *UserSystemMetricsConfig `yaml:"system_metrics,omitempty"`
+}
+
+// UserSystemMetricsConfig is the ~/.beacon/config.yaml block for CPU/memory/disk reporting to BeaconInfra.
+type UserSystemMetricsConfig struct {
+	Enabled     bool          `yaml:"enabled"`
+	Interval    time.Duration `yaml:"interval,omitempty"`
+	CPU         bool          `yaml:"cpu,omitempty"`
+	Memory      bool          `yaml:"memory,omitempty"`
+	Disk        bool          `yaml:"disk,omitempty"`
+	LoadAverage bool          `yaml:"load_average,omitempty"`
+	DiskPath    string        `yaml:"disk_path,omitempty"`
 }
 
 // ProjectConfig defines a project that the master will spawn a child agent for.
@@ -43,6 +57,8 @@ type TunnelConfig struct {
 	LocalPort int    `yaml:"local_port"`
 	// Enabled is tri-state: nil => omitted in YAML (default: true), true/false => explicitly set.
 	Enabled *bool `yaml:"enabled,omitempty"`
+	// Autostart is tri-state: nil => true. If false, the tunnel WebSocket is started only on tunnel_connect from the cloud.
+	Autostart *bool `yaml:"autostart,omitempty"`
 }
 
 // UserConfigPath returns the path to config.yaml under the Beacon home directory.
@@ -155,7 +171,8 @@ func AppendProjectIfMissing(projectID, configPath string) error {
 }
 
 // AppendTunnelIfMissing adds or updates a tunnel entry in ~/.beacon/config.yaml.
-func AppendTunnelIfMissing(tunnelID string, localPort int) error {
+// If autostart is non-nil, it sets or updates the autostart field (otherwise existing value is kept on update).
+func AppendTunnelIfMissing(tunnelID string, localPort int, autostart *bool) error {
 	tunnelID = strings.TrimSpace(tunnelID)
 	if tunnelID == "" {
 		return errors.New("tunnel id is required")
@@ -177,10 +194,17 @@ func AppendTunnelIfMissing(tunnelID string, localPort int) error {
 	for i := range f.Tunnels {
 		if f.Tunnels[i].ID == tunnelID {
 			f.Tunnels[i].LocalPort = localPort
+			if autostart != nil {
+				f.Tunnels[i].Autostart = autostart
+			}
 			return saveUserConfig(p, f)
 		}
 	}
-	f.Tunnels = append(f.Tunnels, TunnelConfig{ID: tunnelID, LocalPort: localPort})
+	tc := TunnelConfig{ID: tunnelID, LocalPort: localPort}
+	if autostart != nil {
+		tc.Autostart = autostart
+	}
+	f.Tunnels = append(f.Tunnels, tc)
 	return saveUserConfig(p, f)
 }
 

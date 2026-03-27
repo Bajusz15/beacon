@@ -10,22 +10,21 @@ import (
 )
 
 func TestNewCommandDispatcher(t *testing.T) {
-	d := NewCommandDispatcher(nil)
+	d := NewCommandDispatcher(nil, nil)
 	if d == nil {
 		t.Fatal("NewCommandDispatcher returned nil")
 	}
 }
 
 func TestCommandDispatcher_DispatchCommands_nilPM(t *testing.T) {
-	d := NewCommandDispatcher(nil)
-	// Should not panic
+	d := NewCommandDispatcher(nil, nil)
 	d.DispatchCommands([]HeartbeatCommand{
 		{ID: "cmd1", Action: "restart", TargetProject: "test"},
 	})
 
 	results := d.GetPendingResults()
-	if len(results) != 0 {
-		t.Errorf("expected no results for nil PM, got %d", len(results))
+	if len(results) != 1 {
+		t.Errorf("expected 1 failed result for nil PM, got %d", len(results))
 	}
 }
 
@@ -53,7 +52,7 @@ func TestCommandDispatcher_DispatchCommands_projectNotFound(t *testing.T) {
 }
 
 func TestCommandDispatcher_GetPendingResults_clearsResults(t *testing.T) {
-	d := NewCommandDispatcher(nil)
+	d := NewCommandDispatcher(nil, nil)
 
 	// Add some results
 	d.recordResult("cmd1", ipc.ResultSuccess, "done")
@@ -73,7 +72,7 @@ func TestCommandDispatcher_GetPendingResults_clearsResults(t *testing.T) {
 }
 
 func TestCommandDispatcher_recordResult(t *testing.T) {
-	d := NewCommandDispatcher(nil)
+	d := NewCommandDispatcher(nil, nil)
 
 	beforeTime := time.Now()
 	d.recordResult("cmd123", ipc.ResultSuccess, "Operation completed")
@@ -100,18 +99,18 @@ func TestCommandDispatcher_recordResult(t *testing.T) {
 }
 
 func TestCommandDispatcher_DispatchCommands_deviceLevel(t *testing.T) {
-	d := NewCommandDispatcher(nil)
+	d := NewCommandDispatcher(nil, nil)
 
-	// Device-level command (no target project)
 	d.DispatchCommands([]HeartbeatCommand{
 		{ID: "cmd1", Action: "restart", TargetProject: ""},
 	})
 
-	// Should be recorded as failed (device-level not supported)
-	// But since pm is nil, it won't dispatch at all
 	results := d.GetPendingResults()
-	if len(results) != 0 {
-		t.Errorf("expected 0 results for nil PM, got %d", len(results))
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result for nil PM, got %d", len(results))
+	}
+	if results[0].Status != ipc.ResultFailed {
+		t.Errorf("expected failed status, got %s", results[0].Status)
 	}
 }
 

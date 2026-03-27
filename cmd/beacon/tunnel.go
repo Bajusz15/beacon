@@ -36,6 +36,7 @@ The tunnel will be active next time the master agent starts.`,
 		Run:  runTunnelAdd,
 	}
 	addCmd.Flags().IntP("port", "p", 0, "Local port to tunnel (required)")
+	addCmd.Flags().Bool("no-autostart", false, "Do not open the tunnel until requested from the BeaconInfra dashboard")
 	_ = addCmd.MarkFlagRequired("port")
 
 	removeCmd := &cobra.Command{
@@ -89,11 +90,21 @@ The tunnel will be active next time the master agent starts.`,
 func runTunnelAdd(cmd *cobra.Command, args []string) {
 	id := args[0]
 	port, _ := cmd.Flags().GetInt("port")
+	noAutostart, _ := cmd.Flags().GetBool("no-autostart")
+	var autostart *bool
+	if noAutostart {
+		v := false
+		autostart = &v
+	}
 
-	if err := identity.AppendTunnelIfMissing(id, port); err != nil {
+	if err := identity.AppendTunnelIfMissing(id, port, autostart); err != nil {
 		log.Fatalf("beacon tunnel add: %v", err)
 	}
-	fmt.Printf("Added tunnel %q -> localhost:%d\n", id, port)
+	if noAutostart {
+		fmt.Printf("Added tunnel %q -> localhost:%d (autostart off; connect from dashboard)\n", id, port)
+	} else {
+		fmt.Printf("Added tunnel %q -> localhost:%d\n", id, port)
+	}
 }
 
 func runTunnelList(cmd *cobra.Command, args []string) {
@@ -111,17 +122,21 @@ func runTunnelList(cmd *cobra.Command, args []string) {
 	liveStatus := fetchTunnelStatus()
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "ID\tPORT\tENABLED\tSTATUS")
+	_, _ = fmt.Fprintln(w, "ID\tPORT\tENABLED\tAUTOSTART\tSTATUS")
 	for _, t := range cfg.Tunnels {
 		enabled := "true"
 		if t.Enabled != nil && !*t.Enabled {
 			enabled = "false"
 		}
+		autostart := "true"
+		if t.Autostart != nil && !*t.Autostart {
+			autostart = "false"
+		}
 		status := "-"
 		if s, ok := liveStatus[t.ID]; ok {
 			status = s
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", t.ID, t.LocalPort, enabled, status)
+		_, _ = fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%s\n", t.ID, t.LocalPort, enabled, autostart, status)
 	}
 	_ = w.Flush()
 }
