@@ -19,12 +19,14 @@ import (
 )
 
 const (
-	maxReconnects    = 5
-	maxBackoff       = 60 * time.Second
+	maxReconnects    = 50
+	maxBackoff       = 24 * time.Hour
 	healthWriteEvery = 10 * time.Second
 	pingInterval     = 30 * time.Second
 	writeTimeout     = 10 * time.Second
 	readTimeout      = 60 * time.Second
+	// resetAttemptsAfter: if a connection stays up longer than this, reset the attempt counter.
+	resetAttemptsAfter = 5 * time.Minute
 )
 
 // ClientConfig holds parameters for a tunnel Client.
@@ -77,14 +79,20 @@ func (c *Client) Run(ctx context.Context) error {
 		default:
 		}
 
+		connStart := time.Now()
 		err := c.connectAndServe(ctx)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
+		// If the connection was stable for a while, reset backoff so transient blips don't accumulate.
+		if time.Since(connStart) >= resetAttemptsAfter {
+			attempt = 0
+		}
+
 		attempt++
 		if attempt > maxReconnects {
-			log.Printf("[Beacon tunnel %s] Max reconnects exceeded, giving up", c.cfg.TunnelID)
+			log.Printf("[Beacon tunnel %s] Max reconnects (%d) exceeded, giving up", c.cfg.TunnelID, maxReconnects)
 			c.connected = false
 			c.writeHealthOnce()
 			return fmt.Errorf("max reconnects exceeded after error: %v", err)

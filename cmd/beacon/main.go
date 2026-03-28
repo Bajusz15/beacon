@@ -1,6 +1,15 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
+
 	"beacon/internal/alerting"
 	"beacon/internal/config"
 	"beacon/internal/deploy"
@@ -11,15 +20,6 @@ import (
 	"beacon/internal/templates"
 	"beacon/internal/version"
 	"beacon/internal/wizard"
-	"fmt"
-	"os"
-	"path/filepath"
-
-	"context"
-	"log"
-	"os/signal"
-	"syscall"
-	"time"
 
 	"beacon/internal/bootstrap"
 	"beacon/internal/child"
@@ -292,10 +292,10 @@ in the foreground (useful for systemd, Docker, or debugging).`,
 			childArgs := []string{"master", "--foreground"}
 
 			logPath := filepath.Join(os.Getenv("HOME"), ".beacon", "master.log")
-			if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 				log.Fatalf("[Beacon] Cannot create log dir: %v", err)
 			}
-			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 			if err != nil {
 				log.Fatalf("[Beacon] Cannot open log file %s: %v", logPath, err)
 			}

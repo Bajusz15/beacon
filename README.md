@@ -408,7 +408,7 @@ The master is **stateless per project** — it doesn't know about Docker or syst
 
 1. `beacon cloud login` with your **usr_** API key (same account as the dashboard).
 2. Add a tunnel: `beacon tunnel add homeassistant --port 8123` (id and port as needed).
-3. Run `beacon master` (or restart your systemd unit). The tunnel WebSocket starts when you open the device in **BeaconInfra → device → Reverse tunnels → Open in dashboard**.
+3. Run `beacon master` (or restart your systemd unit). Tunnels connect automatically at startup and stay connected with exponential backoff reconnect.
 4. For **Home Assistant**, add `127.0.0.1` to `http` → `trusted_proxies` and use `use_x_forwarded_for: true` so URLs and sessions work behind the tunnel.
 
 ---

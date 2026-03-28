@@ -77,12 +77,12 @@ func buildTunnelHeartbeatReports(cfg *identity.UserConfig, tm *tunnel.TunnelMana
 		if strings.TrimSpace(t.ID) == "" {
 			continue
 		}
-		noAutostart := false
+		autostart := true
 		r := tunnelHeartbeatReport{
 			ID:        t.ID,
 			LocalPort: t.LocalPort,
 			Enabled:   tunnel.ConfigTunnelEnabled(t),
-			Autostart: &noAutostart,
+			Autostart: &autostart,
 		}
 		if c, ok := connectedByID[t.ID]; ok {
 			r.Connected = &c
@@ -151,7 +151,7 @@ func Run(ctx context.Context) {
 		pm.SpawnAll(uc.Projects)
 	}
 
-	// Tunnel manager for on-demand tunnel_connect (no WebSocket at startup)
+	// Tunnel manager — auto-starts enabled tunnels at boot
 	var tm *tunnel.TunnelManager
 	if uc != nil && len(uc.Tunnels) > 0 && uc.CloudReportingEnabled && strings.TrimSpace(uc.APIKey) != "" {
 		var tmErr error
@@ -159,7 +159,27 @@ func Run(ctx context.Context) {
 		if tmErr != nil {
 			log.Printf("[Beacon master] Failed to create tunnel manager: %v", tmErr)
 		} else {
-			log.Printf("[Beacon master] Tunnel manager ready (%d tunnel(s); WebSocket opens from dashboard only)", len(uc.Tunnels))
+			apiKey := strings.TrimSpace(uc.APIKey)
+			deviceName := strings.TrimSpace(uc.DeviceName)
+			if deviceName == "" {
+				deviceName = getHostname()
+			}
+			started := 0
+			for _, t := range uc.Tunnels {
+				if !tunnel.ConfigTunnelEnabled(t) {
+					continue
+				}
+				if started >= tunnel.MaxActiveTunnels {
+					log.Printf("[Beacon master] Tunnel %s skipped (limit: %d active tunnels)", t.ID, tunnel.MaxActiveTunnels)
+					continue
+				}
+				if err := tm.EnsureStarted(t, uc.EffectiveCloudAPIBase(), apiKey, deviceName); err != nil {
+					log.Printf("[Beacon master] Tunnel %s failed to start: %v", t.ID, err)
+				} else {
+					started++
+				}
+			}
+			log.Printf("[Beacon master] Tunnel manager started (%d/%d tunnel(s) active)", started, len(uc.Tunnels))
 		}
 	}
 	statusCache.SetTunnelManager(tm)
@@ -232,12 +252,12 @@ func startCacheRefresh(ctx context.Context, cache *StatusCache) {
 
 // heartbeatLoop holds state for the recurring cloud heartbeat.
 type heartbeatLoop struct {
-	ctx                      context.Context
-	pm                       *ProcessManager
-	tm                       *tunnel.TunnelManager
-	dispatcher               *CommandDispatcher
-	statusCache              *StatusCache
-	eventLog                 *EventLog
+	ctx                     context.Context
+	pm                      *ProcessManager
+	tm                      *tunnel.TunnelManager
+	dispatcher              *CommandDispatcher
+	statusCache             *StatusCache
+	eventLog                *EventLog
 	lastSystemMetricsSentAt time.Time
 }
 

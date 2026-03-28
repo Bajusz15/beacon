@@ -29,7 +29,7 @@ Tunnels are active when the master agent is running (beacon master).`,
 		Use:   "add <id>",
 		Short: "Add a tunnel to config",
 		Long: `Add a new tunnel entry to ~/.beacon/config.yaml.
-The cloud WebSocket opens only when you connect from BeaconInfra (tunnel_connect), not when the master starts.`,
+The tunnel connects automatically when the master agent starts.`,
 		Example: `  beacon tunnel add homeassistant --port 8123
   beacon tunnel add grafana --port 3000`,
 		Args: cobra.ExactArgs(1),
@@ -94,6 +94,21 @@ func runTunnelAdd(cmd *cobra.Command, args []string) {
 		log.Fatalf("beacon tunnel add: %v", err)
 	}
 	fmt.Printf("Added tunnel %q -> localhost:%d\n", id, port)
+
+	// Warn if over the active tunnel limit
+	cfg, _ := identity.LoadUserConfig()
+	if cfg != nil {
+		enabled := 0
+		for _, t := range cfg.Tunnels {
+			if t.Enabled == nil || *t.Enabled {
+				enabled++
+			}
+		}
+		if enabled > 2 {
+			fmt.Printf("Warning: only %d tunnels can be active at once. The rest will stay dormant.\n", 2)
+			fmt.Println("Use 'beacon tunnel disable <id>' to choose which tunnels are dormant.")
+		}
+	}
 }
 
 func runTunnelList(cmd *cobra.Command, args []string) {

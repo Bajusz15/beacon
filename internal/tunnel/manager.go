@@ -11,6 +11,10 @@ import (
 	"beacon/internal/ipc"
 )
 
+// MaxActiveTunnels is the maximum number of tunnels that can be active simultaneously per user.
+// Matches the server-side limit. Additional configured tunnels stay dormant.
+const MaxActiveTunnels = 2
+
 // TunnelStatus describes a managed tunnel's current state.
 type TunnelStatus struct {
 	ID        string `json:"id"`
@@ -149,4 +153,3 @@ func isTunnelEnabled(t identity.TunnelConfig) bool {
 func ConfigTunnelEnabled(t identity.TunnelConfig) bool {
 	return isTunnelEnabled(t)
 }
-
