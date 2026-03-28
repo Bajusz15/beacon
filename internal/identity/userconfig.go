@@ -51,14 +51,12 @@ type ProjectConfig struct {
 	Enabled *bool `yaml:"enabled,omitempty"`
 }
 
-// TunnelConfig defines a tunnel that the master will manage as a goroutine.
+// TunnelConfig defines a tunnel the master can open to the cloud on demand (tunnel_connect piggyback only).
 type TunnelConfig struct {
 	ID        string `yaml:"id"`
 	LocalPort int    `yaml:"local_port"`
 	// Enabled is tri-state: nil => omitted in YAML (default: true), true/false => explicitly set.
 	Enabled *bool `yaml:"enabled,omitempty"`
-	// Autostart is tri-state: nil => true. If false, the tunnel WebSocket is started only on tunnel_connect from the cloud.
-	Autostart *bool `yaml:"autostart,omitempty"`
 }
 
 // UserConfigPath returns the path to config.yaml under the Beacon home directory.
@@ -68,6 +66,25 @@ func UserConfigPath() (string, error) {
 		return "", fmt.Errorf("beacon home: %w", err)
 	}
 	return filepath.Join(base, "config.yaml"), nil
+}
+
+func ensureDefaultSystemMetrics(f *UserConfig) {
+	if f == nil || f.SystemMetrics != nil {
+		return
+	}
+	f.SystemMetrics = defaultUserSystemMetrics()
+}
+
+func defaultUserSystemMetrics() *UserSystemMetricsConfig {
+	return &UserSystemMetricsConfig{
+		Enabled:     true,
+		Interval:    time.Minute,
+		CPU:         true,
+		Memory:      true,
+		Disk:        true,
+		LoadAverage: true,
+		DiskPath:    "/",
+	}
 }
 
 // LoadUserConfig reads config.yaml. Returns (nil, nil) if the file is missing.
@@ -110,8 +127,9 @@ func (uc *UserConfig) EffectiveCloudAPIBase() string {
 	return cloud.BeaconInfraAPIBase()
 }
 
-// WriteUserLocalInit writes or merges ~/.beacon/config.yaml for local-only use: no API key required,
-// cloud_reporting_enabled false. Preserves existing api_key and projects if present.
+// WriteUserLocalInit writes or merges ~/.beacon/config.yaml for local identity fields (device name, etc.).
+// Does not require an API key. On a brand-new config file, sets cloud_reporting_enabled to false.
+// If the file already exists, preserves api_key, projects, tunnels, cloud_reporting_enabled, and other fields.
 func WriteUserLocalInit(deviceName string, metricsPort int) error {
 	name := strings.TrimSpace(deviceName)
 	if name == "" {
@@ -128,17 +146,21 @@ func WriteUserLocalInit(deviceName string, metricsPort int) error {
 	if err != nil {
 		return err
 	}
+	newFile := f == nil
 	if f == nil {
 		f = &UserConfig{}
 	}
 	f.DeviceName = name
-	f.CloudReportingEnabled = false
+	if newFile {
+		f.CloudReportingEnabled = false
+	}
 	if f.HeartbeatInterval <= 0 {
 		f.HeartbeatInterval = 30
 	}
 	if metricsPort > 0 {
 		f.MetricsPort = metricsPort
 	}
+	ensureDefaultSystemMetrics(f)
 	return saveUserConfig(p, f)
 }
 
@@ -171,8 +193,7 @@ func AppendProjectIfMissing(projectID, configPath string) error {
 }
 
 // AppendTunnelIfMissing adds or updates a tunnel entry in ~/.beacon/config.yaml.
-// If autostart is non-nil, it sets or updates the autostart field (otherwise existing value is kept on update).
-func AppendTunnelIfMissing(tunnelID string, localPort int, autostart *bool) error {
+func AppendTunnelIfMissing(tunnelID string, localPort int) error {
 	tunnelID = strings.TrimSpace(tunnelID)
 	if tunnelID == "" {
 		return errors.New("tunnel id is required")
@@ -194,17 +215,10 @@ func AppendTunnelIfMissing(tunnelID string, localPort int, autostart *bool) erro
 	for i := range f.Tunnels {
 		if f.Tunnels[i].ID == tunnelID {
 			f.Tunnels[i].LocalPort = localPort
-			if autostart != nil {
-				f.Tunnels[i].Autostart = autostart
-			}
 			return saveUserConfig(p, f)
 		}
 	}
-	tc := TunnelConfig{ID: tunnelID, LocalPort: localPort}
-	if autostart != nil {
-		tc.Autostart = autostart
-	}
-	f.Tunnels = append(f.Tunnels, tc)
+	f.Tunnels = append(f.Tunnels, TunnelConfig{ID: tunnelID, LocalPort: localPort})
 	return saveUserConfig(p, f)
 }
 
@@ -299,6 +313,7 @@ func WriteCloudLogin(apiKey, deviceName string) error {
 		f.HeartbeatInterval = 30
 	}
 	f.CloudReportingEnabled = true
+	ensureDefaultSystemMetrics(f)
 	return saveUserConfig(p, f)
 }
 

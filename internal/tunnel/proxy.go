@@ -11,6 +11,21 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+func skipLoopbackProxyHeader(lower string) bool {
+	switch lower {
+	case "connection", "upgrade", "keep-alive", "proxy-connection",
+		"transfer-encoding", "te", "trailer",
+		"host",
+		"cookie", "authorization",
+		"x-forwarded-host", "x-forwarded-server", "forwarded",
+		"sec-websocket-key", "sec-websocket-version", "sec-websocket-extensions",
+		"alt-svc":
+		return true
+	default:
+		return false
+	}
+}
+
 // ProxyHTTPRequest forwards an HTTP request message to a local service and returns the response message.
 func ProxyHTTPRequest(localPort int, msg *Message) (*Message, error) {
 	method := strings.TrimSpace(msg.Method)
@@ -65,13 +80,12 @@ func ProxyHTTPRequest(localPort int, msg *Message) (*Message, error) {
 	}
 
 	for k, v := range msg.Headers {
-		// Skip hop-by-hop headers
-		lower := strings.ToLower(k)
-		if lower == "connection" || lower == "upgrade" || lower == "transfer-encoding" {
+		if skipLoopbackProxyHeader(strings.ToLower(k)) {
 			continue
 		}
 		req.Header.Set(k, v)
 	}
+	req.Host = target.Host
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -98,6 +112,11 @@ func ProxyHTTPRequest(localPort int, msg *Message) (*Message, error) {
 
 	headers := make(map[string]string, len(resp.Header))
 	for k := range resp.Header {
+		lower := strings.ToLower(k)
+		// Skip hop-by-hop headers — the cloud proxy controls its own framing
+		if lower == "transfer-encoding" || lower == "connection" || lower == "keep-alive" {
+			continue
+		}
 		headers[k] = resp.Header.Get(k)
 	}
 
@@ -119,13 +138,12 @@ func ProxyWSOpen(ctx context.Context, localPort int, path string, headers map[st
 
 	reqHeaders := http.Header{}
 	for k, v := range headers {
-		lower := strings.ToLower(k)
-		if lower == "connection" || lower == "upgrade" || lower == "sec-websocket-key" ||
-			lower == "sec-websocket-version" || lower == "sec-websocket-extensions" {
+		if skipLoopbackProxyHeader(strings.ToLower(k)) {
 			continue
 		}
 		reqHeaders.Set(k, v)
 	}
+	reqHeaders.Set("Host", target.Host)
 
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.DialContext(ctx, target.String(), reqHeaders)

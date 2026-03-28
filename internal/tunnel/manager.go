@@ -50,15 +50,13 @@ func NewTunnelManager(ctx context.Context) (*TunnelManager, error) {
 	}, nil
 }
 
-// StartAll starts goroutines for all enabled tunnel configurations.
-func (tm *TunnelManager) StartAll(tunnels []identity.TunnelConfig, cloudURL, apiKey, deviceName string) {
-	for _, t := range tunnels {
-		if !isTunnelEnabled(t) {
-			log.Printf("[Beacon master] Tunnel %s is disabled, skipping", t.ID)
-			continue
-		}
-		tm.start(t, cloudURL, apiKey, deviceName)
+// EnsureStarted starts a single tunnel if not already running (for piggyback tunnel_connect).
+func (tm *TunnelManager) EnsureStarted(t identity.TunnelConfig, cloudURL, apiKey, deviceName string) error {
+	if !isTunnelEnabled(t) {
+		return fmt.Errorf("tunnel %q is disabled or invalid", t.ID)
 	}
+	tm.start(t, cloudURL, apiKey, deviceName)
+	return nil
 }
 
 func (tm *TunnelManager) start(t identity.TunnelConfig, cloudURL, apiKey, deviceName string) {
@@ -146,3 +144,9 @@ func isTunnelEnabled(t identity.TunnelConfig) bool {
 	}
 	return *t.Enabled
 }
+
+// ConfigTunnelEnabled reports whether the tunnel entry is valid and enabled in config.
+func ConfigTunnelEnabled(t identity.TunnelConfig) bool {
+	return isTunnelEnabled(t)
+}
+

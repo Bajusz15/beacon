@@ -91,6 +91,8 @@ func TestWriteCloudLogin_success(t *testing.T) {
 	require.Equal(t, "my-device", loaded.DeviceName)
 	require.True(t, loaded.CloudReportingEnabled)
 	require.Equal(t, 30, loaded.HeartbeatInterval) // default
+	require.NotNil(t, loaded.SystemMetrics)
+	require.True(t, loaded.SystemMetrics.Enabled)
 }
 
 func TestWriteCloudLogin_missingAPIKey(t *testing.T) {
@@ -179,6 +181,54 @@ func TestWriteCloudLogin_mergesExistingConfig(t *testing.T) {
 	require.Equal(t, "new-device", loaded.DeviceName)
 	require.Equal(t, "existing-device-id", loaded.DeviceID)
 	require.Len(t, loaded.Projects, 2)
+	require.NotNil(t, loaded.SystemMetrics)
+	require.True(t, loaded.SystemMetrics.Enabled)
+}
+
+func TestWriteUserLocalInit_preservesExistingSystemMetrics(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	t.Setenv("HOME", tmpDir)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+
+	custom := &UserSystemMetricsConfig{
+		Enabled:  false,
+		Interval: 2 * time.Minute,
+		CPU:      true,
+	}
+	initial := &UserConfig{
+		DeviceName:            "keep-me",
+		CloudReportingEnabled: false,
+		SystemMetrics:         custom,
+	}
+	require.NoError(t, initial.Save())
+
+	require.NoError(t, WriteUserLocalInit("new-name", 0))
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.Equal(t, "new-name", loaded.DeviceName)
+	require.NotNil(t, loaded.SystemMetrics)
+	require.False(t, loaded.SystemMetrics.Enabled)
+	require.Equal(t, 2*time.Minute, loaded.SystemMetrics.Interval)
+}
+
+func TestWriteUserLocalInit_preservesCloudReportingWhenReRunning(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	t.Setenv("HOME", tmpDir)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+
+	require.NoError(t, WriteCloudLogin("usr_preserve_key", "dev"))
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.True(t, loaded.CloudReportingEnabled)
+
+	require.NoError(t, WriteUserLocalInit("renamed-device", 0))
+	after, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.Equal(t, "renamed-device", after.DeviceName)
+	require.True(t, after.CloudReportingEnabled)
+	require.Equal(t, "usr_preserve_key", after.APIKey)
 }
 
 func TestMergeBootstrapCloudOnly(t *testing.T) {
@@ -268,6 +318,14 @@ func TestWriteUserLocalInit(t *testing.T) {
 	require.Equal(t, "my-box", loaded.DeviceName)
 	require.False(t, loaded.CloudReportingEnabled)
 	require.Equal(t, 9100, loaded.MetricsPort)
+	require.NotNil(t, loaded.SystemMetrics)
+	require.True(t, loaded.SystemMetrics.Enabled)
+	require.Equal(t, time.Minute, loaded.SystemMetrics.Interval)
+	require.True(t, loaded.SystemMetrics.CPU)
+	require.True(t, loaded.SystemMetrics.Memory)
+	require.True(t, loaded.SystemMetrics.Disk)
+	require.True(t, loaded.SystemMetrics.LoadAverage)
+	require.Equal(t, "/", loaded.SystemMetrics.DiskPath)
 }
 
 func TestAppendProjectIfMissing(t *testing.T) {

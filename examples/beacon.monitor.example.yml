@@ -1,21 +1,4 @@
-# Beacon — per-project monitor (checks, plugins, alert rules, log forwarding)
-#
-# Device name, API key, cloud heartbeats, and host system_metrics live in ~/.beacon/config.yaml.
-# This file can still define an optional legacy `report:` block (e.g. prometheus_file_path) if you need it.
-#
-# Example ~/.beacon/config.yaml:
-#   cloud_reporting_enabled: true
-#   api_key: usr_...
-#   device_name: my-n100
-#   heartbeat_interval: 30
-#   system_metrics:
-#     enabled: true
-#     interval: 60s
-#     cpu: true
-#     memory: true
-#     disk: true
-#     load_average: true
-#     disk_path: "/"
+
 
 # Health checks (HTTP, port, command)
 checks:

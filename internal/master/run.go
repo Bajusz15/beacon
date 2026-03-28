@@ -19,17 +19,27 @@ import (
 	"beacon/internal/version"
 )
 
+type tunnelHeartbeatReport struct {
+	ID        string `json:"id"`
+	LocalPort int    `json:"local_port"`
+	Enabled   bool   `json:"enabled"`
+	Autostart *bool  `json:"autostart,omitempty"`
+	Connected *bool  `json:"connected,omitempty"`
+}
+
 type heartbeatRequest struct {
-	Hostname       string                `json:"hostname"`
-	IPAddress      string                `json:"ip_address"`
-	Tags           []string              `json:"tags"`
-	AgentVersion   string                `json:"agent_version"`
-	DeviceName     string                `json:"device_name"`
-	OS             string                `json:"os,omitempty"`
-	Arch           string                `json:"arch,omitempty"`
-	Metadata       map[string]string     `json:"metadata"`
-	Projects       []ProjectHealth       `json:"projects,omitempty"`
-	CommandResults []CommandResultReport `json:"command_results,omitempty"`
+	Hostname       string                  `json:"hostname"`
+	IPAddress      string                  `json:"ip_address"`
+	Tags           []string                `json:"tags"`
+	AgentVersion   string                  `json:"agent_version"`
+	DeviceName     string                  `json:"device_name"`
+	OS             string                  `json:"os,omitempty"`
+	Arch           string                  `json:"arch,omitempty"`
+	Metadata       map[string]string       `json:"metadata"`
+	Projects       []ProjectHealth         `json:"projects,omitempty"`
+	Tunnels        []tunnelHeartbeatReport `json:"tunnels,omitempty"`
+	CommandResults []CommandResultReport   `json:"command_results,omitempty"`
+	SystemMetrics  *heartbeatSystemMetrics `json:"system_metrics,omitempty"`
 }
 
 // heartbeatResponse represents the server response to /agent/heartbeat.
@@ -50,6 +60,39 @@ func getHostname() string {
 		return "unknown"
 	}
 	return strings.TrimSpace(h)
+}
+
+func buildTunnelHeartbeatReports(cfg *identity.UserConfig, tm *tunnel.TunnelManager) []tunnelHeartbeatReport {
+	if cfg == nil || len(cfg.Tunnels) == 0 {
+		return nil
+	}
+	connectedByID := make(map[string]bool)
+	if tm != nil {
+		for _, s := range tm.GetTunnelStatuses() {
+			connectedByID[s.ID] = s.Status == "connected"
+		}
+	}
+	out := make([]tunnelHeartbeatReport, 0, len(cfg.Tunnels))
+	for _, t := range cfg.Tunnels {
+		if strings.TrimSpace(t.ID) == "" {
+			continue
+		}
+		noAutostart := false
+		r := tunnelHeartbeatReport{
+			ID:        t.ID,
+			LocalPort: t.LocalPort,
+			Enabled:   tunnel.ConfigTunnelEnabled(t),
+			Autostart: &noAutostart,
+		}
+		if c, ok := connectedByID[t.ID]; ok {
+			r.Connected = &c
+		}
+		out = append(out, r)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func getOutboundIP() string {
@@ -108,7 +151,7 @@ func Run(ctx context.Context) {
 		pm.SpawnAll(uc.Projects)
 	}
 
-	// Start tunnel goroutines for enabled tunnels
+	// Tunnel manager for on-demand tunnel_connect (no WebSocket at startup)
 	var tm *tunnel.TunnelManager
 	if uc != nil && len(uc.Tunnels) > 0 && uc.CloudReportingEnabled && strings.TrimSpace(uc.APIKey) != "" {
 		var tmErr error
@@ -116,17 +159,12 @@ func Run(ctx context.Context) {
 		if tmErr != nil {
 			log.Printf("[Beacon master] Failed to create tunnel manager: %v", tmErr)
 		} else {
-			name := strings.TrimSpace(uc.DeviceName)
-			if name == "" {
-				name = getHostname()
-			}
-			tm.StartAll(uc.Tunnels, uc.EffectiveCloudAPIBase(), strings.TrimSpace(uc.APIKey), name)
-			log.Printf("[Beacon master] Started %d tunnel(s)", len(uc.Tunnels))
+			log.Printf("[Beacon master] Tunnel manager ready (%d tunnel(s); WebSocket opens from dashboard only)", len(uc.Tunnels))
 		}
 	}
 	statusCache.SetTunnelManager(tm)
 
-	dispatcher := NewCommandDispatcher(pm)
+	dispatcher := NewCommandDispatcher(pm, tm)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -136,6 +174,7 @@ func Run(ctx context.Context) {
 	beat := &heartbeatLoop{
 		ctx:         ctx,
 		pm:          pm,
+		tm:          tm,
 		dispatcher:  dispatcher,
 		statusCache: statusCache,
 		eventLog:    eventLog,
@@ -193,11 +232,13 @@ func startCacheRefresh(ctx context.Context, cache *StatusCache) {
 
 // heartbeatLoop holds state for the recurring cloud heartbeat.
 type heartbeatLoop struct {
-	ctx         context.Context
-	pm          *ProcessManager
-	dispatcher  *CommandDispatcher
-	statusCache *StatusCache
-	eventLog    *EventLog
+	ctx                      context.Context
+	pm                       *ProcessManager
+	tm                       *tunnel.TunnelManager
+	dispatcher               *CommandDispatcher
+	statusCache              *StatusCache
+	eventLog                 *EventLog
+	lastSystemMetricsSentAt time.Time
 }
 
 func (h *heartbeatLoop) tryBeat() {
@@ -220,7 +261,7 @@ func (h *heartbeatLoop) tryBeat() {
 	h.statusCache.UpdateConfig(uc)
 	h.dispatcher.CollectResults()
 
-	if err := sendCloudHeartbeat(h.ctx, uc, name, h.pm, h.dispatcher); err != nil {
+	if err := sendCloudHeartbeat(h.ctx, h, uc, name, h.pm, h.dispatcher, h.tm); err != nil {
 		log.Printf("[Beacon master] Heartbeat: %v", err)
 	} else {
 		h.statusCache.UpdateCloudSync()
@@ -232,7 +273,7 @@ func (h *heartbeatLoop) tryBeat() {
 	}
 }
 
-func sendCloudHeartbeat(ctx context.Context, cfg *identity.UserConfig, deviceName string, pm *ProcessManager, dispatcher *CommandDispatcher) error {
+func sendCloudHeartbeat(ctx context.Context, h *heartbeatLoop, cfg *identity.UserConfig, deviceName string, pm *ProcessManager, dispatcher *CommandDispatcher, tm *tunnel.TunnelManager) error {
 	base := cfg.EffectiveCloudAPIBase()
 	token := strings.TrimSpace(cfg.APIKey)
 
@@ -254,7 +295,14 @@ func sendCloudHeartbeat(ctx context.Context, cfg *identity.UserConfig, deviceNam
 			"role": "beacon-master",
 		},
 		Projects:       AggregateProjectHealth(pm),
+		Tunnels:        buildTunnelHeartbeatReports(cfg, tm),
 		CommandResults: commandResults,
+	}
+
+	if h != nil {
+		if sm, ok := buildSystemMetricsForCloud(cfg, h.lastSystemMetricsSentAt); ok {
+			payload.SystemMetrics = sm
+		}
 	}
 
 	if len(payload.Projects) > 0 {
@@ -286,6 +334,9 @@ func sendCloudHeartbeat(ctx context.Context, cfg *identity.UserConfig, deviceNam
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	if h != nil && payload.SystemMetrics != nil {
+		h.lastSystemMetricsSentAt = time.Now()
 	}
 
 	// Parse response

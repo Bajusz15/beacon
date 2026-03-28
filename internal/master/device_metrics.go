@@ -53,7 +53,7 @@ func CollectDeviceMetrics() DeviceMetrics {
 	m.MemoryTotalMB = totalMB
 	m.MemoryPercent = memPct
 
-	usedGB, totalGB, diskPct, _ := readDiskUsage()
+	usedGB, totalGB, diskPct, _ := readDiskUsageAt("/")
 	m.DiskUsedGB = usedGB
 	m.DiskTotalGB = totalGB
 	m.DiskPercent = diskPct
@@ -143,10 +143,16 @@ func readMemInfo() (int64, int64, float64, error) {
 	return usedMB, totalMB, pct, nil
 }
 
-// readDiskUsage calls syscall.Statfs on "/", returns (usedGB, totalGB, percent, error).
-func readDiskUsage() (float64, float64, float64, error) {
+// DiskUsagePercentAt returns used/total disk usage percent for a path (mount point).
+func DiskUsagePercentAt(path string) (float64, error) {
+	_, _, pct, err := readDiskUsageAt(path)
+	return pct, err
+}
+
+// readDiskUsageAt calls syscall.Statfs on path, returns (usedGB, totalGB, percent, error).
+func readDiskUsageAt(path string) (float64, float64, float64, error) {
 	var stat syscall.Statfs_t
-	if err := syscall.Statfs("/", &stat); err != nil {
+	if err := syscall.Statfs(path, &stat); err != nil {
 		return 0, 0, 0, err
 	}
 	totalBytes := float64(stat.Blocks) * float64(stat.Bsize)

@@ -58,19 +58,38 @@ The **first successful heartbeat** registers the device. To go fully local again
 
 ## ⚡ Quick Start
 
-```bash
-# Install
-curl -fsSL https://raw.githubusercontent.com/Bajusz15/beacon/main/scripts/install.sh | bash
+### 1. Install
 
-# Start the master agent
+```bash
+curl -fsSL https://raw.githubusercontent.com/Bajusz15/beacon/main/scripts/install.sh | bash
+```
+
+### 2. Initialize your device
+
+```bash
+beacon init --name my-pi
+```
+
+This creates `~/.beacon/config.yaml` with your device name, metrics port, and an empty project list. No network calls — everything stays local. If you skip `--name`, Beacon auto-detects your hostname.
+
+### 3. Start the master agent
+
+```bash
 beacon master
 ```
 
-Open **http://localhost:9100** — that’s your local dashboard. No config needed; works fully offline.
+Open **http://localhost:9100** — that’s your local dashboard. Auto-refreshes, no external dependencies, works fully offline.
 
-> **💡** `beacon init` writes `~/.beacon/config.yaml` (device name, metrics port, project list). Optional — the master has sensible defaults without it.
+### 4. (Optional) Connect to BeaconInfra cloud
 
-> **⚠️ Heads-up:** running plain **`beacon`** (no subcommand) starts **deploy mode** (Git/Docker tag polling) — **not** the dashboard. For the UI + master agent, use **`beacon master`**.
+```bash
+beacon cloud login --api-key usr_xxxxxxxx
+beacon master   # restart to enable heartbeats
+```
+
+The first heartbeat registers your device automatically — no separate signup wizard. To disconnect: `beacon cloud logout`.
+
+> **⚠️ Heads-up:** running plain **`beacon`** (no subcommand) starts **deploy mode** (Git/Docker tag polling) — **not** the dashboard. For the UI + master agent, always use **`beacon master`**.
 
 ---
 
@@ -384,6 +403,13 @@ systemctl --user enable --now beacon-master.service
 ```
 
 The master is **stateless per project** — it doesn't know about Docker or systemd. Projects are isolated: one crash doesn't affect others. The master auto-restarts failed projects with exponential backoff. Tunnels run as lightweight goroutines inside the master process, connecting outbound to the cloud via WebSocket so local services are accessible without opening ports.
+
+### BeaconInfra “home away” tunnel (end user)
+
+1. `beacon cloud login` with your **usr_** API key (same account as the dashboard).
+2. Add a tunnel: `beacon tunnel add homeassistant --port 8123` (id and port as needed).
+3. Run `beacon master` (or restart your systemd unit). The tunnel WebSocket starts when you open the device in **BeaconInfra → device → Reverse tunnels → Open in dashboard**.
+4. For **Home Assistant**, add `127.0.0.1` to `http` → `trusted_proxies` and use `use_x_forwarded_for: true` so URLs and sessions work behind the tunnel.
 
 ---
 

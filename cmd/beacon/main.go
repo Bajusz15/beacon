@@ -241,7 +241,7 @@ var initAgentCmd = &cobra.Command{
 	Short: "Write local machine config to ~/.beacon/config.yaml (no network)",
 	Long: `Creates or updates ~/.beacon/config.yaml with local settings only. No HTTP requests are made.
 
-Sets device_name (default: system hostname), cloud_reporting_enabled: false, and optional metrics port.
+Sets device_name (default: system hostname) and optional metrics port. New configs get cloud_reporting_enabled: false; existing configs keep their current value.
 Does not store an API key — use "beacon cloud login" after you have a BeaconInfra account.
 
 Environment: BEACON_DEVICE_NAME for default device name when --name is omitted.`,
