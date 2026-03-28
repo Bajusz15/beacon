@@ -136,35 +136,8 @@ fi
 # Download and install binary
 download_binary "$VERSION" "$ARCH"
 
-# Create systemd service template if it doesn't exist
-if [[ ! -f /etc/systemd/system/beacon@.service ]]; then
-    echo -e "${YELLOW}Installing systemd service template...${NC}"
-    
-    # Create the service file with dynamic user and working directory
-    sudo tee /etc/systemd/system/beacon@.service > /dev/null <<EOF
-[Unit]
-Description=Beacon Agent for %i - Lightweight deployment and reporting for IoT
-After=network.target
-
-[Service]
-EnvironmentFile=%h/.beacon/config/projects/%i/env
-Type=simple
-ExecStart=/usr/local/bin/beacon deploy
-WorkingDirectory=%h/beacon/%i
-Restart=always
-RestartSec=5
-
-# Logging
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    sudo systemctl daemon-reload
-    echo -e "${GREEN}Systemd service template installed${NC}"
-fi
+# Note: systemd service files are generated per-project by 'beacon bootstrap'
+# with the correct absolute paths. No static template is installed here.
 
 # Create directories
 echo -e "${YELLOW}Creating directories...${NC}"

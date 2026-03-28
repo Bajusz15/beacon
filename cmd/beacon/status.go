@@ -225,12 +225,20 @@ func formatRelTime(t time.Time) string {
 
 // renderStatus writes the ANSI-colored status output to stdout.
 func renderStatus(snap *master.StatusSnapshot, noColor bool, port int) {
+	renderStatusHeader(snap, noColor)
+	renderStatusDevice(&snap.Device, noColor)
+	renderStatusSystem(&snap.System, noColor)
+	renderStatusProjects(snap.Children, noColor)
+	renderStatusTunnels(snap.Tunnels, noColor)
+	renderStatusEvents(snap.Events, noColor)
+	renderStatusFooter(port, noColor)
+}
+
+func renderStatusHeader(snap *master.StatusSnapshot, noColor bool) {
 	ver := snap.Version
 	if ver == "" {
 		ver = "—"
 	}
-
-	// Header line
 	fmt.Printf("%s⬡ beacon%s %s%s%s  %s●%s master running  %spid %d  uptime %s%s\n",
 		c(noColor, colorAmber), c(noColor, colorReset),
 		c(noColor, colorSubtle), ver, c(noColor, colorReset),
@@ -240,18 +248,18 @@ func renderStatus(snap *master.StatusSnapshot, noColor bool, port int) {
 		c(noColor, colorReset),
 	)
 	fmt.Println()
+}
 
-	// DEVICE
-	dev := snap.Device
+func renderStatusDevice(dev *master.DeviceInfo, noColor bool) {
 	fmt.Printf("%sDEVICE%s  %s%s%s  %s%s  %s  %s%s\n",
 		c(noColor, colorMuted), c(noColor, colorReset),
 		c(noColor, colorWhite), dev.Hostname, c(noColor, colorReset),
 		c(noColor, colorSubtle), dev.IP, dev.Arch, dev.OS, c(noColor, colorReset),
 	)
 	fmt.Println()
+}
 
-	// SYSTEM — bars
-	sys := snap.System
+func renderStatusSystem(sys *master.DeviceMetrics, noColor bool) {
 	const barWidth = 16
 	cpuBar := renderBar(sys.CPUPercent, barWidth, noColor)
 	memBar := renderBar(sys.MemoryPercent, barWidth, noColor)
@@ -279,9 +287,9 @@ func renderStatus(snap *master.StatusSnapshot, noColor bool, port int) {
 		tempStr,
 	)
 	fmt.Println()
+}
 
-	// CHILDREN
-	children := snap.Children
+func renderStatusProjects(children []master.ChildStatus, noColor bool) {
 	healthy, warn, down := 0, 0, 0
 	for _, ch := range children {
 		switch ch.Status {
@@ -296,7 +304,7 @@ func renderStatus(snap *master.StatusSnapshot, noColor bool, port int) {
 		}
 	}
 
-	fmt.Printf("%sCHILDREN%s  %s%d healthy%s  %s%d warning%s  %s%d down%s\n",
+	fmt.Printf("%sPROJECTS%s  %s%d healthy%s  %s%d warning%s  %s%d down%s\n",
 		c(noColor, colorMuted), c(noColor, colorReset),
 		c(noColor, colorTeal), healthy, c(noColor, colorReset),
 		c(noColor, colorAmber), warn, c(noColor, colorReset),
@@ -305,100 +313,135 @@ func renderStatus(snap *master.StatusSnapshot, noColor bool, port int) {
 	fmt.Println()
 
 	for _, ch := range children {
-		dot := statusDot(ch.Status, noColor)
-		chkColor := colorTeal
-		if ch.Checks.Failing > 0 {
-			chkColor = colorAmber
-		}
-		nameColor := colorWhite
-		switch ch.Status {
-		case "down":
-			nameColor = colorRed
-		case "degraded", "warning":
-			nameColor = colorAmber
-		}
-
-		deployed := ""
-		if ch.DeployedAt != nil {
-			deployed = fmt.Sprintf("deployed %-10s", formatRelTime(*ch.DeployedAt))
-		} else {
-			deployed = fmt.Sprintf("%-21s", "")
-		}
-
-		fmt.Printf("  %s %s%-20s%s %s%-8s%s %s%s%s%s%d/%d checks passing%s\n",
-			dot,
-			c(noColor, nameColor), ch.Name, c(noColor, colorReset),
-			c(noColor, colorSubtle), ch.Version, c(noColor, colorReset),
-			c(noColor, colorSubtle), deployed, c(noColor, colorReset),
-			c(noColor, chkColor), ch.Checks.Passing, ch.Checks.Total, c(noColor, colorReset),
-		)
-
-		// Show failing check details
-		if ch.Checks.Failing > 0 {
-			for _, detail := range ch.Checks.Details {
-				if detail.Status == "failing" {
-					errMsg := detail.Error
-					if errMsg == "" {
-						errMsg = "check failed"
-					}
-					fmt.Printf("    %s└─ ⚠ %s  %s%s\n",
-						c(noColor, colorAmber),
-						detail.Name,
-						errMsg,
-						c(noColor, colorReset),
-					)
-				}
-			}
-		}
+		renderStatusProjectRow(ch, noColor)
 	}
 
 	if len(children) > 0 {
 		fmt.Println()
 	}
+}
 
-	// RECENT EVENTS
-	events := snap.Events
-	if len(events) > 0 {
-		fmt.Printf("%sRECENT%s  %slast 24h%s\n",
-			c(noColor, colorMuted), c(noColor, colorReset),
-			c(noColor, colorSubtle), c(noColor, colorReset),
-		)
-		// Show newest first, up to 10
-		limit := len(events)
-		if limit > 10 {
-			limit = 10
-		}
-		for i := len(events) - 1; i >= len(events)-limit; i-- {
-			e := events[i]
-			t := e.Timestamp
-			timeStr := fmt.Sprintf("%02d:%02d", t.Local().Hour(), t.Local().Minute())
-
-			typeColor := colorTeal
-			if e.Type == "alert" || e.Type == "restart" {
-				typeColor = colorAmber
-			}
-
-			childPart := ""
-			if e.Child != "" {
-				childPart = e.Child + " "
-			}
-
-			durPart := ""
-			if e.DurationMs > 0 {
-				durPart = fmt.Sprintf(" %s(%ds)%s", c(noColor, colorSubtle), e.DurationMs/1000, c(noColor, colorReset))
-			}
-
-			fmt.Printf("  %s%s%s  %s%-10s%s %s%s%s%s\n",
-				c(noColor, colorSubtle), timeStr, c(noColor, colorReset),
-				c(noColor, typeColor), string(e.Type), c(noColor, colorReset),
-				c(noColor, colorBody), childPart+e.Message, c(noColor, colorReset),
-				durPart,
-			)
-		}
-		fmt.Println()
+func renderStatusProjectRow(ch master.ChildStatus, noColor bool) {
+	dot := statusDot(ch.Status, noColor)
+	chkColor := colorTeal
+	if ch.Checks.Failing > 0 {
+		chkColor = colorAmber
+	}
+	nameColor := colorWhite
+	switch ch.Status {
+	case "down":
+		nameColor = colorRed
+	case "degraded", "warning":
+		nameColor = colorAmber
 	}
 
-	// Footer
+	deployed := ""
+	if ch.DeployedAt != nil {
+		deployed = fmt.Sprintf("deployed %-10s", formatRelTime(*ch.DeployedAt))
+	} else {
+		deployed = fmt.Sprintf("%-21s", "")
+	}
+
+	fmt.Printf("  %s %s%-20s%s %s%-8s%s %s%s%s%s%d/%d checks passing%s\n",
+		dot,
+		c(noColor, nameColor), ch.Name, c(noColor, colorReset),
+		c(noColor, colorSubtle), ch.Version, c(noColor, colorReset),
+		c(noColor, colorSubtle), deployed, c(noColor, colorReset),
+		c(noColor, chkColor), ch.Checks.Passing, ch.Checks.Total, c(noColor, colorReset),
+	)
+
+	if ch.Checks.Failing == 0 {
+		return
+	}
+	for _, detail := range ch.Checks.Details {
+		if detail.Status != "failing" {
+			continue
+		}
+		errMsg := detail.Error
+		if errMsg == "" {
+			errMsg = "check failed"
+		}
+		fmt.Printf("    %s└─ ⚠ %s  %s%s\n",
+			c(noColor, colorAmber),
+			detail.Name,
+			errMsg,
+			c(noColor, colorReset),
+		)
+	}
+}
+
+func renderStatusTunnels(tunnels []master.TunnelStatusInfo, noColor bool) {
+	if len(tunnels) == 0 {
+		return
+	}
+	fmt.Printf("%sTUNNELS%s\n", c(noColor, colorMuted), c(noColor, colorReset))
+	fmt.Println()
+	for _, t := range tunnels {
+		dot := statusDot("unknown", noColor)
+		nameColor := colorWhite
+		switch t.Status {
+		case "connected":
+			dot = c(noColor, colorTeal) + "●" + c(noColor, colorReset)
+		case "reconnecting":
+			dot = c(noColor, colorAmber) + "◐" + c(noColor, colorReset)
+			nameColor = colorAmber
+		case "failed":
+			dot = c(noColor, colorRed) + "✕" + c(noColor, colorReset)
+			nameColor = colorRed
+		}
+		fmt.Printf("  %s %s%-20s%s %slocalhost:%d%s  %s%s%s\n",
+			dot,
+			c(noColor, nameColor), t.ID, c(noColor, colorReset),
+			c(noColor, colorSubtle), t.LocalPort, c(noColor, colorReset),
+			c(noColor, colorBody), t.Status, c(noColor, colorReset),
+		)
+	}
+	fmt.Println()
+}
+
+func renderStatusEvents(events []master.Event, noColor bool) {
+	if len(events) == 0 {
+		return
+	}
+	fmt.Printf("%sRECENT%s  %slast 24h%s\n",
+		c(noColor, colorMuted), c(noColor, colorReset),
+		c(noColor, colorSubtle), c(noColor, colorReset),
+	)
+	limit := len(events)
+	if limit > 10 {
+		limit = 10
+	}
+	for i := len(events) - 1; i >= len(events)-limit; i-- {
+		e := events[i]
+		t := e.Timestamp
+		timeStr := fmt.Sprintf("%02d:%02d", t.Local().Hour(), t.Local().Minute())
+
+		typeColor := colorTeal
+		if e.Type == "alert" || e.Type == "restart" {
+			typeColor = colorAmber
+		}
+
+		sourcePart := ""
+		if e.Child != "" {
+			sourcePart = e.Child + " "
+		}
+
+		durPart := ""
+		if e.DurationMs > 0 {
+			durPart = fmt.Sprintf(" %s(%ds)%s", c(noColor, colorSubtle), e.DurationMs/1000, c(noColor, colorReset))
+		}
+
+		fmt.Printf("  %s%s%s  %s%-10s%s %s%s%s%s\n",
+			c(noColor, colorSubtle), timeStr, c(noColor, colorReset),
+			c(noColor, typeColor), string(e.Type), c(noColor, colorReset),
+			c(noColor, colorBody), sourcePart+e.Message, c(noColor, colorReset),
+			durPart,
+		)
+	}
+	fmt.Println()
+}
+
+func renderStatusFooter(port int, noColor bool) {
 	fmt.Printf("%smetrics%s %shttp://localhost:%d%s  %sprometheus%s %shttp://localhost:%d/metrics%s\n",
 		c(noColor, colorSubtle), c(noColor, colorReset),
 		c(noColor, colorLink), port, c(noColor, colorReset),

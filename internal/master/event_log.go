@@ -26,7 +26,7 @@ const (
 type Event struct {
 	Timestamp  time.Time `json:"timestamp"`
 	Type       EventType `json:"type"`
-	Child      string    `json:"child,omitempty"`
+	Child      string    `json:"source,omitempty"`
 	Message    string    `json:"message"`
 	DurationMs int64     `json:"duration_ms,omitempty"`
 }

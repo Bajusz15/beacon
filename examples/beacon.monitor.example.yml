@@ -1,12 +1,4 @@
-# Beacon Comprehensive Monitoring Configuration Example
-# This file demonstrates all monitoring, metrics, and log forwarding features
 
-# Device configuration  
-device:
-  name: "My Raspberry Pi"
-  location: "Living room"
-  tags: ["raspberry-pi", "homelab", "monitor"]
-  environment: "production"
 
 # Health checks (HTTP, port, command)
 checks:
@@ -62,16 +54,6 @@ checks:
     command: "du -m /var/log/syslog | cut -f1"
     interval: 300s
     alert_command: "if [ $BEACON_CHECK_OUTPUT -gt 100 ]; then echo 'Log file size: ${BEACON_CHECK_OUTPUT}MB' | logger -t beacon-alert; fi"
-
-# System metrics collection
-system_metrics:
-  enabled: true
-  interval: 60s
-  cpu: true
-  memory: true
-  disk: true
-  load_average: true
-  disk_path: "/"
 
 # Alert Commands (Legacy but still supported)
 # For command-type checks, alert_command always runs regardless of check status
@@ -249,21 +231,13 @@ log_sources:
     interval: 600s
     max_lines: 50
 
-# Reporting configuration
-report:
-  send_to: https://beaconwatch.dev/api
-  token: YOUR_BEACONWATCH_API_KEY
-  prometheus_metrics: true
-  prometheus_port: 9100
-  # Optional: write metrics to file (node_exporter textfile, local-only)
-  # prometheus_file_path: ~/.beacon/metrics.prom
-  
-  # Heartbeat configuration
-  heartbeat:
-    enabled: true
-    interval: 30s
-  # Run deploy when BeaconWatch requests it (e.g. "Deploy now" button)
-  # deploy_on_request: true
+# Optional: advanced reporting only in this file (most users rely on ~/.beacon/config.yaml instead).
+# Example — local Prometheus scrape or textfile export:
+# report:
+#   prometheus_metrics: true
+#   prometheus_port: 9100
+#   prometheus_file_path: ~/.beacon/metrics.prom
+#   deploy_on_request: true
 
 # -------------------------------------------
 # DEPLOY COMMAND LOG REDIRECTION EXAMPLES

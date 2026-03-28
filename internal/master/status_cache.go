@@ -5,8 +5,10 @@ import (
 	"sync"
 	"time"
 
+	"beacon/internal/cloud"
 	"beacon/internal/identity"
 	"beacon/internal/ipc"
+	"beacon/internal/tunnel"
 	"beacon/internal/version"
 )
 
@@ -36,7 +38,7 @@ type CheckSummary struct {
 	Details []CheckDetail `json:"details"`
 }
 
-// ChildStatus is one project child's view for /api/status.
+// ChildStatus is one project's view for /api/status.
 type ChildStatus struct {
 	Name       string       `json:"name"`
 	Version    string       `json:"version,omitempty"`
@@ -53,16 +55,25 @@ type CloudStatus struct {
 	Endpoint  string    `json:"endpoint,omitempty"`
 }
 
+// TunnelStatusInfo describes a tunnel's status for /api/status.
+type TunnelStatusInfo struct {
+	ID            string `json:"id"`
+	LocalPort     int    `json:"local_port"`
+	Status        string `json:"status"` // "connected", "reconnecting", "failed", "disabled"
+	UptimeSeconds int64  `json:"uptime_seconds,omitempty"`
+}
+
 // StatusSnapshot is the full /api/status response body.
 // Shared between the HTTP server and CLI deserialization.
 type StatusSnapshot struct {
-	Version  string        `json:"version"`
-	Master   MasterInfo    `json:"master"`
-	Device   DeviceInfo    `json:"device"`
-	System   DeviceMetrics `json:"system"`
-	Children []ChildStatus `json:"children"`
-	Events   []Event       `json:"events"`
-	Cloud    CloudStatus   `json:"cloud"`
+	Version  string             `json:"version"`
+	Master   MasterInfo         `json:"master"`
+	Device   DeviceInfo         `json:"device"`
+	System   DeviceMetrics      `json:"system"`
+	Children []ChildStatus      `json:"projects"`
+	Tunnels  []TunnelStatusInfo `json:"tunnels,omitempty"`
+	Events   []Event            `json:"events"`
+	Cloud    CloudStatus        `json:"cloud"`
 }
 
 // StatusCache holds the latest snapshot, refreshed every 10 seconds.
@@ -70,6 +81,7 @@ type StatusCache struct {
 	mu        sync.RWMutex
 	snapshot  StatusSnapshot
 	pm        *ProcessManager
+	tm        *tunnel.TunnelManager
 	eventLog  *EventLog
 	startedAt time.Time
 	cfg       *identity.UserConfig
@@ -104,6 +116,19 @@ func (sc *StatusCache) Refresh() {
 		snap.Children = sc.buildChildren()
 	}
 
+	// Build tunnel statuses
+	if sc.tm != nil {
+		statuses := sc.tm.GetTunnelStatuses()
+		snap.Tunnels = make([]TunnelStatusInfo, len(statuses))
+		for i, s := range statuses {
+			snap.Tunnels[i] = TunnelStatusInfo{
+				ID:        s.ID,
+				LocalPort: s.LocalPort,
+				Status:    s.Status,
+			}
+		}
+	}
+
 	// Events from ring buffer
 	if sc.eventLog != nil {
 		snap.Events = sc.eventLog.Recent()
@@ -112,8 +137,8 @@ func (sc *StatusCache) Refresh() {
 	// Preserve cloud sync state and apply config
 	sc.mu.Lock()
 	snap.Cloud = sc.snapshot.Cloud
-	if sc.cfg != nil && sc.cfg.CloudURL != "" {
-		snap.Cloud.Endpoint = sc.cfg.CloudURL
+	if sc.cfg != nil && sc.cfg.CloudReportingEnabled {
+		snap.Cloud.Endpoint = cloud.BeaconInfraAPIBase()
 	}
 	sc.snapshot = snap
 	sc.mu.Unlock()
@@ -134,13 +159,20 @@ func (sc *StatusCache) UpdateCloudSync() {
 	sc.snapshot.Cloud.LastSync = time.Now()
 }
 
+// SetTunnelManager sets the tunnel manager for status reporting.
+func (sc *StatusCache) SetTunnelManager(tm *tunnel.TunnelManager) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.tm = tm
+}
+
 // UpdateConfig updates the config reference on hot-reload.
 func (sc *StatusCache) UpdateConfig(cfg *identity.UserConfig) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	sc.cfg = cfg
-	if cfg != nil && cfg.CloudURL != "" {
-		sc.snapshot.Cloud.Endpoint = cfg.CloudURL
+	if cfg != nil && cfg.CloudReportingEnabled {
+		sc.snapshot.Cloud.Endpoint = cloud.BeaconInfraAPIBase()
 	}
 }
 

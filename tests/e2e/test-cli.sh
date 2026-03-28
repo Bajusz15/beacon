@@ -156,7 +156,7 @@ test_cloud_login_logout() {
         log_error "beacon init failed (cloud flow)"
         exit 1
     fi
-    if ! beacon cloud login --api-key "usr_e2e_fake" --cloud-url "https://e2e.example.com/api" --name "e2e-cloud-device"; then
+    if ! beacon cloud login --api-key "usr_e2e_fake" --name "e2e-cloud-device"; then
         log_error "beacon cloud login failed"
         exit 1
     fi

@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"beacon/internal/cloud"
 	"beacon/internal/config"
 	"beacon/internal/deploy"
 	"beacon/internal/errors"
@@ -383,11 +384,49 @@ func applyUserConfigToMonitorConfig(cfg *Config, uc *identity.UserConfig) {
 	if cfg == nil || uc == nil {
 		return
 	}
-	if cfg.Report.SendTo == "" && strings.TrimSpace(uc.CloudURL) != "" {
-		cfg.Report.SendTo = strings.TrimSpace(uc.CloudURL)
-	}
+	reportSendToFromFile := strings.TrimSpace(cfg.Report.SendTo) != ""
+
 	if strings.TrimSpace(cfg.Device.Name) == "" && strings.TrimSpace(uc.DeviceName) != "" {
 		cfg.Device.Name = strings.TrimSpace(uc.DeviceName)
+	}
+	if uc.SystemMetrics != nil {
+		cfg.SystemMetrics = systemMetricsFromUserConfig(uc.SystemMetrics)
+	}
+	if uc.CloudReportingEnabled && cfg.Report.SendTo == "" {
+		cfg.Report.SendTo = cloud.BeaconInfraAPIBase()
+	}
+	if uc.CloudReportingEnabled && strings.TrimSpace(uc.APIKey) != "" && !reportSendToFromFile {
+		cfg.Report.Heartbeat.Enabled = true
+		if cfg.Report.Heartbeat.Interval <= 0 {
+			if uc.HeartbeatInterval > 0 {
+				cfg.Report.Heartbeat.Interval = time.Duration(uc.HeartbeatInterval) * time.Second
+			} else {
+				cfg.Report.Heartbeat.Interval = 30 * time.Second
+			}
+		}
+	}
+}
+
+func systemMetricsFromUserConfig(u *identity.UserSystemMetricsConfig) SystemMetricsConfig {
+	if u == nil {
+		return SystemMetricsConfig{}
+	}
+	diskPath := u.DiskPath
+	if diskPath == "" {
+		diskPath = "/"
+	}
+	iv := u.Interval
+	if iv <= 0 {
+		iv = time.Minute
+	}
+	return SystemMetricsConfig{
+		Enabled:     u.Enabled,
+		Interval:    iv,
+		CPU:         u.CPU,
+		Memory:      u.Memory,
+		Disk:        u.Disk,
+		LoadAverage: u.LoadAverage,
+		DiskPath:    diskPath,
 	}
 }
 

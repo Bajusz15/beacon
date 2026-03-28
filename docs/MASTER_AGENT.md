@@ -36,11 +36,11 @@ beacon cloud login
 beacon cloud login --api-key "usr_your_api_key" --name my-homelab-server
 ```
 
-The default API base URL is **compiled into the binary** (`beacon config show` prints `cloud_api_base_default`). For a self-hosted backend, pass **`beacon cloud login --cloud-url https://your-host.example.com/api`**.
+The API base URL is **compiled into the binary** and cannot be overridden at runtime (security: prevents attackers from redirecting heartbeats). Use **`beacon config show`** to see the baked-in URL. Self-hosted users must build from source with `-ldflags "-X beacon/internal/cloud.DefaultBeaconInfraAPIURL=..."`.
 
-Use **`beacon config show`** to print paths, device name, effective API base, and whether an API key is set.
+Use **`beacon config show`** to print paths, device name, API base, and whether an API key is set.
 
-To stop sending heartbeats and remove the stored key, run **`beacon cloud logout`** (sets `cloud_reporting_enabled: false` and clears `api_key` / `cloud_url`).
+To stop sending heartbeats and remove the stored key, run **`beacon cloud logout`** (sets `cloud_reporting_enabled: false` and clears `api_key`).
 
 ### 2. Start the Master Agent
 
@@ -72,7 +72,6 @@ After **`beacon init`** (local) and **`beacon cloud login`** (API key), the file
 ```yaml
 api_key: usr_your_api_key
 device_name: my-homelab-server
-cloud_url: https://beaconinfra.dev/api
 heartbeat_interval: 30        # seconds
 cloud_reporting_enabled: true
 device_id: ""                 # populated after first successful heartbeat
@@ -82,10 +81,11 @@ device_id: ""                 # populated after first successful heartbeat
 |-------|-------------|
 | `api_key` | User API key from BeaconInfra (starts with `usr_`) |
 | `device_name` | Human-readable name for this device |
-| `cloud_url` | API base URL (include `/api` suffix) |
 | `heartbeat_interval` | Seconds between heartbeats (default: 30) |
 | `cloud_reporting_enabled` | Set to `false` to disable heartbeats |
 | `device_id` | Auto-populated UUID after first heartbeat |
+
+> **Note:** The cloud API URL is compiled into the binary (`beacon config show` prints it). It cannot be changed at runtime — this is a security measure to prevent attackers from redirecting traffic.
 
 ### Environment Variables
 
@@ -217,10 +217,11 @@ Check if cloud reporting is enabled:
 cat ~/.beacon/config.yaml | grep cloud_reporting_enabled
 ```
 
-Verify API key and cloud URL are set:
+Verify API key is set and check compiled cloud URL:
 
 ```bash
-cat ~/.beacon/config.yaml | grep -E "api_key|cloud_url"
+cat ~/.beacon/config.yaml | grep api_key
+beacon config show | grep cloud_api_base
 ```
 
 ### Authentication Errors
