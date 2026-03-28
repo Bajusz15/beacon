@@ -151,37 +151,7 @@ func Run(ctx context.Context) {
 		pm.SpawnAll(uc.Projects)
 	}
 
-	// Tunnel manager — auto-starts enabled tunnels at boot
-	var tm *tunnel.TunnelManager
-	if uc != nil && len(uc.Tunnels) > 0 && uc.CloudReportingEnabled && strings.TrimSpace(uc.APIKey) != "" {
-		var tmErr error
-		tm, tmErr = tunnel.NewTunnelManager(ctx)
-		if tmErr != nil {
-			log.Printf("[Beacon master] Failed to create tunnel manager: %v", tmErr)
-		} else {
-			apiKey := strings.TrimSpace(uc.APIKey)
-			deviceName := strings.TrimSpace(uc.DeviceName)
-			if deviceName == "" {
-				deviceName = getHostname()
-			}
-			started := 0
-			for _, t := range uc.Tunnels {
-				if !tunnel.ConfigTunnelEnabled(t) {
-					continue
-				}
-				if started >= tunnel.MaxActiveTunnels {
-					log.Printf("[Beacon master] Tunnel %s skipped (limit: %d active tunnels)", t.ID, tunnel.MaxActiveTunnels)
-					continue
-				}
-				if err := tm.EnsureStarted(t, uc.EffectiveCloudAPIBase(), apiKey, deviceName); err != nil {
-					log.Printf("[Beacon master] Tunnel %s failed to start: %v", t.ID, err)
-				} else {
-					started++
-				}
-			}
-			log.Printf("[Beacon master] Tunnel manager started (%d/%d tunnel(s) active)", started, len(uc.Tunnels))
-		}
-	}
+	tm := initTunnelManager(ctx, uc)
 	statusCache.SetTunnelManager(tm)
 
 	dispatcher := NewCommandDispatcher(pm, tm)
@@ -248,6 +218,40 @@ func startCacheRefresh(ctx context.Context, cache *StatusCache) {
 			}
 		}
 	}()
+}
+
+// initTunnelManager creates and auto-starts enabled tunnels if cloud reporting is configured.
+func initTunnelManager(ctx context.Context, uc *identity.UserConfig) *tunnel.TunnelManager {
+	if uc == nil || len(uc.Tunnels) == 0 || !uc.CloudReportingEnabled || strings.TrimSpace(uc.APIKey) == "" {
+		return nil
+	}
+	tm, err := tunnel.NewTunnelManager(ctx)
+	if err != nil {
+		log.Printf("[Beacon master] Failed to create tunnel manager: %v", err)
+		return nil
+	}
+	apiKey := strings.TrimSpace(uc.APIKey)
+	deviceName := strings.TrimSpace(uc.DeviceName)
+	if deviceName == "" {
+		deviceName = getHostname()
+	}
+	started := 0
+	for _, t := range uc.Tunnels {
+		if !tunnel.ConfigTunnelEnabled(t) {
+			continue
+		}
+		if started >= tunnel.MaxActiveTunnels {
+			log.Printf("[Beacon master] Tunnel %s skipped (limit: %d active tunnels)", t.ID, tunnel.MaxActiveTunnels)
+			continue
+		}
+		if err := tm.EnsureStarted(t, uc.EffectiveCloudAPIBase(), apiKey, deviceName); err != nil {
+			log.Printf("[Beacon master] Tunnel %s failed to start: %v", t.ID, err)
+		} else {
+			started++
+		}
+	}
+	log.Printf("[Beacon master] Tunnel manager started (%d/%d tunnel(s) active)", started, len(uc.Tunnels))
+	return tm
 }
 
 // heartbeatLoop holds state for the recurring cloud heartbeat.
