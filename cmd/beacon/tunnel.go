@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -28,13 +29,19 @@ Tunnels are active when the master agent is running (beacon master).`,
 		Use:   "add <id>",
 		Short: "Add a tunnel to config",
 		Long: `Add a new tunnel entry to ~/.beacon/config.yaml.
-The tunnel connects automatically when the master agent starts.`,
+The tunnel connects automatically when the master agent starts.
+
+Use --host (and optional --protocol) to forward to a LAN or Docker hostname instead of loopback
+(e.g. Home Assistant OS add-on: --host homeassistant --port 8123).`,
 		Example: `  beacon tunnel add homeassistant --port 8123
-  beacon tunnel add grafana --port 3000`,
+  beacon tunnel add homeassistant --port 8123 --host homeassistant
+  beacon tunnel add jellyfin --port 8096 --host 192.168.1.50`,
 		Args: cobra.ExactArgs(1),
 		Run:  runTunnelAdd,
 	}
-	addCmd.Flags().IntP("port", "p", 0, "Local port to tunnel (required)")
+	addCmd.Flags().IntP("port", "p", 0, "TCP port on the upstream host (required)")
+	addCmd.Flags().String("host", "", "Upstream hostname or IP (omit for 127.0.0.1-only; use e.g. homeassistant on Home Assistant OS)")
+	addCmd.Flags().String("protocol", "", "http or https (default http; use with --host or for HTTPS to loopback)")
 	_ = addCmd.MarkFlagRequired("port")
 
 	removeCmd := &cobra.Command{
@@ -88,14 +95,40 @@ The tunnel connects automatically when the master agent starts.`,
 func runTunnelAdd(cmd *cobra.Command, args []string) {
 	id := args[0]
 	port, _ := cmd.Flags().GetInt("port")
+	host, _ := cmd.Flags().GetString("host")
+	protocol, _ := cmd.Flags().GetString("protocol")
 
-	if err := identity.AppendTunnelIfMissing(id, port); err != nil {
+	var err error
+	if strings.TrimSpace(host) != "" || strings.TrimSpace(protocol) != "" {
+		err = identity.UpsertTunnelUpstream(id, protocol, host, port)
+	} else {
+		err = identity.AppendTunnelIfMissing(id, port)
+	}
+	if err != nil {
 		logger.Fatalf("beacon tunnel add: %v", err)
 	}
-	fmt.Printf("Added tunnel %q -> localhost:%d\n", id, port)
 
-	// Warn if over the active tunnel limit
 	cfg, _ := identity.LoadUserConfig()
+	var tc *identity.TunnelConfig
+	if cfg != nil {
+		for i := range cfg.Tunnels {
+			if cfg.Tunnels[i].ID == id {
+				tc = &cfg.Tunnels[i]
+				break
+			}
+		}
+	}
+	if tc != nil {
+		proto, h, p, euErr := tc.EffectiveUpstream()
+		if euErr == nil {
+			fmt.Printf("Added tunnel %q -> %s://%s:%d\n", id, proto, h, p)
+		} else {
+			fmt.Printf("Added tunnel %q\n", id)
+		}
+	} else {
+		fmt.Printf("Added tunnel %q\n", id)
+	}
+
 	if cfg != nil {
 		enabled := 0
 		for _, t := range cfg.Tunnels {
@@ -121,11 +154,10 @@ func runTunnelList(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	// Try to get live status from master
 	liveStatus := fetchTunnelStatus()
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "ID\tPORT\tENABLED\tSTATUS")
+	_, _ = fmt.Fprintln(w, "ID\tUPSTREAM\tENABLED\tSTATUS")
 	for _, t := range cfg.Tunnels {
 		enabled := "true"
 		if t.Enabled != nil && !*t.Enabled {
@@ -135,12 +167,16 @@ func runTunnelList(cmd *cobra.Command, args []string) {
 		if s, ok := liveStatus[t.ID]; ok {
 			status = s
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", t.ID, t.LocalPort, enabled, status)
+		proto, host, port, euErr := t.EffectiveUpstream()
+		up := "—"
+		if euErr == nil {
+			up = fmt.Sprintf("%s://%s:%d", proto, host, port)
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", t.ID, up, enabled, status)
 	}
 	_ = w.Flush()
 }
 
-// fetchTunnelStatus tries to get tunnel status from the running master's /api/status endpoint.
 func fetchTunnelStatus() map[string]string {
 	result := make(map[string]string)
 

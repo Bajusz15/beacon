@@ -57,10 +57,12 @@ type CloudStatus struct {
 
 // TunnelStatusInfo describes a tunnel's status for /api/status.
 type TunnelStatusInfo struct {
-	ID            string `json:"id"`
-	LocalPort     int    `json:"local_port"`
-	Status        string `json:"status"` // "connected", "reconnecting", "failed", "disabled"
-	UptimeSeconds int64  `json:"uptime_seconds,omitempty"`
+	ID                string `json:"id"`
+	LocalPort         int    `json:"local_port"`
+	UpstreamHost      string `json:"upstream_host,omitempty"`
+	UpstreamProtocol  string `json:"upstream_protocol,omitempty"`
+	Status            string `json:"status"` // "connected", "reconnecting", "failed", "disabled"
+	UptimeSeconds     int64  `json:"uptime_seconds,omitempty"`
 }
 
 // StatusSnapshot is the full /api/status response body.
@@ -122,9 +124,11 @@ func (sc *StatusCache) Refresh() {
 		snap.Tunnels = make([]TunnelStatusInfo, len(statuses))
 		for i, s := range statuses {
 			snap.Tunnels[i] = TunnelStatusInfo{
-				ID:        s.ID,
-				LocalPort: s.LocalPort,
-				Status:    s.Status,
+				ID:               s.ID,
+				LocalPort:        s.LocalPort,
+				UpstreamHost:     s.UpstreamHost,
+				UpstreamProtocol: s.UpstreamProtocol,
+				Status:           s.Status,
 			}
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"beacon/internal/identity"
@@ -19,9 +20,11 @@ const MaxActiveTunnels = 2
 
 // TunnelStatus describes a managed tunnel's current state.
 type TunnelStatus struct {
-	ID        string `json:"id"`
-	LocalPort int    `json:"local_port"`
-	Status    string `json:"status"` // "connected", "reconnecting", "failed", "disabled"
+	ID              string `json:"id"`
+	LocalPort       int    `json:"local_port"`
+	UpstreamHost    string `json:"upstream_host,omitempty"`
+	UpstreamProtocol string `json:"upstream_protocol,omitempty"`
+	Status          string `json:"status"` // "connected", "reconnecting", "failed", "disabled"
 }
 
 // TunnelManager manages tunnel goroutines within the master process.
@@ -73,11 +76,21 @@ func (tm *TunnelManager) start(t identity.TunnelConfig, cloudURL, apiKey, device
 		return
 	}
 
+	proto, host, port, err := t.EffectiveUpstream()
+	if err != nil {
+		managerLog.Warnf("Tunnel %s: invalid upstream: %v", t.ID, err)
+		return
+	}
+	if err := ValidateDialTarget(proto, host, port); err != nil {
+		managerLog.Warnf("Tunnel %s: upstream not allowed: %v", t.ID, err)
+		return
+	}
+
 	ipcDir := filepath.Join(tm.ipcBase, "tunnel-"+t.ID)
 
 	client := NewClient(ClientConfig{
 		TunnelID:   t.ID,
-		LocalPort:  t.LocalPort,
+		Dial:       DialTarget{Protocol: proto, Host: host, Port: port},
 		CloudURL:   cloudURL,
 		APIKey:     apiKey,
 		DeviceName: deviceName,
@@ -93,7 +106,7 @@ func (tm *TunnelManager) start(t identity.TunnelConfig, cloudURL, apiKey, device
 	tm.wg.Add(1)
 	go func() {
 		defer tm.wg.Done()
-		managerLog.Infof("Starting tunnel %s -> localhost:%d", t.ID, t.LocalPort)
+		managerLog.Infof("Starting tunnel %s -> %s://%s:%d", t.ID, proto, host, port)
 		if err := client.Run(tm.ctx); err != nil && tm.ctx.Err() == nil {
 			managerLog.Warnf("Tunnel %s stopped: %v", t.ID, err)
 		}
@@ -124,10 +137,13 @@ func (tm *TunnelManager) GetTunnelStatuses() []TunnelStatus {
 		if mt.client.connected {
 			status = "connected"
 		}
+		proto, host, port, _ := mt.cfg.EffectiveUpstream()
 		statuses = append(statuses, TunnelStatus{
-			ID:        id,
-			LocalPort: mt.cfg.LocalPort,
-			Status:    status,
+			ID:               id,
+			LocalPort:        port,
+			UpstreamHost:     host,
+			UpstreamProtocol: proto,
+			Status:           status,
 		})
 	}
 	return statuses
@@ -142,7 +158,11 @@ func (tm *TunnelManager) Shutdown() {
 }
 
 func isTunnelEnabled(t identity.TunnelConfig) bool {
-	if t.ID == "" || t.LocalPort <= 0 {
+	if strings.TrimSpace(t.ID) == "" {
+		return false
+	}
+	_, _, _, err := t.EffectiveUpstream()
+	if err != nil {
 		return false
 	}
 	if t.Enabled == nil {

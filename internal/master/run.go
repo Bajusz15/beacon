@@ -20,11 +20,13 @@ import (
 )
 
 type tunnelHeartbeatReport struct {
-	ID        string `json:"id"`
-	LocalPort int    `json:"local_port"`
-	Enabled   bool   `json:"enabled"`
-	Autostart *bool  `json:"autostart,omitempty"`
-	Connected *bool  `json:"connected,omitempty"`
+	ID               string `json:"id"`
+	LocalPort        int    `json:"local_port"`
+	UpstreamProtocol string `json:"upstream_protocol,omitempty"`
+	UpstreamHost     string `json:"upstream_host,omitempty"`
+	Enabled          bool   `json:"enabled"`
+	Autostart        *bool  `json:"autostart,omitempty"`
+	Connected        *bool  `json:"connected,omitempty"`
 }
 
 type heartbeatRequest struct {
@@ -78,11 +80,14 @@ func buildTunnelHeartbeatReports(cfg *identity.UserConfig, tm *tunnel.TunnelMana
 			continue
 		}
 		autostart := true
+		proto, host, port, _ := t.EffectiveUpstream()
 		r := tunnelHeartbeatReport{
-			ID:        t.ID,
-			LocalPort: t.LocalPort,
-			Enabled:   tunnel.ConfigTunnelEnabled(t),
-			Autostart: &autostart,
+			ID:               t.ID,
+			LocalPort:        port,
+			UpstreamProtocol: proto,
+			UpstreamHost:     host,
+			Enabled:          tunnel.ConfigTunnelEnabled(t),
+			Autostart:        &autostart,
 		}
 		if c, ok := connectedByID[t.ID]; ok {
 			r.Connected = &c

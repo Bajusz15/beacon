@@ -55,7 +55,8 @@ type ProjectConfig struct {
 // TunnelConfig defines a tunnel the master can open to the cloud on demand (tunnel_connect piggyback only).
 type TunnelConfig struct {
 	ID        string `yaml:"id"`
-	LocalPort int    `yaml:"local_port"`
+	LocalPort int    `yaml:"local_port,omitempty"`
+	Upstream  *TunnelUpstream `yaml:"upstream,omitempty"`
 	// Enabled is tri-state: nil => omitted in YAML (default: true), true/false => explicitly set.
 	Enabled *bool `yaml:"enabled,omitempty"`
 }
@@ -216,10 +217,51 @@ func AppendTunnelIfMissing(tunnelID string, localPort int) error {
 	for i := range f.Tunnels {
 		if f.Tunnels[i].ID == tunnelID {
 			f.Tunnels[i].LocalPort = localPort
+			f.Tunnels[i].Upstream = nil
 			return saveUserConfig(p, f)
 		}
 	}
 	f.Tunnels = append(f.Tunnels, TunnelConfig{ID: tunnelID, LocalPort: localPort})
+	return saveUserConfig(p, f)
+}
+
+// UpsertTunnelUpstream sets or adds a tunnel with an explicit upstream (LAN/Docker or loopback).
+// protocol is http or https; empty host defaults to 127.0.0.1 in EffectiveUpstream.
+func UpsertTunnelUpstream(tunnelID, protocol, host string, port int) error {
+	tunnelID = strings.TrimSpace(tunnelID)
+	if tunnelID == "" {
+		return errors.New("tunnel id is required")
+	}
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if protocol == "" {
+		protocol = "http"
+	}
+	if protocol != "http" && protocol != "https" {
+		return errors.New("protocol must be http or https")
+	}
+	if port <= 0 || port > 65535 {
+		return errors.New("port must be between 1 and 65535")
+	}
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		f = &UserConfig{}
+	}
+	u := &TunnelUpstream{Protocol: protocol, Host: strings.TrimSpace(host), Port: port}
+	for i := range f.Tunnels {
+		if f.Tunnels[i].ID == tunnelID {
+			f.Tunnels[i].Upstream = u
+			f.Tunnels[i].LocalPort = 0
+			return saveUserConfig(p, f)
+		}
+	}
+	f.Tunnels = append(f.Tunnels, TunnelConfig{ID: tunnelID, Upstream: u})
 	return saveUserConfig(p, f)
 }
 
