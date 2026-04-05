@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"beacon/internal/ipc"
+	"beacon/internal/logging"
 
 	"github.com/gorilla/websocket"
 )
@@ -44,6 +44,7 @@ type Client struct {
 	cfg  ClientConfig
 	conn *websocket.Conn
 	mu   sync.Mutex // protects conn writes
+	log  *logging.Logger
 
 	// Active WebSocket passthrough streams (streamID -> local ws conn)
 	streams sync.Map
@@ -56,6 +57,7 @@ type Client struct {
 func NewClient(cfg ClientConfig) *Client {
 	return &Client{
 		cfg:       cfg,
+		log:       logging.New("tunnel " + cfg.TunnelID),
 		startedAt: time.Now(),
 	}
 }
@@ -92,7 +94,7 @@ func (c *Client) Run(ctx context.Context) error {
 
 		attempt++
 		if attempt > maxReconnects {
-			log.Printf("[Beacon tunnel %s] Max reconnects (%d) exceeded, giving up", c.cfg.TunnelID, maxReconnects)
+			c.log.Warnf("Max reconnects (%d) exceeded, giving up", maxReconnects)
 			c.connected = false
 			c.writeHealthOnce()
 			return fmt.Errorf("max reconnects exceeded after error: %v", err)
@@ -102,8 +104,8 @@ func (c *Client) Run(ctx context.Context) error {
 		if backoff > maxBackoff {
 			backoff = maxBackoff
 		}
-		log.Printf("[Beacon tunnel %s] Disconnected (%v), reconnecting in %v (attempt %d/%d)",
-			c.cfg.TunnelID, err, backoff, attempt, maxReconnects)
+		c.log.Infof("Disconnected (%v), reconnecting in %v (attempt %d/%d)",
+			err, backoff, attempt, maxReconnects)
 		c.connected = false
 		c.writeHealthOnce()
 
@@ -135,7 +137,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	c.connected = true
 	c.mu.Unlock()
 
-	log.Printf("[Beacon tunnel %s] Connected to %s", c.cfg.TunnelID, wsURL)
+	c.log.Infof("Connected to %s", wsURL)
 
 	defer c.closeConn()
 
@@ -160,7 +162,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 
 		var msg Message
 		if err := json.Unmarshal(raw, &msg); err != nil {
-			log.Printf("[Beacon tunnel %s] Invalid message: %v", c.cfg.TunnelID, err)
+			c.log.Warnf("Invalid message: %v", err)
 			continue
 		}
 
@@ -176,7 +178,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 		case MsgPing:
 			c.sendMessage(&Message{Type: MsgPong})
 		default:
-			log.Printf("[Beacon tunnel %s] Unknown message type: %s", c.cfg.TunnelID, msg.Type)
+			c.log.Warnf("Unknown message type: %s", msg.Type)
 		}
 	}
 }
@@ -184,7 +186,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 func (c *Client) handleHTTPRequest(msg Message) {
 	resp, err := ProxyHTTPRequest(c.cfg.LocalPort, &msg)
 	if err != nil {
-		log.Printf("[Beacon tunnel %s] Proxy error for %s %s: %v", c.cfg.TunnelID, msg.Method, msg.Path, err)
+		c.log.Errorf("Proxy error for %s %s: %v", msg.Method, msg.Path, err)
 		resp = &Message{
 			Type:      MsgHTTPResponse,
 			RequestID: msg.RequestID,
@@ -198,7 +200,7 @@ func (c *Client) handleHTTPRequest(msg Message) {
 func (c *Client) handleWSOpen(ctx context.Context, msg Message) {
 	localConn, err := ProxyWSOpen(ctx, c.cfg.LocalPort, msg.Path, msg.Headers)
 	if err != nil {
-		log.Printf("[Beacon tunnel %s] WS open failed for %s: %v", c.cfg.TunnelID, msg.Path, err)
+		c.log.Errorf("WS open failed for %s: %v", msg.Path, err)
 		c.sendMessage(&Message{
 			Type:     MsgWSOpenResult,
 			StreamID: msg.StreamID,
@@ -266,7 +268,7 @@ func (c *Client) sendMessage(msg *Message) {
 	}
 	_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	if err := c.conn.WriteJSON(msg); err != nil {
-		log.Printf("[Beacon tunnel %s] Write error: %v", c.cfg.TunnelID, err)
+		c.log.Errorf("Write error: %v", err)
 	}
 }
 

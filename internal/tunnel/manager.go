@@ -3,13 +3,15 @@ package tunnel
 import (
 	"context"
 	"fmt"
-	"log"
 	"path/filepath"
 	"sync"
 
 	"beacon/internal/identity"
 	"beacon/internal/ipc"
+	"beacon/internal/logging"
 )
+
+var managerLog = logging.New("tunnel")
 
 // MaxActiveTunnels is the maximum number of tunnels that can be active simultaneously per user.
 // Matches the server-side limit. Additional configured tunnels stay dormant.
@@ -91,9 +93,9 @@ func (tm *TunnelManager) start(t identity.TunnelConfig, cloudURL, apiKey, device
 	tm.wg.Add(1)
 	go func() {
 		defer tm.wg.Done()
-		log.Printf("[Beacon master] Starting tunnel %s -> localhost:%d", t.ID, t.LocalPort)
+		managerLog.Infof("Starting tunnel %s -> localhost:%d", t.ID, t.LocalPort)
 		if err := client.Run(tm.ctx); err != nil && tm.ctx.Err() == nil {
-			log.Printf("[Beacon master] Tunnel %s stopped: %v", t.ID, err)
+			managerLog.Warnf("Tunnel %s stopped: %v", t.ID, err)
 		}
 	}()
 }
@@ -133,10 +135,10 @@ func (tm *TunnelManager) GetTunnelStatuses() []TunnelStatus {
 
 // Shutdown stops all tunnel goroutines and waits for them to finish.
 func (tm *TunnelManager) Shutdown() {
-	log.Printf("[Beacon master] Stopping all tunnels...")
+	managerLog.Infof("Stopping all tunnels...")
 	tm.cancel()
 	tm.wg.Wait()
-	log.Printf("[Beacon master] All tunnels stopped")
+	managerLog.Infof("All tunnels stopped")
 }
 
 func isTunnelEnabled(t identity.TunnelConfig) bool {

@@ -3,14 +3,14 @@ package util
 import (
 	"bytes"
 	"errors"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"beacon/internal/logging"
 )
 
 // mockCloser implements io.Closer for testing
@@ -62,8 +62,8 @@ func TestCloser_Close(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Capture log output
 			var buf bytes.Buffer
-			log.SetOutput(&buf)
-			defer log.SetOutput(os.Stderr)
+			logging.SetOutput(&buf)
+			defer logging.SetOutput(nil)
 
 			closer := NewCloser("[Test]")
 			mock := &mockCloser{shouldError: tt.shouldError}
@@ -87,8 +87,8 @@ func TestCloser_Close(t *testing.T) {
 
 func TestCloser_CloseFile(t *testing.T) {
 	var buf bytes.Buffer
-	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr)
+	logging.SetOutput(&buf)
+	defer logging.SetOutput(nil)
 
 	closer := NewCloser("[Test]")
 	mock := &mockCloser{shouldError: true}
@@ -107,8 +107,8 @@ func TestCloser_CloseFile(t *testing.T) {
 
 func TestCloser_CloseConn(t *testing.T) {
 	var buf bytes.Buffer
-	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr)
+	logging.SetOutput(&buf)
+	defer logging.SetOutput(nil)
 
 	closer := NewCloser("[Test]")
 	mock := &mockConn{mockCloser{shouldError: true}}
@@ -127,8 +127,8 @@ func TestCloser_CloseConn(t *testing.T) {
 
 func TestCloser_CloseResponse(t *testing.T) {
 	var buf bytes.Buffer
-	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr)
+	logging.SetOutput(&buf)
+	defer logging.SetOutput(nil)
 
 	closer := NewCloser("[Test]")
 
@@ -154,8 +154,8 @@ func TestCloser_CloseResponse(t *testing.T) {
 
 func TestDeferFunctions(t *testing.T) {
 	var buf bytes.Buffer
-	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr)
+	logging.SetOutput(&buf)
+	defer logging.SetOutput(nil)
 
 	mock := &mockCloser{shouldError: true}
 
@@ -175,8 +175,8 @@ func TestDeferFunctions(t *testing.T) {
 
 func TestPackageLevelFunctions(t *testing.T) {
 	var buf bytes.Buffer
-	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr)
+	logging.SetOutput(&buf)
+	defer logging.SetOutput(nil)
 
 	mock := &mockCloser{shouldError: false}
 
@@ -217,8 +217,8 @@ func TestLogError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			log.SetOutput(&buf)
-			defer log.SetOutput(os.Stderr)
+			logging.SetOutput(&buf)
+			defer logging.SetOutput(nil)
 
 			LogError(tt.err, tt.operation)
 
