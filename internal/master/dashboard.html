@@ -106,9 +106,9 @@ body{background:var(--base);color:var(--body);font-family:-apple-system,BlinkMac
 </div>
 
 <div class="footer">
-  <a href="/metrics">/metrics</a>
-  <a href="/health">/health</a>
-  <a href="/api/status">/api/status</a>
+  <a href="metrics">/metrics</a>
+  <a href="health">/health</a>
+  <a href="api/status">/api/status</a>
   <span class="footer-sep" id="last-sync"></span>
 </div>
 
@@ -292,7 +292,7 @@ function esc(s) {
 
 async function refresh() {
   try {
-    var res = await fetch('/api/status');
+    var res = await fetch('api/status');
     if(!res.ok) throw new Error('HTTP '+res.status);
     var data = await res.json();
     clearOffline();
