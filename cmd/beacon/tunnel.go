@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -45,7 +44,7 @@ The tunnel connects automatically when the master agent starts.`,
 		Aliases: []string{"rm"},
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := identity.RemoveTunnel(args[0]); err != nil {
-				log.Fatalf("beacon tunnel remove: %v", err)
+				logger.Fatalf("beacon tunnel remove: %v", err)
 			}
 			fmt.Printf("Removed tunnel %q\n", args[0])
 		},
@@ -64,7 +63,7 @@ The tunnel connects automatically when the master agent starts.`,
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := identity.SetTunnelEnabled(args[0], true); err != nil {
-				log.Fatalf("beacon tunnel enable: %v", err)
+				logger.Fatalf("beacon tunnel enable: %v", err)
 			}
 			fmt.Printf("Enabled tunnel %q\n", args[0])
 		},
@@ -76,7 +75,7 @@ The tunnel connects automatically when the master agent starts.`,
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := identity.SetTunnelEnabled(args[0], false); err != nil {
-				log.Fatalf("beacon tunnel disable: %v", err)
+				logger.Fatalf("beacon tunnel disable: %v", err)
 			}
 			fmt.Printf("Disabled tunnel %q\n", args[0])
 		},
@@ -91,7 +90,7 @@ func runTunnelAdd(cmd *cobra.Command, args []string) {
 	port, _ := cmd.Flags().GetInt("port")
 
 	if err := identity.AppendTunnelIfMissing(id, port); err != nil {
-		log.Fatalf("beacon tunnel add: %v", err)
+		logger.Fatalf("beacon tunnel add: %v", err)
 	}
 	fmt.Printf("Added tunnel %q -> localhost:%d\n", id, port)
 
@@ -114,7 +113,7 @@ func runTunnelAdd(cmd *cobra.Command, args []string) {
 func runTunnelList(cmd *cobra.Command, args []string) {
 	cfg, err := identity.LoadUserConfig()
 	if err != nil {
-		log.Fatalf("beacon tunnel list: %v", err)
+		logger.Fatalf("beacon tunnel list: %v", err)
 	}
 	if cfg == nil || len(cfg.Tunnels) == 0 {
 		fmt.Println("No tunnels configured.")

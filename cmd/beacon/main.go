@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -78,15 +77,15 @@ Available services: deploy, monitor, master (cloud agent: systemctl --user resta
 
 		switch service {
 		case "deploy":
-			log.Println("[Beacon] Restarting deploy service...")
-			log.Println("[Beacon] Deploy service restart requested")
+			logger.Infof("Restarting deploy service...")
+			logger.Infof("Deploy service restart requested")
 		case "monitor":
-			log.Println("[Beacon] Restarting monitor service...")
-			log.Println("[Beacon] Monitor service restart requested")
+			logger.Infof("Restarting monitor service...")
+			logger.Infof("Monitor service restart requested")
 		case "master":
-			log.Println("[Beacon] Restart master: systemctl --user restart beacon-master.service")
+			logger.Infof("Restart master: systemctl --user restart beacon-master.service")
 		default:
-			log.Printf("[Beacon] Unknown service: %s. Available services: deploy, monitor, master\n", service)
+			logger.Infof("Unknown service: %s. Available services: deploy, monitor, master\n", service)
 			os.Exit(1)
 		}
 	},
@@ -106,7 +105,7 @@ and reporting configuration.`,
 
 		w := wizard.NewWizard(configPath, envPath)
 		if err := w.Run(); err != nil {
-			log.Fatalf("Wizard failed: %v", err)
+			logger.Fatalf("Wizard failed: %v", err)
 		}
 	},
 }
@@ -130,10 +129,10 @@ var templateAddCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cli, err := templates.NewCLI()
 		if err != nil {
-			log.Fatalf("Failed to initialize template CLI: %v", err)
+			logger.Fatalf("Failed to initialize template CLI: %v", err)
 		}
 		if err := cli.AddTemplate(); err != nil {
-			log.Fatalf("Failed to add template: %v", err)
+			logger.Fatalf("Failed to add template: %v", err)
 		}
 	},
 }
@@ -145,10 +144,10 @@ var templateListCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cli, err := templates.NewCLI()
 		if err != nil {
-			log.Fatalf("Failed to initialize template CLI: %v", err)
+			logger.Fatalf("Failed to initialize template CLI: %v", err)
 		}
 		if err := cli.ListTemplates(); err != nil {
-			log.Fatalf("Failed to list templates: %v", err)
+			logger.Fatalf("Failed to list templates: %v", err)
 		}
 	},
 }
@@ -160,10 +159,10 @@ var templateRemoveCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cli, err := templates.NewCLI()
 		if err != nil {
-			log.Fatalf("Failed to initialize template CLI: %v", err)
+			logger.Fatalf("Failed to initialize template CLI: %v", err)
 		}
 		if err := cli.RemoveTemplate(); err != nil {
-			log.Fatalf("Failed to remove template: %v", err)
+			logger.Fatalf("Failed to remove template: %v", err)
 		}
 	},
 }
@@ -176,10 +175,10 @@ var templateShowCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cli, err := templates.NewCLI()
 		if err != nil {
-			log.Fatalf("Failed to initialize template CLI: %v", err)
+			logger.Fatalf("Failed to initialize template CLI: %v", err)
 		}
 		if err := cli.ShowTemplate(args[0]); err != nil {
-			log.Fatalf("Failed to show template: %v", err)
+			logger.Fatalf("Failed to show template: %v", err)
 		}
 	},
 }
@@ -191,10 +190,10 @@ var templateCheckCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cli, err := templates.NewCLI()
 		if err != nil {
-			log.Fatalf("Failed to initialize template CLI: %v", err)
+			logger.Fatalf("Failed to initialize template CLI: %v", err)
 		}
 		if err := cli.CheckChanges(); err != nil {
-			log.Fatalf("Failed to check template changes: %v", err)
+			logger.Fatalf("Failed to check template changes: %v", err)
 		}
 	},
 }
@@ -206,7 +205,7 @@ var templateInitCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		templateDir := templates.GetDefaultTemplatePath()
 		if err := templates.CreateDefaultTemplates(templateDir); err != nil {
-			log.Fatalf("Failed to create default templates: %v", err)
+			logger.Fatalf("Failed to create default templates: %v", err)
 		}
 		fmt.Printf("✅ Default templates created in: %s\n", templateDir)
 		fmt.Println()
@@ -259,14 +258,14 @@ Environment: BEACON_DEVICE_NAME for default device name when --name is omitted.`
 		}
 
 		if err := identity.WriteUserLocalInit(name, metricsPort); err != nil {
-			log.Fatalf("beacon init: %v", err)
+			logger.Fatalf("beacon init: %v", err)
 		}
 		p, err := identity.UserConfigPath()
 		if err != nil {
-			log.Printf("[Beacon] Wrote ~/.beacon/config.yaml")
+			logger.Infof("Wrote ~/.beacon/config.yaml")
 			return
 		}
-		log.Printf("[Beacon] Wrote %s", p)
+		logger.Infof("Wrote %s", p)
 	},
 }
 
@@ -285,7 +284,7 @@ in the foreground (useful for systemd, Docker, or debugging).`,
 			// Re-exec ourselves with --foreground in a detached process
 			execPath, err := os.Executable()
 			if err != nil {
-				log.Fatalf("[Beacon] Cannot find executable: %v", err)
+				logger.Fatalf("Cannot find executable: %v", err)
 			}
 
 			// Build args: beacon master --foreground (pass through any other flags)
@@ -293,11 +292,11 @@ in the foreground (useful for systemd, Docker, or debugging).`,
 
 			logPath := filepath.Join(os.Getenv("HOME"), ".beacon", "master.log")
 			if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
-				log.Fatalf("[Beacon] Cannot create log dir: %v", err)
+				logger.Fatalf("Cannot create log dir: %v", err)
 			}
 			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 			if err != nil {
-				log.Fatalf("[Beacon] Cannot open log file %s: %v", logPath, err)
+				logger.Fatalf("Cannot open log file %s: %v", logPath, err)
 			}
 
 			proc := &os.ProcAttr{
@@ -308,7 +307,7 @@ in the foreground (useful for systemd, Docker, or debugging).`,
 			}
 			p, err := os.StartProcess(execPath, append([]string{execPath}, childArgs...), proc)
 			if err != nil {
-				log.Fatalf("[Beacon] Failed to start background process: %v", err)
+				logger.Fatalf("Failed to start background process: %v", err)
 			}
 			_ = logFile.Close()
 			_ = p.Release()
@@ -379,11 +378,11 @@ var childAgentCmd = &cobra.Command{
 
 		c, err := child.New(cfg)
 		if err != nil {
-			log.Fatalf("[Beacon agent] Failed to initialize: %v", err)
+			logger.Fatalf("agent:Failed to initialize: %v", err)
 		}
 
 		if err := c.Run(); err != nil {
-			log.Fatalf("[Beacon agent] Failed: %v", err)
+			logger.Fatalf("agent:Failed: %v", err)
 		}
 	},
 }
@@ -475,7 +474,7 @@ or http for network access (requires --token-env for auth).`,
 				TokenEnv:  tokenEnv,
 			}
 			if err := mcp.RunServe(ctx, opts); err != nil {
-				log.Fatalf("MCP server: %v", err)
+				logger.Fatalf("MCP server: %v", err)
 			}
 		},
 	}
@@ -488,7 +487,7 @@ or http for network access (requires --token-env for auth).`,
 }
 
 func runDeploy() {
-	log.Println("[Beacon] Deploy agent starting...")
+	logger.Infof("Deploy agent starting...")
 
 	// Set up graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -510,7 +509,7 @@ func runDeploy() {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("[Beacon] Shutdown signal received, stopping...")
+			logger.Infof("Shutdown signal received, stopping...")
 			return
 		case <-ticker.C:
 			deploy.CheckForNewTag(cfg, status)

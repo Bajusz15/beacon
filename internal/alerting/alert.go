@@ -2,10 +2,13 @@ package alerting
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
+
+	"beacon/internal/logging"
 )
+
+var logger = logging.New("alerting")
 
 // AlertSeverity represents the severity level of an alert
 type AlertSeverity string
@@ -115,7 +118,7 @@ func (sam *SimpleAlertManager) ProcessAlert(context AlertContext) error {
 	sam.mu.RUnlock()
 	if exists {
 		if time.Since(lastAlert) < 5*time.Minute { // 5 minute cooldown (consider making configurable)
-			log.Printf("[ALERT] Alert in cooldown for %s", cooldownKey)
+			logger.Infof("Alert in cooldown for %s", cooldownKey)
 			return nil
 		}
 	}
@@ -147,7 +150,7 @@ func (sam *SimpleAlertManager) sendAlert(routing *AlertRouting, context AlertCon
 	for _, channel := range routing.Channels {
 		err := sam.sendToChannel(channel, recipients, context)
 		if err != nil {
-			log.Printf("[ALERT] Failed to send via %s: %v", channel, err)
+			logger.Infof("Failed to send via %s: %v", channel, err)
 			// collect the last error; continue other channels
 			sendErr = err
 		}

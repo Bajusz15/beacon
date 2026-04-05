@@ -2,7 +2,6 @@ package alerting
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -65,11 +64,11 @@ func createSimpleInitCommand(cli *SimpleAlertingCLI) *cobra.Command {
 		Long:  `Create a simple alert routing configuration file with sensible defaults for a specific project.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if projectName == "" {
-				log.Fatalf("Project name is required. Use --project flag")
+				logger.Fatalf("Project name is required. Use --project flag")
 			}
 
 			if err := cli.InitSimpleConfig(projectName); err != nil {
-				log.Fatalf("Failed to initialize alert config: %v", err)
+				logger.Fatalf("Failed to initialize alert config: %v", err)
 			}
 			fmt.Println("✅ Simple alert routing configuration initialized!")
 			fmt.Printf("📁 Configuration file: %s\n", cli.configPath)
@@ -91,7 +90,7 @@ func createSimpleInitCommand(cli *SimpleAlertingCLI) *cobra.Command {
 	cmd.Flags().StringVarP(&projectName, "project", "p", "", "Project name (required)")
 	err := cmd.MarkFlagRequired("project")
 	if err != nil {
-		log.Fatalf("Failed to mark flag required: %v", err)
+		logger.Fatalf("Failed to mark flag required: %v", err)
 	}
 	return cmd
 }
@@ -103,7 +102,7 @@ func createSimpleStatusCommand(cli *SimpleAlertingCLI) *cobra.Command {
 		Long:  `Display all active alerts and their current status.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := cli.ShowSimpleStatus(); err != nil {
-				log.Fatalf("Failed to show status: %v", err)
+				logger.Fatalf("Failed to show status: %v", err)
 			}
 		},
 	}
@@ -123,7 +122,7 @@ func createSimpleAcknowledgeCommand(cli *SimpleAlertingCLI) *cobra.Command {
 			}
 
 			if err := cli.AcknowledgeSimpleAlert(alertID, acknowledgedBy); err != nil {
-				log.Fatalf("Failed to acknowledge alert: %v", err)
+				logger.Fatalf("Failed to acknowledge alert: %v", err)
 			}
 			fmt.Printf("✅ Alert %s acknowledged by %s\n", alertID, acknowledgedBy)
 		},
@@ -139,7 +138,7 @@ func createSimpleResolveCommand(cli *SimpleAlertingCLI) *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			alertID := args[0]
 			if err := cli.ResolveSimpleAlert(alertID); err != nil {
-				log.Fatalf("Failed to resolve alert: %v", err)
+				logger.Fatalf("Failed to resolve alert: %v", err)
 			}
 			fmt.Printf("✅ Alert %s resolved\n", alertID)
 		},
@@ -153,7 +152,7 @@ func createSimpleTestCommand(cli *SimpleAlertingCLI) *cobra.Command {
 		Long:  `Test the simple alert routing system with sample alerts.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := cli.TestSimpleRouting(); err != nil {
-				log.Fatalf("Failed to test routing: %v", err)
+				logger.Fatalf("Failed to test routing: %v", err)
 			}
 		},
 	}

@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -21,6 +20,7 @@ import (
 
 	"beacon/internal/config"
 	"beacon/internal/ipc"
+	"beacon/internal/logging"
 	"beacon/internal/monitor"
 	"beacon/internal/state"
 )
@@ -43,12 +43,26 @@ type Child struct {
 	monitorCfg *monitor.Config
 	ipcWriter  *ipc.Writer
 	startedAt  time.Time
+	log        *logging.Logger
 
 	results    map[string]*checkResult
 	resultsMux sync.RWMutex
 
 	ctx    context.Context
 	cancel context.CancelFunc
+}
+
+// logger returns c.log or a fallback logger if unset (e.g. when tests construct Child directly).
+func (c *Child) logger() *logging.Logger {
+	if c.log != nil {
+		return c.log
+	}
+	name := "child"
+	if c.cfg != nil && c.cfg.ProjectID != "" {
+		name = c.cfg.ProjectID
+	}
+	c.log = logging.New(name)
+	return c.log
 }
 
 type checkResult struct {
@@ -144,6 +158,7 @@ func New(cfg *Config) (*Child, error) {
 		monitorCfg: monitorCfg,
 		ipcWriter:  ipcWriter,
 		startedAt:  time.Now(),
+		log:        logging.New(cfg.ProjectID),
 		results:    make(map[string]*checkResult),
 		ctx:        ctx,
 		cancel:     cancel,
@@ -152,9 +167,9 @@ func New(cfg *Config) (*Child, error) {
 
 // Run starts the child agent and blocks until shutdown.
 func (c *Child) Run() error {
-	log.Printf("[Beacon child] Starting for project: %s", c.cfg.ProjectID)
-	log.Printf("[Beacon child] Config: %s", c.cfg.ConfigPath)
-	log.Printf("[Beacon child] IPC dir: %s", c.cfg.IPCDir)
+	c.logger().Infof("Starting for project: %s", c.cfg.ProjectID)
+	c.logger().Infof("Config: %s", c.cfg.ConfigPath)
+	c.logger().Infof("IPC dir: %s", c.cfg.IPCDir)
 
 	// Set up signal handling
 	sigChan := make(chan os.Signal, 1)
@@ -194,12 +209,12 @@ func (c *Child) Run() error {
 
 	// Wait for shutdown signal
 	<-sigChan
-	log.Printf("[Beacon child] Shutdown signal received, stopping...")
+	c.logger().Infof("Shutdown signal received, stopping...")
 
 	c.cancel()
 	wg.Wait()
 
-	log.Printf("[Beacon child] Stopped")
+	c.logger().Infof("Stopped")
 	return nil
 }
 
@@ -248,7 +263,7 @@ func (c *Child) executeCheck(check monitor.CheckConfig) {
 	if !result.Passed {
 		status = "failed"
 	}
-	log.Printf("[Beacon child] Check %s (%s): %s (%dms)", check.Name, check.Type, status, result.LatencyMs)
+	c.logger().Infof("Check %s (%s): %s (%dms)", check.Name, check.Type, status, result.LatencyMs)
 }
 
 func (c *Child) executeHTTPCheck(check monitor.CheckConfig) checkResult {
@@ -395,7 +410,7 @@ func (c *Child) writeHealthReport() {
 	}
 
 	if err := c.ipcWriter.WriteHealth(report); err != nil {
-		log.Printf("[Beacon child] Failed to write health report: %v", err)
+		c.logger().Infof("Failed to write health report: %v", err)
 	}
 }
 
@@ -418,18 +433,18 @@ func (c *Child) runCommandPollLoop() {
 func (c *Child) checkForCommand() {
 	cmd, err := c.ipcWriter.ReadCommand()
 	if err != nil {
-		log.Printf("[Beacon child] Failed to read command: %v", err)
+		c.logger().Infof("Failed to read command: %v", err)
 		return
 	}
 	if cmd == nil {
 		return // No command
 	}
 
-	log.Printf("[Beacon child] Received command: %s (id=%s)", cmd.Action, cmd.ID)
+	c.logger().Infof("Received command: %s (id=%s)", cmd.Action, cmd.ID)
 	result := c.executeCommand(cmd)
 
 	if err := c.ipcWriter.WriteCommandResult(result); err != nil {
-		log.Printf("[Beacon child] Failed to write command result: %v", err)
+		c.logger().Infof("Failed to write command result: %v", err)
 	}
 }
 
@@ -468,7 +483,7 @@ func (c *Child) executeCommand(cmd *ipc.Command) *ipc.CommandResult {
 		result.Message = fmt.Sprintf("Unknown action: %s", cmd.Action)
 	}
 
-	log.Printf("[Beacon child] Command %s completed: %s - %s", cmd.ID, result.Status, result.Message)
+	c.logger().Infof("Command %s completed: %s - %s", cmd.ID, result.Status, result.Message)
 	return result
 }
 

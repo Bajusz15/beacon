@@ -2,7 +2,6 @@ package deploy
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,7 +35,7 @@ func CheckForNewGitTag(cfg *config.Config, status *state.Status) {
 	// Get Git token from key manager if token name is specified
 	gitToken, err := getGitToken(cfg)
 	if err != nil {
-		log.Printf("[Beacon] Failed to get Git token: %v", err)
+		logger.Infof("Failed to get Git token: %v", err)
 		return
 	}
 
@@ -48,12 +47,12 @@ func CheckForNewGitTag(cfg *config.Config, status *state.Status) {
 	// Check if we need to do initial deployment
 	shouldDeploy := false
 	if stat, err := os.Stat(cfg.LocalPath); os.IsNotExist(err) {
-		log.Println("[Beacon] Local path does not exist. Cloning repository...")
+		logger.Infof("Local path does not exist. Cloning repository...")
 		shouldDeploy = true
 	} else if err == nil && stat.IsDir() {
 		entries, _ := os.ReadDir(cfg.LocalPath)
 		if len(entries) == 0 {
-			log.Println("[Beacon] Local path is empty. Cloning repository...")
+			logger.Infof("Local path is empty. Cloning repository...")
 			shouldDeploy = true
 		}
 	}
@@ -62,10 +61,10 @@ func CheckForNewGitTag(cfg *config.Config, status *state.Status) {
 		// Clone default branch for initial deployment
 		err := Deploy(cfg, "", status)
 		if err != nil {
-			log.Printf("[Beacon] Error during initial deployment: %v\n", err)
+			logger.Infof("Error during initial deployment: %v\n", err)
 			return
 		}
-		log.Printf("[Beacon] Repository cloned to %s.\n", cfg.LocalPath)
+		logger.Infof("Repository cloned to %s.\n", cfg.LocalPath)
 		return
 	}
 
@@ -75,27 +74,27 @@ func CheckForNewGitTag(cfg *config.Config, status *state.Status) {
 		return
 	}
 
-	log.Printf("[Beacon] New tag found: %s (prev: %s)\n", latestTag, lastTag)
+	logger.Infof("New tag found: %s (prev: %s)\n", latestTag, lastTag)
 	if err := Deploy(cfg, latestTag, status); err != nil {
-		log.Printf("[Beacon] Error deploying: %v\n", err)
+		logger.Infof("Error deploying: %v\n", err)
 	}
 }
 
 func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 	if tag == "" {
-		log.Printf("[Beacon] Deploying default branch...\n")
+		logger.Infof("Deploying default branch...\n")
 	} else {
-		log.Printf("[Beacon] Deploying tag %s...\n", tag)
+		logger.Infof("Deploying tag %s...\n", tag)
 	}
 
 	if err := os.RemoveAll(cfg.LocalPath); err != nil {
-		log.Printf("[Beacon] Error removing local path %s: %v\n", cfg.LocalPath, err)
+		logger.Infof("Error removing local path %s: %v\n", cfg.LocalPath, err)
 		return err
 	}
 
 	parentDir := filepath.Dir(cfg.LocalPath)
 	if err := os.MkdirAll(parentDir, 0755); err != nil {
-		log.Printf("[Beacon] Error creating parent directory %s: %v\n", parentDir, err)
+		logger.Infof("Error creating parent directory %s: %v\n", parentDir, err)
 		return err
 	}
 
@@ -119,25 +118,25 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 	cloneCmd.Stderr = &stderr
 
 	if err := cloneCmd.Run(); err != nil {
-		log.Printf("[Beacon] Error cloning repository: %v\n", err)
-		log.Printf("[Beacon] Git error output: %s\n", stderr.String())
+		logger.Infof("Error cloning repository: %v\n", err)
+		logger.Infof("Git error output: %s\n", stderr.String())
 		return err
 	}
 
 	// Execute deploy command if specified
 	if cfg.DeployCommand != "" {
-		log.Printf("[Beacon] Executing deploy command: %s\n", cfg.DeployCommand)
+		logger.Infof("Executing deploy command: %s\n", cfg.DeployCommand)
 
 		// Build the command with secure environment file sourcing
 		var command string
 		if cfg.SecureEnvPath != "" {
 			// Check if secure env file exists
 			if _, err := os.Stat(cfg.SecureEnvPath); err == nil {
-				log.Printf("[Beacon] Sourcing secure environment file: %s\n", cfg.SecureEnvPath)
+				logger.Infof("Sourcing secure environment file: %s\n", cfg.SecureEnvPath)
 				command = fmt.Sprintf("set -a && . %s && set +a && %s", cfg.SecureEnvPath, cfg.DeployCommand)
 			} else {
-				log.Printf("[Beacon] Warning: Secure environment file not found: %s\n", cfg.SecureEnvPath)
-				log.Printf("[Beacon] Running deploy command without secure environment\n")
+				logger.Infof("Warning: Secure environment file not found: %s\n", cfg.SecureEnvPath)
+				logger.Infof("Running deploy command without secure environment\n")
 				command = cfg.DeployCommand
 			}
 		} else {
@@ -151,11 +150,11 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 		cmd.Stderr = os.Stderr
 
 		if err := cmd.Run(); err != nil {
-			log.Printf("[Beacon] Deploy command failed: %v\n", err)
+			logger.Infof("Deploy command failed: %v\n", err)
 			return err
 		}
 
-		log.Printf("[Beacon] Deploy command completed successfully\n")
+		logger.Infof("Deploy command completed successfully\n")
 	}
 
 	// Store the tag (or "default" for default branch)
@@ -166,9 +165,9 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 	status.Set(tagToStore, time.Now())
 
 	if tag == "" {
-		log.Printf("[Beacon] Deployment of default branch complete.\n")
+		logger.Infof("Deployment of default branch complete.\n")
 	} else {
-		log.Printf("[Beacon] Deployment of tag %s complete.\n", tag)
+		logger.Infof("Deployment of tag %s complete.\n", tag)
 	}
 	return nil
 }
@@ -176,7 +175,7 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 func getLatestTagFromRepo(cfg *config.Config) string {
 	// Check if repository exists
 	if _, err := os.Stat(cfg.LocalPath); os.IsNotExist(err) {
-		log.Printf("[Beacon] Repository path does not exist: %s\n", cfg.LocalPath)
+		logger.Infof("Repository path does not exist: %s\n", cfg.LocalPath)
 		return ""
 	}
 
@@ -184,7 +183,7 @@ func getLatestTagFromRepo(cfg *config.Config) string {
 	fetchCmd := exec.Command("git", "fetch", "--tags")
 	fetchCmd.Dir = cfg.LocalPath
 	if err := fetchCmd.Run(); err != nil {
-		log.Printf("[Beacon] Error fetching tags: %v\n", err)
+		logger.Infof("Error fetching tags: %v\n", err)
 		return ""
 	}
 
@@ -193,7 +192,7 @@ func getLatestTagFromRepo(cfg *config.Config) string {
 	forEachCmd.Dir = cfg.LocalPath
 	output, err := forEachCmd.Output()
 	if err != nil {
-		log.Printf("[Beacon] Error getting latest tag: %v\n", err)
+		logger.Infof("Error getting latest tag: %v\n", err)
 		return ""
 	}
 

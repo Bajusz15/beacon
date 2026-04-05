@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"syscall"
@@ -35,14 +34,14 @@ Or: BEACON_API_KEY=usr_... beacon cloud login`,
 		Short: "Clear API key from config and set cloud_reporting_enabled to false",
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := identity.WriteCloudLogout(); err != nil {
-				log.Fatalf("beacon cloud logout: %v", err)
+				logger.Fatalf("beacon cloud logout: %v", err)
 			}
 			p, err := identity.UserConfigPath()
 			if err != nil {
-				log.Printf("[Beacon] Updated cloud settings")
+				logger.Infof("Updated cloud settings")
 				return
 			}
-			log.Printf("[Beacon] Cleared cloud credentials in %s", p)
+			logger.Infof("Cleared cloud credentials in %s", p)
 		},
 	}
 
@@ -64,12 +63,12 @@ func runCloudLogin(cmd *cobra.Command, args []string) {
 			fmt.Fprint(os.Stderr, "BeaconInfra API key: ")
 			b, err := term.ReadPassword(syscall.Stdin)
 			if err != nil {
-				log.Fatalf("beacon cloud login: read API key: %v", err)
+				logger.Fatalf("beacon cloud login: read API key: %v", err)
 			}
 			apiKey = strings.TrimSpace(string(b))
 			fmt.Fprintln(os.Stderr)
 		} else {
-			log.Fatal("beacon cloud login: non-interactive terminal; use --api-key or set BEACON_API_KEY")
+			logger.Fatalf("beacon cloud login: non-interactive terminal; use --api-key or set BEACON_API_KEY")
 		}
 	}
 
@@ -82,12 +81,12 @@ func runCloudLogin(cmd *cobra.Command, args []string) {
 	}
 
 	if err := identity.WriteCloudLogin(apiKey, name); err != nil {
-		log.Fatalf("beacon cloud login: %v", err)
+		logger.Fatalf("beacon cloud login: %v", err)
 	}
 	p, err := identity.UserConfigPath()
 	if err != nil {
-		log.Printf("[Beacon] Wrote ~/.beacon/config.yaml")
+		logger.Infof("Wrote ~/.beacon/config.yaml")
 		return
 	}
-	log.Printf("[Beacon] Wrote %s", p)
+	logger.Infof("Wrote %s", p)
 }

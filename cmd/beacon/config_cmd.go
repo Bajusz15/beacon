@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 
 	"beacon/internal/cloud"
@@ -19,7 +18,7 @@ func createConfigCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			base, err := config.BeaconHomeDir()
 			if err != nil {
-				log.Fatal(err)
+				logger.Fatalf("%v", err)
 			}
 			fmt.Printf("beacon_home: %s\n", base)
 			if v := os.Getenv("BEACON_HOME"); v != "" {
@@ -27,12 +26,12 @@ func createConfigCommand() *cobra.Command {
 			}
 			p, err := identity.UserConfigPath()
 			if err != nil {
-				log.Fatal(err)
+				logger.Fatalf("%v", err)
 			}
 			fmt.Printf("config_file: %s\n", p)
 			uc, err := identity.LoadUserConfig()
 			if err != nil {
-				log.Printf("error loading config: %v", err)
+				logger.Errorf("error loading config: %v", err)
 				return
 			}
 			if uc == nil {
