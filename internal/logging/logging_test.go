@@ -26,8 +26,8 @@ func TestPrefixFormat(t *testing.T) {
 	buf := captureOutput(t)
 
 	cases := []struct {
-		name   string
-		want   string
+		name string
+		want string
 	}{
 		{"master", "[Beacon master]"},
 		{"home-assistant", "[Beacon home-assistant]"},
