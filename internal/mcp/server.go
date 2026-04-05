@@ -4,18 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	"beacon/internal/config"
+	"beacon/internal/logging"
 	"beacon/internal/version"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+var logger = logging.New("mcp")
 
 // InventoryInput has no args
 type InventoryInput struct{}
@@ -190,9 +192,9 @@ func runHTTP(ctx context.Context, opts ServeOptions) error {
 		_ = srv.Shutdown(context.Background())
 	}()
 
-	log.Printf("MCP server listening on http://%s", listen)
+	logger.Infof("MCP server listening on http://%s", listen)
 	if opts.TokenEnv != "" {
-		log.Printf("Bearer token required (from %s)", opts.TokenEnv)
+		logger.Infof("Bearer token required (from %s)", opts.TokenEnv)
 	}
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err

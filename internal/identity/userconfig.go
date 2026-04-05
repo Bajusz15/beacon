@@ -23,6 +23,7 @@ type UserConfig struct {
 	DeviceID              string          `yaml:"device_id,omitempty"`
 	MetricsPort           int             `yaml:"metrics_port,omitempty"`
 	MetricsListenAddr     string          `yaml:"metrics_listen_addr,omitempty"` // default "127.0.0.1"; set "0.0.0.0" for Docker
+	LogLevel              string          `yaml:"log_level,omitempty"`           // debug|info|warn|error; default "info"
 	Projects              []ProjectConfig `yaml:"projects,omitempty"`
 	Tunnels               []TunnelConfig  `yaml:"tunnels,omitempty"`
 	// SystemMetrics configures host metrics sent with cloud heartbeats (~/.beacon/config.yaml only).

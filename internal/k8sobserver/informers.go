@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"log"
 	"sync"
 	"time"
 
 	"beacon/internal/k8sobserver/sources"
+	"beacon/internal/logging"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -23,6 +23,8 @@ const (
 	resyncPeriod = 15 * time.Minute
 	indexByOwner = "by-owner"
 )
+
+var logger = logging.New("k8sobserver")
 
 // Observer implements sources.Source for Kubernetes (read-only).
 type Observer struct {
@@ -286,7 +288,7 @@ func (o *Observer) onPodChange(indexer cache.Indexer, pod *corev1.Pod) {
 		key := pod.Namespace + "/" + string(ref.UID)
 		objs, err := indexer.ByIndex(indexByOwner, key)
 		if err != nil {
-			log.Printf("[Beacon] k8s index lookup: %v", err)
+			logger.Warnf("k8s index lookup: %v", err)
 			return
 		}
 		id := workloadID(o.cfg.ClusterID, pod.Namespace, ref.Kind, ref.Name)
@@ -378,7 +380,7 @@ func (o *Observer) emitWorkload(id string) {
 	}
 	obs := w.toObservation()
 	if err := o.sink.RecordObservation(obs); err != nil {
-		log.Printf("[Beacon] k8s sink RecordObservation: %v", err)
+		logger.Warnf("k8s sink RecordObservation: %v", err)
 	}
 	if w.InDrift {
 		_ = o.sink.RecordEvent(EventFromSnapshot("drift_detected", "drift", w, map[string]interface{}{"reasons": w.DriftReasons}))

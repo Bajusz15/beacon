@@ -2,7 +2,6 @@ package master
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync"
@@ -75,7 +74,7 @@ func (d *CommandDispatcher) DispatchCommands(commands []HeartbeatCommand) {
 
 		reader, exists := readers[cmd.TargetProject]
 		if !exists {
-			log.Printf("[Beacon master] Command %s: project %s not found", cmd.ID, cmd.TargetProject)
+			logger.Infof("Command %s: project %s not found", cmd.ID, cmd.TargetProject)
 			d.recordResult(cmd.ID, ipc.ResultFailed, "Project not found: "+cmd.TargetProject)
 			continue
 		}
@@ -89,12 +88,12 @@ func (d *CommandDispatcher) DispatchCommands(commands []HeartbeatCommand) {
 		}
 
 		if err := reader.WriteCommand(ipcCmd); err != nil {
-			log.Printf("[Beacon master] Failed to dispatch command %s to %s: %v", cmd.ID, cmd.TargetProject, err)
+			logger.Infof("Failed to dispatch command %s to %s: %v", cmd.ID, cmd.TargetProject, err)
 			d.recordResult(cmd.ID, ipc.ResultFailed, "Failed to dispatch: "+err.Error())
 			continue
 		}
 
-		log.Printf("[Beacon master] Dispatched command %s (%s) to %s", cmd.ID, cmd.Action, cmd.TargetProject)
+		logger.Infof("Dispatched command %s (%s) to %s", cmd.ID, cmd.Action, cmd.TargetProject)
 	}
 }
 
@@ -158,14 +157,14 @@ func (d *CommandDispatcher) CollectResults() {
 	for projectID, reader := range readers {
 		result, err := reader.ReadCommandResult()
 		if err != nil {
-			log.Printf("[Beacon master] Error reading command result from %s: %v", projectID, err)
+			logger.Infof("Error reading command result from %s: %v", projectID, err)
 			continue
 		}
 		if result == nil {
 			continue // No result
 		}
 
-		log.Printf("[Beacon master] Collected result for command %s from %s: %s", result.CommandID, projectID, result.Status)
+		logger.Infof("Collected result for command %s from %s: %s", result.CommandID, projectID, result.Status)
 		d.recordResult(result.CommandID, result.Status, result.Message)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -63,7 +62,7 @@ func NewDockerRegistryClient(imgCfg *config.DockerImageConfig) *DockerRegistryCl
 // CheckForNewImageTag polls all Docker images for new tags
 func CheckForNewImageTag(cfg *config.Config, status *state.Status) {
 	if len(cfg.DockerImages) == 0 {
-		log.Println("[Beacon] No Docker images configured")
+		logger.Infof("No Docker images configured")
 		return
 	}
 
@@ -90,19 +89,19 @@ func CheckForNewImageTag(cfg *config.Config, status *state.Status) {
 		// Check if we need to do initial deployment
 		shouldDeploy := false
 		if lastTag == "" {
-			log.Printf("[Beacon] No previous tag found for image %s. Performing initial deployment...\n", imgCfg.Image)
+			logger.Infof("No previous tag found for image %s. Performing initial deployment...\n", imgCfg.Image)
 			shouldDeploy = true
 		}
 
 		// Get latest tag from registry
 		latestTag, err := client.getLatestTag()
 		if err != nil {
-			log.Printf("[Beacon] Error getting latest tag from registry for %s: %v\n", imgCfg.Image, err)
+			logger.Infof("Error getting latest tag from registry for %s: %v\n", imgCfg.Image, err)
 			continue
 		}
 
 		if latestTag == "" {
-			log.Printf("[Beacon] No tags found for image %s\n", imgCfg.Image)
+			logger.Infof("No tags found for image %s\n", imgCfg.Image)
 			continue
 		}
 
@@ -112,14 +111,14 @@ func CheckForNewImageTag(cfg *config.Config, status *state.Status) {
 		}
 
 		if shouldDeploy {
-			log.Printf("[Beacon] Initial deployment for image %s with tag: %s\n", imgCfg.Image, latestTag)
+			logger.Infof("Initial deployment for image %s with tag: %s\n", imgCfg.Image, latestTag)
 		} else {
-			log.Printf("[Beacon] New tag found for image %s: %s (prev: %s)\n", imgCfg.Image, latestTag, lastTag)
+			logger.Infof("New tag found for image %s: %s (prev: %s)\n", imgCfg.Image, latestTag, lastTag)
 		}
 
 		// Deploy the new image
 		if err := DeployDockerImage(&imgCfg, cfg, latestTag, imageStatus); err != nil {
-			log.Printf("[Beacon] Error deploying Docker image %s: %v\n", imgCfg.Image, err)
+			logger.Infof("Error deploying Docker image %s: %v\n", imgCfg.Image, err)
 		}
 	}
 }
@@ -309,7 +308,7 @@ func (c *DockerRegistryClient) getFullImageName() string {
 func DeployDockerImage(imgCfg *config.DockerImageConfig, cfg *config.Config, tag string, status *state.Status) error {
 	client := NewDockerRegistryClient(imgCfg)
 
-	log.Printf("[Beacon] Deploying Docker image %s:%s...\n", client.getFullImageName(), tag)
+	logger.Infof("Deploying Docker image %s:%s...\n", client.getFullImageName(), tag)
 
 	// Pull the Docker image
 	fullImageName := fmt.Sprintf("%s:%s", client.getFullImageName(), tag)
@@ -325,16 +324,16 @@ func DeployDockerImage(imgCfg *config.DockerImageConfig, cfg *config.Config, tag
 
 	// Execute deploy command if specified
 	if deployCommand != "" {
-		log.Printf("[Beacon] Executing deploy command: %s\n", deployCommand)
+		logger.Infof("Executing deploy command: %s\n", deployCommand)
 
 		// Build the command with secure environment file sourcing
 		var command string
 		if cfg.SecureEnvPath != "" {
 			if _, err := os.Stat(cfg.SecureEnvPath); err == nil {
-				log.Printf("[Beacon] Sourcing secure environment file: %s\n", cfg.SecureEnvPath)
+				logger.Infof("Sourcing secure environment file: %s\n", cfg.SecureEnvPath)
 				command = fmt.Sprintf("set -a && . %s && set +a && %s", cfg.SecureEnvPath, deployCommand)
 			} else {
-				log.Printf("[Beacon] Warning: Secure environment file not found: %s\n", cfg.SecureEnvPath)
+				logger.Infof("Warning: Secure environment file not found: %s\n", cfg.SecureEnvPath)
 				command = deployCommand
 			}
 		} else {
@@ -363,7 +362,7 @@ func DeployDockerImage(imgCfg *config.DockerImageConfig, cfg *config.Config, tag
 
 				// Verify docker-compose file exists
 				if _, err := os.Stat(composePath); os.IsNotExist(err) {
-					log.Printf("[Beacon] Warning: Docker Compose file not found: %s\n", composePath)
+					logger.Infof("Warning: Docker Compose file not found: %s\n", composePath)
 				}
 			}
 
@@ -391,23 +390,23 @@ func DeployDockerImage(imgCfg *config.DockerImageConfig, cfg *config.Config, tag
 		cmd.Stderr = os.Stderr
 
 		if err := cmd.Run(); err != nil {
-			log.Printf("[Beacon] Deploy command failed: %v\n", err)
+			logger.Infof("Deploy command failed: %v\n", err)
 			return err
 		}
 
-		log.Printf("[Beacon] Deploy command completed successfully\n")
+		logger.Infof("Deploy command completed successfully\n")
 	}
 
 	// Store the tag
 	status.Set(tag, time.Now())
 
-	log.Printf("[Beacon] Deployment of Docker image %s:%s complete.\n", client.getFullImageName(), tag)
+	logger.Infof("Deployment of Docker image %s:%s complete.\n", client.getFullImageName(), tag)
 	return nil
 }
 
 // pullDockerImage pulls a Docker image from the registry
 func pullDockerImage(imageName string, client *DockerRegistryClient) error {
-	log.Printf("[Beacon] Pulling Docker image: %s\n", imageName)
+	logger.Infof("Pulling Docker image: %s\n", imageName)
 
 	// Build docker pull command
 	cmd := exec.Command("docker", "pull", imageName)
@@ -418,7 +417,7 @@ func pullDockerImage(imageName string, client *DockerRegistryClient) error {
 		loginCmd := exec.Command("docker", "login", "-u", client.username, "-p", client.password, client.registry)
 		loginCmd.Stdin = strings.NewReader(client.password)
 		if err := loginCmd.Run(); err != nil {
-			log.Printf("[Beacon] Warning: Docker login failed, trying pull without explicit login: %v\n", err)
+			logger.Infof("Warning: Docker login failed, trying pull without explicit login: %v\n", err)
 		}
 	}
 
@@ -429,7 +428,7 @@ func pullDockerImage(imageName string, client *DockerRegistryClient) error {
 		return fmt.Errorf("docker pull failed: %w", err)
 	}
 
-	log.Printf("[Beacon] Successfully pulled Docker image: %s\n", imageName)
+	logger.Infof("Successfully pulled Docker image: %s\n", imageName)
 	return nil
 }
 

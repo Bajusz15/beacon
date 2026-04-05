@@ -2,14 +2,16 @@ package server
 
 import (
 	"beacon/internal/config"
+	"beacon/internal/logging"
 	"beacon/internal/state"
 
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 )
+
+var logger = logging.New("server")
 
 type statusResponse struct {
 	LastTag      string `json:"last_tag"`
@@ -26,13 +28,13 @@ func StartHTTPServer(cfg *config.Config, status *state.Status) {
 		w.Header().Set("Content-Type", "application/json")
 		err := json.NewEncoder(w).Encode(resp)
 		if err != nil {
-			log.Printf("[Beacon] Failed to encode status response: %v", err)
+			logger.Infof("Failed to encode status response: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte("Failed to encode status response"))
 			return
 		}
 	})
 
-	log.Printf("[Beacon] Status server listening on :%s\n", cfg.Port)
+	logger.Infof("Status server listening on :%s\n", cfg.Port)
 	http.ListenAndServe(fmt.Sprintf(":%s", cfg.Port), nil)
 }
