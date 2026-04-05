@@ -1,14 +1,16 @@
 package ratelimit
 
 import (
+	"beacon/internal/logging"
 	"beacon/internal/util"
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"sync"
 	"time"
 )
+
+var logger = logging.New("ratelimit")
 
 // RateLimiter handles rate limiting and backoff for external API calls
 type RateLimiter struct {
@@ -85,7 +87,7 @@ func (rl *RateLimiter) Wait(ctx context.Context) error {
 	if rl.requestCount >= rl.requestsPerMinute {
 		waitTime := time.Minute - now.Sub(rl.windowStart)
 		if waitTime > 0 {
-			log.Printf("[RateLimiter] Rate limit reached, waiting %v", waitTime)
+			logger.Infof("Rate limit reached, waiting %v", waitTime)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -102,7 +104,7 @@ func (rl *RateLimiter) Wait(ctx context.Context) error {
 		timeSinceLastRequest := now.Sub(rl.lastRequest)
 		if timeSinceLastRequest < rl.minInterval {
 			waitTime := rl.minInterval - timeSinceLastRequest
-			log.Printf("[RateLimiter] Minimum interval not met, waiting %v", waitTime)
+			logger.Infof("Minimum interval not met, waiting %v", waitTime)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -113,7 +115,7 @@ func (rl *RateLimiter) Wait(ctx context.Context) error {
 
 	// Apply current backoff if we're in retry mode
 	if rl.retryCount > 0 {
-		log.Printf("[RateLimiter] Applying backoff: %v (retry %d/%d)", rl.currentBackoff, rl.retryCount, rl.maxRetries)
+		logger.Infof("Applying backoff: %v (retry %d/%d)", rl.currentBackoff, rl.retryCount, rl.maxRetries)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -149,9 +151,9 @@ func (rl *RateLimiter) RecordFailure() {
 		if rl.currentBackoff > rl.maxInterval {
 			rl.currentBackoff = rl.maxInterval
 		}
-		log.Printf("[RateLimiter] Failure recorded, new backoff: %v", rl.currentBackoff)
+		logger.Infof("Failure recorded, new backoff: %v", rl.currentBackoff)
 	} else {
-		log.Printf("[RateLimiter] Max retries (%d) exceeded", rl.maxRetries)
+		logger.Infof("Max retries (%d) exceeded", rl.maxRetries)
 	}
 }
 
@@ -224,7 +226,7 @@ func (c *HTTPClient) Do(ctx context.Context, req *http.Request) (*http.Response,
 		// Handle rate limiting responses
 		if resp.StatusCode == 429 {
 			c.rateLimiter.RecordFailure()
-			log.Printf("[RateLimiter] HTTP 429 received, applying backoff")
+			logger.Infof("HTTP 429 received, applying backoff")
 			util.LogError(resp.Body.Close(), "HTTP response body close")
 
 			if !c.rateLimiter.ShouldRetry() {

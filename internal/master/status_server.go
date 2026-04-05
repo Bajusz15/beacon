@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -55,7 +54,7 @@ func (s *StatusServer) Start(ctx context.Context) error {
 		return fmt.Errorf("status server bind %s: %w", addr, err)
 	}
 
-	log.Printf("[Beacon master] Dashboard: http://%s:%d  API: http://%s:%d/api/status", s.listenAddr, s.port, s.listenAddr, s.port)
+	logger.Infof("Dashboard: http://%s:%d  API: http://%s:%d/api/status", s.listenAddr, s.port, s.listenAddr, s.port)
 
 	go func() {
 		<-ctx.Done()

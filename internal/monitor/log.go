@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -161,13 +160,13 @@ func (lm *LogManager) loadLogPositions() {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			log.Printf("[Beacon] Failed to load log positions: %v", err)
+			logger.Infof("Failed to load log positions: %v", err)
 		}
 		return
 	}
 	var positions map[string]logCursor
 	if err := json.Unmarshal(data, &positions); err != nil {
-		log.Printf("[Beacon] Failed to parse log positions: %v", err)
+		logger.Infof("Failed to parse log positions: %v", err)
 		return
 	}
 	lm.logPositionsMux.Lock()
@@ -186,11 +185,11 @@ func (lm *LogManager) saveLogPositions() {
 	path := filepath.Join(lm.stateDir, logPositionsFilename)
 	data, err := json.MarshalIndent(positions, "", "  ")
 	if err != nil {
-		log.Printf("[Beacon] Failed to marshal log positions: %v", err)
+		logger.Infof("Failed to marshal log positions: %v", err)
 		return
 	}
 	if err := os.WriteFile(path, data, 0644); err != nil {
-		log.Printf("[Beacon] Failed to write log positions: %v", err)
+		logger.Infof("Failed to write log positions: %v", err)
 	}
 }
 
@@ -272,7 +271,7 @@ func (lm *LogManager) parseLogTimestamp(line string) (time.Time, string) {
 
 // StartLogCollection starts all configured log sources
 func (lm *LogManager) StartLogCollection(ctx context.Context) {
-	log.Printf("[Beacon] Starting log collection for %d sources", len(lm.config.LogSources))
+	logger.Infof("Starting log collection for %d sources", len(lm.config.LogSources))
 
 	lm.loadLogPositions()
 
@@ -336,7 +335,7 @@ func (lm *LogManager) StartLogCollection(ctx context.Context) {
 		case "command":
 			go lm.runCommandLogCollection(logCollector)
 		default:
-			log.Printf("[Beacon] Unknown log source type: %s", source.Type)
+			logger.Infof("Unknown log source type: %s", source.Type)
 		}
 	}
 }
@@ -434,11 +433,11 @@ func (lm *LogManager) FlushAndStop(ctx context.Context) {
 // runFileLogCollection handles file-based log collection
 func (lm *LogManager) runFileLogCollection(collector *LogCollector) {
 	source := collector.source
-	log.Printf("[Beacon] Starting file log collection: %s -> %s", source.Name, source.FilePath)
+	logger.Infof("Starting file log collection: %s -> %s", source.Name, source.FilePath)
 
 	// If user explicitly wants tail or we can't open the file directly, use tail
 	if source.UseTail || !lm.canAccessFileDirectly(source.FilePath) {
-		log.Printf("[Beacon] Using tail command for %s", source.FilePath)
+		logger.Infof("Using tail command for %s", source.FilePath)
 		lm.runFileLogCollectionWithTail(collector)
 		return
 	}
@@ -446,7 +445,7 @@ func (lm *LogManager) runFileLogCollection(collector *LogCollector) {
 	// Try direct file access
 	file, err := os.Open(source.FilePath)
 	if err != nil {
-		log.Printf("[Beacon] Cannot open file %s directly (%v), falling back to tail", source.FilePath, err)
+		logger.Infof("Cannot open file %s directly (%v), falling back to tail", source.FilePath, err)
 		lm.runFileLogCollectionWithTail(collector)
 		return
 	}
@@ -457,7 +456,7 @@ func (lm *LogManager) runFileLogCollection(collector *LogCollector) {
 	// Get initial file size and position
 	stat, err := file.Stat()
 	if err != nil {
-		log.Printf("[Beacon] Error getting file stats for %s: %v", source.FilePath, err)
+		logger.Infof("Error getting file stats for %s: %v", source.FilePath, err)
 		lm.runFileLogCollectionWithTail(collector)
 		return
 	}
@@ -471,7 +470,7 @@ func (lm *LogManager) runFileLogCollection(collector *LogCollector) {
 		}
 	}
 
-	log.Printf("[Beacon] Using direct file access for %s", source.FilePath)
+	logger.Infof("Using direct file access for %s", source.FilePath)
 	ticker := time.NewTicker(source.Interval)
 	defer ticker.Stop()
 
@@ -503,7 +502,7 @@ func (lm *LogManager) collectFileLogFromPosition(collector *LogCollector) []LogE
 	// Get current file size
 	stat, err := file.Stat()
 	if err != nil {
-		log.Printf("[Beacon] Error getting file stats for %s: %v", source.FilePath, err)
+		logger.Infof("Error getting file stats for %s: %v", source.FilePath, err)
 		return nil
 	}
 
@@ -511,7 +510,7 @@ func (lm *LogManager) collectFileLogFromPosition(collector *LogCollector) []LogE
 
 	// If file was truncated (log rotation), reset position
 	if currentSize < collector.lastPosition {
-		log.Printf("[Beacon] File %s was truncated, resetting position", source.FilePath)
+		logger.Infof("File %s was truncated, resetting position", source.FilePath)
 		collector.lastPosition = 0
 	}
 
@@ -523,7 +522,7 @@ func (lm *LogManager) collectFileLogFromPosition(collector *LogCollector) []LogE
 	// Seek to last position
 	_, err = file.Seek(collector.lastPosition, 0)
 	if err != nil {
-		log.Printf("[Beacon] Error seeking in file %s: %v", source.FilePath, err)
+		logger.Infof("Error seeking in file %s: %v", source.FilePath, err)
 		return nil
 	}
 
@@ -538,7 +537,7 @@ func (lm *LogManager) collectFileLogFromPosition(collector *LogCollector) []LogE
 			break
 		}
 		if err != nil {
-			log.Printf("[Beacon] Error reading file %s: %v", source.FilePath, err)
+			logger.Infof("Error reading file %s: %v", source.FilePath, err)
 			break
 		}
 
@@ -627,7 +626,7 @@ func (lm *LogManager) collectFileLogWithTail(source LogSource, collector *LogCol
 
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("[Beacon] Error reading file log %s with tail: %v", source.FilePath, err)
+		logger.Infof("Error reading file log %s with tail: %v", source.FilePath, err)
 		return nil
 	}
 
@@ -676,7 +675,7 @@ func (lm *LogManager) collectFileLogWithTail(source LogSource, collector *LogCol
 // runDockerLogCollection handles Docker container log collection
 func (lm *LogManager) runDockerLogCollection(collector *LogCollector) {
 	source := collector.source
-	log.Printf("[Beacon] Starting docker log collection: %s", source.Name)
+	logger.Infof("Starting docker log collection: %s", source.Name)
 
 	// lastTimestamp set from persisted cursor in StartLogCollection, or from initial interval
 
@@ -715,7 +714,7 @@ func (lm *LogManager) collectDockerLogSince(source LogSource, since time.Time) [
 		cmd := exec.Command("docker", "ps", "--format", "{{.Names}}")
 		output, err := cmd.Output()
 		if err != nil {
-			log.Printf("[Beacon] Error getting docker containers: %v", err)
+			logger.Infof("Error getting docker containers: %v", err)
 			return nil
 		}
 		containers = strings.Split(strings.TrimSpace(string(output)), "\n")
@@ -757,7 +756,7 @@ func (lm *LogManager) collectDockerLogSince(source LogSource, since time.Time) [
 		cmd := exec.Command("docker", args...)
 		output, err := cmd.Output()
 		if err != nil {
-			log.Printf("[Beacon] Error getting docker logs for %s: %v", container, err)
+			logger.Infof("Error getting docker logs for %s: %v", container, err)
 			continue
 		}
 
@@ -791,7 +790,7 @@ func (lm *LogManager) collectDockerLogSince(source LogSource, since time.Time) [
 // runDeployLogCollection handles deploy log collection
 func (lm *LogManager) runDeployLogCollection(collector *LogCollector) {
 	source := collector.source
-	log.Printf("[Beacon] Starting deploy log collection: %s", source.Name)
+	logger.Infof("Starting deploy log collection: %s", source.Name)
 
 	// Deploy logs are captured during deployment
 	// This function monitors the deploy log file if it exists
@@ -829,7 +828,7 @@ func (lm *LogManager) collectDeployLog(source LogSource) []LogEntry {
 	cmd := exec.Command("tail", "-n", fmt.Sprintf("%d", maxLines), source.DeployLogFile)
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("[Beacon] Error reading deploy log %s: %v", source.DeployLogFile, err)
+		logger.Infof("Error reading deploy log %s: %v", source.DeployLogFile, err)
 		return nil
 	}
 
@@ -862,7 +861,7 @@ func (lm *LogManager) collectDeployLog(source LogSource) []LogEntry {
 // runCommandLogCollection handles command-based log collection
 func (lm *LogManager) runCommandLogCollection(collector *LogCollector) {
 	source := collector.source
-	log.Printf("[Beacon] Starting command log collection: %s -> %s", source.Name, source.Command)
+	logger.Infof("Starting command log collection: %s -> %s", source.Name, source.Command)
 
 	ticker := time.NewTicker(source.Interval)
 	defer ticker.Stop()
@@ -885,7 +884,7 @@ func (lm *LogManager) collectCommandLog(source LogSource) []LogEntry {
 	cmd := exec.Command("sh", "-c", source.Command)
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("[Beacon] Error executing command log %s: %v", source.Command, err)
+		logger.Infof("Error executing command log %s: %v", source.Command, err)
 		return nil
 	}
 
@@ -1029,7 +1028,7 @@ func (lm *LogManager) flushPending(_ bool) {
 		return
 	}
 	lm.reportLogs(pending)
-	log.Printf("[Beacon] Flushed %d log entries", len(pending))
+	logger.Infof("Flushed %d log entries", len(pending))
 }
 
 // addLogEntries adds new log entries to the collection and reports them (batched)
@@ -1088,13 +1087,13 @@ func (lm *LogManager) addLogEntries(entries []LogEntry) {
 			lm.lastFlush = time.Now()
 			lm.pendingMux.Unlock()
 			lm.reportLogs(toSend)
-			log.Printf("[Beacon] Flushed %d log entries (batch full)", len(toSend))
+			logger.Infof("Flushed %d log entries (batch full)", len(toSend))
 		} else {
 			lm.pendingMux.Unlock()
 		}
 	}
 
-	log.Printf("[Beacon] Collected %d log entries (filtered from %d)", len(filteredEntries), len(entries))
+	logger.Infof("Collected %d log entries (filtered from %d)", len(filteredEntries), len(entries))
 }
 
 // reportLogs sends log entries to the external API
@@ -1128,14 +1127,14 @@ func (lm *LogManager) reportLogs(logs []LogEntry) {
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("[Beacon] Failed to marshal logs: %v", err)
+		logger.Infof("Failed to marshal logs: %v", err)
 		return
 	}
 
 	baseURL := strings.TrimSuffix(lm.config.Report.SendTo, "/")
 	req, err := http.NewRequest("POST", baseURL+"/agent/logs", strings.NewReader(string(jsonData)))
 	if err != nil {
-		log.Printf("[Beacon] Failed to create logs report request: %v", err)
+		logger.Infof("Failed to create logs report request: %v", err)
 		return
 	}
 
@@ -1144,14 +1143,14 @@ func (lm *LogManager) reportLogs(logs []LogEntry) {
 
 	resp, err := lm.httpClient.Do(req)
 	if err != nil {
-		log.Printf("[Beacon] Failed to send logs report: %v", err)
+		logger.Infof("Failed to send logs report: %v", err)
 		return
 	}
 	defer util.DeferClose(resp.Body, "HTTP response body")()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		log.Printf("[Beacon] Successfully reported %d log entries", len(logs))
+		logger.Infof("Successfully reported %d log entries", len(logs))
 	} else {
-		log.Printf("[Beacon] Failed to report logs: HTTP %d", resp.StatusCode)
+		logger.Infof("Failed to report logs: HTTP %d", resp.StatusCode)
 	}
 }

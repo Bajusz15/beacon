@@ -2,12 +2,14 @@ package plugins
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	"beacon/internal/errors"
+	"beacon/internal/logging"
 )
+
+var logger = logging.New("plugins")
 
 // Manager handles plugin registration, initialization, and alert routing
 type Manager struct {
@@ -41,7 +43,7 @@ func (m *Manager) RegisterPlugin(plugin Plugin) error {
 	}
 
 	m.plugins[name] = plugin
-	log.Printf("[Beacon] Registered plugin: %s", name)
+	logger.Infof("Registered plugin: %s", name)
 	return nil
 }
 
@@ -84,9 +86,9 @@ func (m *Manager) LoadConfigs(configs []PluginConfig, rules []AlertRule) error {
 					beaconErr := errors.NewPluginError(config.Name, err)
 					return beaconErr
 				}
-				log.Printf("[Beacon] Initialized plugin: %s", config.Name)
+				logger.Infof("Initialized plugin: %s", config.Name)
 			} else {
-				log.Printf("[Beacon] Warning: plugin %s not registered", config.Name)
+				logger.Infof("Warning: plugin %s not registered", config.Name)
 			}
 		}
 	}
@@ -120,7 +122,7 @@ func (m *Manager) SendAlert(checkResult *CheckResult) error {
 	// Process each applicable rule
 	for _, rule := range applicableRules {
 		if err := m.processRule(rule, checkResult); err != nil {
-			log.Printf("[Beacon] Error processing alert rule for %s: %v", rule.Check, err)
+			logger.Infof("Error processing alert rule for %s: %v", rule.Check, err)
 		}
 	}
 
@@ -133,7 +135,7 @@ func (m *Manager) processRule(rule AlertRule, checkResult *CheckResult) error {
 	if cooldown, exists := m.cooldowns[rule.Check]; exists {
 		lastAlertTime, exists := m.lastAlert[rule.Check]
 		if exists && time.Since(lastAlertTime) < cooldown {
-			log.Printf("[Beacon] Alert for %s in cooldown period", rule.Check)
+			logger.Infof("Alert for %s in cooldown period", rule.Check)
 			return nil
 		}
 	}
@@ -162,7 +164,7 @@ func (m *Manager) processRule(rule AlertRule, checkResult *CheckResult) error {
 					Err:        err,
 				})
 			} else {
-				log.Printf("[Beacon] Alert sent via plugin: %s", pluginName)
+				logger.Infof("Alert sent via plugin: %s", pluginName)
 			}
 		} else {
 			errors = append(errors, &PluginError{

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -331,7 +330,7 @@ func (m *Monitor) persistCheckResults() {
 	stateDir := filepath.Join(getConfigDir(), "state")
 	projectDir := filepath.Join(stateDir, projectName)
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		log.Printf("[Beacon] Failed to create state dir: %v", err)
+		logger.Infof("Failed to create state dir: %v", err)
 		return
 	}
 	path := filepath.Join(projectDir, "checks.json")
@@ -351,16 +350,16 @@ func (m *Monitor) persistCheckResults() {
 	st := state.ChecksState{UpdatedAt: time.Now().UTC(), Checks: checks}
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
-		log.Printf("[Beacon] Failed to marshal checks state: %v", err)
+		logger.Infof("Failed to marshal checks state: %v", err)
 		return
 	}
 	tmpPath := path + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		log.Printf("[Beacon] Failed to write checks state: %v", err)
+		logger.Infof("Failed to write checks state: %v", err)
 		return
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		log.Printf("[Beacon] Failed to rename checks state: %v", err)
+		logger.Infof("Failed to rename checks state: %v", err)
 		_ = os.Remove(tmpPath)
 	}
 }
@@ -462,20 +461,20 @@ func setAgentAuthHeaders(req *http.Request, token string) {
 func (m *Monitor) reapplyAgentIdentity() {
 	uc, err := identity.LoadUserConfig()
 	if err != nil {
-		log.Printf("[Beacon] Failed to load user config: %v", err)
+		logger.Infof("Failed to load user config: %v", err)
 	} else {
 		applyUserConfigToMonitorConfig(m.config, uc)
 	}
 	ag, err := identity.LoadAgent()
 	if err != nil {
-		log.Printf("[Beacon] Failed to load agent identity: %v", err)
+		logger.Infof("Failed to load agent identity: %v", err)
 		return
 	}
 	m.agentIdentity = ag
 	applyAgentIdentityToMonitorConfig(m.config, ag)
 	tok, err := resolveMonitorAuthToken(m.config, m.keyManager, ag, uc)
 	if err != nil {
-		log.Printf("[Beacon] Failed to resolve agent credentials: %v", err)
+		logger.Infof("Failed to resolve agent credentials: %v", err)
 		return
 	}
 	m.currentToken = tok
@@ -490,7 +489,7 @@ func (m *Monitor) persistAgentDeviceIDIfNew(body []byte) {
 		if uc.DeviceID != resp.DeviceID {
 			uc.DeviceID = resp.DeviceID
 			if err := uc.Save(); err != nil {
-				log.Printf("[Beacon] Failed to save device_id to config.yaml: %v", err)
+				logger.Infof("Failed to save device_id to config.yaml: %v", err)
 			}
 		}
 	}
@@ -504,7 +503,7 @@ func (m *Monitor) persistAgentDeviceIDIfNew(body []byte) {
 	}
 	ag.DeviceID = resp.DeviceID
 	if err := ag.Save(); err != nil {
-		log.Printf("[Beacon] Failed to save device_id to agent.yml: %v", err)
+		logger.Infof("Failed to save device_id to agent.yml: %v", err)
 		return
 	}
 	m.agentIdentity = ag
@@ -536,11 +535,11 @@ func registerBuiltinPlugins(manager *plugins.Manager) error {
 }
 
 func (m *Monitor) Start() error {
-	log.Printf("[Beacon] Starting monitoring system for device: %s", m.config.Device.Name)
+	logger.Infof("Starting monitoring system for device: %s", m.config.Device.Name)
 
 	// Load plugin configurations
 	if err := m.pluginManager.LoadConfigs(m.config.Plugins, m.config.AlertRules); err != nil {
-		log.Printf("[Beacon] Warning: failed to load plugin configurations: %v", err)
+		logger.Infof("Warning: failed to load plugin configurations: %v", err)
 	}
 
 	// Start config hot-reload monitoring
@@ -600,7 +599,7 @@ func (m *Monitor) Start() error {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	log.Println("[Beacon] Shutdown signal received, stopping monitoring...")
+	logger.Infof("Shutdown signal received, stopping monitoring...")
 
 	// Flush last logs synchronously before canceling
 	if len(m.config.LogSources) > 0 && m.config.Report.SendTo != "" && m.currentToken != "" {
@@ -676,9 +675,9 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 	// Log result
 	switch check.Type {
 	case "http":
-		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)", check.Type, check.Name, result.Status, result.Duration.Seconds())
+		logger.Infof("Check (%s) %s: %s (%.2fs)", check.Type, check.Name, result.Status, result.Duration.Seconds())
 	case "port":
-		log.Printf("[Beacon] Check (%s) %s: %s (%.2fs)", check.Type, check.Name, result.Status, result.Duration.Seconds())
+		logger.Infof("Check (%s) %s: %s (%.2fs)", check.Type, check.Name, result.Status, result.Duration.Seconds())
 	case "command":
 		// Format output with truncation and whitespace normalization
 		output := strings.Join(strings.Fields(result.CommandOutput), " ")
@@ -692,8 +691,8 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 			errorMsg = errorMsg[:maxOutputLength] + "..."
 		}
 
-		log.Printf(
-			"[Beacon] Check (%s) %s: (%.2fs) - Output: %s, Error: %s",
+		logger.Infof(
+			"Check (%s) %s: (%.2fs) - Output: %s, Error: %s",
 			check.Type,
 			check.Name,
 			result.Duration.Seconds(),
@@ -733,17 +732,17 @@ func (m *Monitor) executeCheck(check CheckConfig) {
 		}
 
 		if err := m.pluginManager.SendAlert(pluginResult); err != nil {
-			log.Printf("[Beacon] Failed to send alert via plugins: %v", err)
+			logger.Infof("Failed to send alert via plugins: %v", err)
 		}
 	}
 
 	// Execute alert command for command checks (always run regardless of status)
 	if check.Type == "command" && check.AlertCommand != "" {
-		log.Printf("[Beacon] Executing alert command for command check: %s", result.Name)
+		logger.Infof("Executing alert command for command check: %s", result.Name)
 		m.executeAlertCommand(check.AlertCommand, result)
 	} else if result.Status != "up" && check.AlertCommand != "" {
 		// For non-command checks, only run alert command on failure
-		log.Printf("[Beacon] Executing alert command for failed check: %s", result.Name)
+		logger.Infof("Executing alert command for failed check: %s", result.Name)
 		m.executeAlertCommand(check.AlertCommand, result)
 	}
 }
@@ -914,7 +913,7 @@ func (m *Monitor) executeAlertCommand(command string, result CheckResult) {
 		return
 	}
 
-	log.Printf("[Beacon] Executing alert command for check: %s", result.Name)
+	logger.Infof("Executing alert command for check: %s", result.Name)
 
 	// Execute the alert command in a goroutine to avoid blocking
 	go func() {
@@ -941,9 +940,9 @@ func (m *Monitor) executeAlertCommand(command string, result CheckResult) {
 		err := cmd.Run()
 
 		if err != nil {
-			log.Printf("[Beacon] Alert command failed: %v, stderr: %s", err, stderr.String())
+			logger.Infof("Alert command failed: %v, stderr: %s", err, stderr.String())
 		} else {
-			log.Printf("[Beacon] Alert command executed successfully: %s", stdout.String())
+			logger.Infof("Alert command executed successfully: %s", stdout.String())
 		}
 	}()
 }
@@ -992,13 +991,13 @@ func (m *Monitor) buildAgentMetrics() *AgentMetrics {
 
 	hostname, err := m.metricsCollector.GetHostname()
 	if err != nil {
-		log.Printf("[Beacon] Failed to get hostname: %v", err)
+		logger.Infof("Failed to get hostname: %v", err)
 		return nil
 	}
 
 	ipAddress, err := m.metricsCollector.GetIPAddress()
 	if err != nil {
-		log.Printf("[Beacon] Failed to get IP address: %v", err)
+		logger.Infof("Failed to get IP address: %v", err)
 		ipAddress = "unknown"
 	}
 
@@ -1086,13 +1085,13 @@ func (m *Monitor) sendHeartbeat() {
 
 	hostname, err := getHostname()
 	if err != nil {
-		log.Printf("[Beacon] Failed to get hostname for heartbeat: %v", err)
+		logger.Infof("Failed to get hostname for heartbeat: %v", err)
 		return
 	}
 
 	ipAddress, err := getIPAddress()
 	if err != nil {
-		log.Printf("[Beacon] Failed to get IP address for heartbeat: %v", err)
+		logger.Infof("Failed to get IP address for heartbeat: %v", err)
 		ipAddress = "unknown"
 	}
 
@@ -1122,7 +1121,7 @@ func (m *Monitor) sendHeartbeat() {
 	heartbeatURL := strings.TrimSuffix(m.config.Report.SendTo, "/") + "/agent/heartbeat"
 	body, err := m.doAPIRequest(heartbeatURL, heartbeat)
 	if err != nil {
-		log.Printf("[Beacon] Heartbeat request failed: %v", err)
+		logger.Infof("Heartbeat request failed: %v", err)
 		return
 	}
 	m.persistAgentDeviceIDIfNew(body)
@@ -1135,7 +1134,7 @@ func (m *Monitor) sendHeartbeat() {
 	if body != nil && m.config.Report.DeployOnRequest {
 		var resp heartbeatResponse
 		if jsonErr := json.Unmarshal(body, &resp); jsonErr == nil && resp.DeployRequested {
-			log.Printf("[Beacon] Deploy requested by BeaconWatch, running deploy...")
+			logger.Infof("Deploy requested by BeaconWatch, running deploy...")
 			result := m.runDeployRequested()
 			m.postDeployResult(result)
 		}
@@ -1170,7 +1169,7 @@ func (m *Monitor) runDeployRequested() deployResultPayload {
 	envPath := filepath.Join(getConfigDir(), "config", "projects", projectName, "env")
 	if _, err := os.Stat(envPath); err == nil {
 		if loadErr := util.LoadEnvFile(envPath); loadErr != nil {
-			log.Printf("[Beacon] Failed to load project env: %v", loadErr)
+			logger.Infof("Failed to load project env: %v", loadErr)
 			return deployResultPayload{Success: false, Error: loadErr.Error()}
 		}
 	}
@@ -1193,10 +1192,10 @@ func (m *Monitor) runDeployRequested() deployResultPayload {
 		err = deploy.Deploy(cfg, lastTag, status)
 	}
 	if err != nil {
-		log.Printf("[Beacon] Deploy failed: %v", err)
+		logger.Infof("Deploy failed: %v", err)
 		return deployResultPayload{Success: false, Error: err.Error()}
 	}
-	log.Printf("[Beacon] Deploy completed successfully")
+	logger.Infof("Deploy completed successfully")
 	return deployResultPayload{Success: true}
 }
 
@@ -1215,13 +1214,13 @@ func (m *Monitor) postDeployResult(result deployResultPayload) {
 func (m *Monitor) sendToAPI(url string, payload interface{}) {
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("[Beacon] Failed to marshal payload: %v", err)
+		logger.Infof("Failed to marshal payload: %v", err)
 		return
 	}
 
 	req, err := http.NewRequest("POST", url, strings.NewReader(string(jsonData)))
 	if err != nil {
-		log.Printf("[Beacon] Failed to create API request: %v", err)
+		logger.Infof("Failed to create API request: %v", err)
 		return
 	}
 
@@ -1230,15 +1229,15 @@ func (m *Monitor) sendToAPI(url string, payload interface{}) {
 
 	resp, err := m.httpClient.Do(m.ctx, req)
 	if err != nil {
-		log.Printf("[Beacon] Failed to send to API: %v", err)
+		logger.Infof("Failed to send to API: %v", err)
 		return
 	}
 	defer util.DeferClose(resp.Body, "HTTP response body")()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		log.Printf("[Beacon] Successfully sent data to %s", url)
+		logger.Infof("Successfully sent data to %s", url)
 	} else {
-		log.Printf("[Beacon] API request failed: HTTP %d", resp.StatusCode)
+		logger.Infof("API request failed: HTTP %d", resp.StatusCode)
 	}
 }
 
@@ -1246,10 +1245,10 @@ func (m *Monitor) startPrometheusServer() {
 	http.HandleFunc("/metrics", m.prometheusHandler)
 
 	addr := fmt.Sprintf(":%d", m.config.Report.PrometheusPort)
-	log.Printf("[Beacon] Prometheus metrics server listening on %s", addr)
+	logger.Infof("Prometheus metrics server listening on %s", addr)
 
 	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Printf("[Beacon] Prometheus server error: %v", err)
+		logger.Infof("Prometheus server error: %v", err)
 	}
 }
 
@@ -1323,17 +1322,17 @@ func (m *Monitor) writePrometheusFile() {
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		log.Printf("[Beacon] Failed to create Prometheus file dir: %v", err)
+		logger.Infof("Failed to create Prometheus file dir: %v", err)
 		return
 	}
 	tmpPath := path + ".tmp"
 	content := m.getPrometheusMetricsText()
 	if err := os.WriteFile(tmpPath, []byte(content), 0644); err != nil {
-		log.Printf("[Beacon] Failed to write Prometheus file: %v", err)
+		logger.Infof("Failed to write Prometheus file: %v", err)
 		return
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		log.Printf("[Beacon] Failed to rename Prometheus file: %v", err)
+		logger.Infof("Failed to rename Prometheus file: %v", err)
 		_ = os.Remove(tmpPath)
 	}
 }
@@ -1378,7 +1377,7 @@ func Run(cmd *cobra.Command, args []string) {
 
 // Stop stops the monitor and cleans up resources
 func (m *Monitor) Stop() {
-	log.Printf("[Beacon] Stopping monitoring system")
+	logger.Infof("Stopping monitoring system")
 
 	if m.configWatcher != nil {
 		util.Close(m.configWatcher, "config watcher")
@@ -1394,7 +1393,7 @@ func (m *Monitor) Stop() {
 
 	if m.pluginManager != nil {
 		if err := m.pluginManager.Close(); err != nil {
-			log.Printf("[Beacon] Error closing plugin manager: %v", err)
+			logger.Infof("Error closing plugin manager: %v", err)
 		}
 	}
 
@@ -1406,13 +1405,13 @@ func (m *Monitor) startConfigHotReload() {
 	// Watch the config file
 	err := m.configWatcher.Add(m.configPath)
 	if err != nil {
-		log.Printf("[Beacon] Failed to watch config file: %v", err)
+		logger.Infof("Failed to watch config file: %v", err)
 		return
 	}
 
 	keysDir := filepath.Join(getConfigDir(), "keys")
 	if err := m.configWatcher.Add(keysDir); err != nil {
-		log.Printf("[Beacon] Failed to watch keys directory: %v", err)
+		logger.Infof("Failed to watch keys directory: %v", err)
 	}
 
 	if m.agentYAMLPath != "" {
@@ -1420,7 +1419,7 @@ func (m *Monitor) startConfigHotReload() {
 		cp := filepath.Clean(m.configPath)
 		if ap != cp {
 			if err := m.configWatcher.Add(m.agentYAMLPath); err != nil {
-				log.Printf("[Beacon] Failed to watch agent identity file: %v", err)
+				logger.Infof("Failed to watch agent identity file: %v", err)
 			}
 		}
 	}
@@ -1428,7 +1427,7 @@ func (m *Monitor) startConfigHotReload() {
 		up := filepath.Clean(m.userConfigPath)
 		if up != filepath.Clean(m.configPath) && up != filepath.Clean(m.agentYAMLPath) {
 			if err := m.configWatcher.Add(m.userConfigPath); err != nil {
-				log.Printf("[Beacon] Failed to watch user config.yaml: %v", err)
+				logger.Infof("Failed to watch user config.yaml: %v", err)
 			}
 		}
 	}
@@ -1445,14 +1444,14 @@ func (m *Monitor) startConfigHotReload() {
 				if !ok {
 					return
 				}
-				log.Printf("[Beacon] Config watcher error: %v", err)
+				logger.Infof("Config watcher error: %v", err)
 			case <-m.ctx.Done():
 				return
 			}
 		}
 	}()
 
-	log.Printf("[Beacon] Started config hot-reload monitoring")
+	logger.Infof("Started config hot-reload monitoring")
 }
 
 // handleConfigChange handles configuration file changes
@@ -1463,21 +1462,21 @@ func (m *Monitor) handleConfigChange(event fsnotify.Event) {
 	switch {
 	case event.Op&fsnotify.Write == fsnotify.Write:
 		if filepath.Clean(event.Name) == filepath.Clean(m.configPath) {
-			log.Printf("[Beacon] Config file changed, reloading...")
+			logger.Infof("Config file changed, reloading...")
 			m.reloadConfig()
 		} else if m.agentYAMLPath != "" && filepath.Clean(event.Name) == filepath.Clean(m.agentYAMLPath) {
-			log.Printf("[Beacon] Agent identity file changed, reloading credentials...")
+			logger.Infof("Agent identity file changed, reloading credentials...")
 			m.reloadToken()
 		} else if m.userConfigPath != "" && filepath.Clean(event.Name) == filepath.Clean(m.userConfigPath) {
-			log.Printf("[Beacon] User config.yaml changed, reloading credentials...")
+			logger.Infof("User config.yaml changed, reloading credentials...")
 			m.reloadToken()
 		} else if strings.Contains(event.Name, "keys/") && strings.HasSuffix(event.Name, ".json") {
-			log.Printf("[Beacon] Key file changed, reloading token...")
+			logger.Infof("Key file changed, reloading token...")
 			m.reloadToken()
 		}
 	case event.Op&fsnotify.Create == fsnotify.Create:
 		if strings.Contains(event.Name, "keys/") && strings.HasSuffix(event.Name, ".json") {
-			log.Printf("[Beacon] New key file created, checking for token updates...")
+			logger.Infof("New key file created, checking for token updates...")
 			m.reloadToken()
 		}
 	}
@@ -1487,7 +1486,7 @@ func (m *Monitor) handleConfigChange(event fsnotify.Event) {
 func (m *Monitor) reloadConfig() {
 	newConfig, err := LoadConfig(m.configPath)
 	if err != nil {
-		log.Printf("[Beacon] Failed to reload config: %v", err)
+		logger.Infof("Failed to reload config: %v", err)
 		return
 	}
 
@@ -1495,10 +1494,10 @@ func (m *Monitor) reloadConfig() {
 	m.reapplyAgentIdentity()
 
 	if err := m.pluginManager.LoadConfigs(m.config.Plugins, m.config.AlertRules); err != nil {
-		log.Printf("[Beacon] Failed to reload plugin configurations: %v", err)
+		logger.Infof("Failed to reload plugin configurations: %v", err)
 	}
 
-	log.Printf("[Beacon] Configuration reloaded successfully")
+	logger.Infof("Configuration reloaded successfully")
 }
 
 // reloadToken reloads credentials from the keyring and agent.yml
@@ -1506,6 +1505,6 @@ func (m *Monitor) reloadToken() {
 	prev := m.currentToken
 	m.reapplyAgentIdentity()
 	if m.currentToken != prev {
-		log.Printf("[Beacon] Agent credentials reloaded")
+		logger.Infof("Agent credentials reloaded")
 	}
 }

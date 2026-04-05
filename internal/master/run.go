@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"beacon/internal/identity"
+	"beacon/internal/logging"
 	"beacon/internal/tunnel"
 	"beacon/internal/version"
 )
@@ -113,8 +113,15 @@ func getOutboundIP() string {
 func Run(ctx context.Context) {
 	uc, err := identity.LoadUserConfig()
 	if err != nil {
-		log.Printf("[Beacon master] Failed to load config: %v", err)
+		logger.Infof("Failed to load config: %v", err)
 		uc = nil
+	}
+	if uc != nil && uc.LogLevel != "" {
+		logging.SetLevel(uc.LogLevel)
+		// Propagate to spawned children via env inheritance (only if env var not already set).
+		if os.Getenv("BEACON_LOG_LEVEL") == "" {
+			_ = os.Setenv("BEACON_LOG_LEVEL", uc.LogLevel)
+		}
 	}
 	interval := 60 * time.Second
 	if uc != nil {
@@ -123,7 +130,7 @@ func Run(ctx context.Context) {
 
 	pm, err := NewProcessManager(ctx)
 	if err != nil {
-		log.Printf("[Beacon master] Failed to create process manager: %v", err)
+		logger.Infof("Failed to create process manager: %v", err)
 	}
 
 	eventLog := NewEventLog()
@@ -147,7 +154,7 @@ func Run(ctx context.Context) {
 	startCacheRefresh(ctx, statusCache)
 
 	if pm != nil && uc != nil && len(uc.Projects) > 0 {
-		log.Printf("[Beacon master] Spawning %d project(s)...", len(uc.Projects))
+		logger.Infof("Spawning %d project(s)...", len(uc.Projects))
 		pm.SpawnAll(uc.Projects)
 	}
 
@@ -159,7 +166,7 @@ func Run(ctx context.Context) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	log.Printf("[Beacon master] Started (interval=%s)", interval)
+	logger.Infof("Started (interval=%s)", interval)
 
 	beat := &heartbeatLoop{
 		ctx:         ctx,
@@ -177,7 +184,7 @@ func Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[Beacon master] Stopping")
+			logger.Infof("Stopping")
 			if tm != nil {
 				tm.Shutdown()
 			}
@@ -200,7 +207,7 @@ func startStatusServer(ctx context.Context, cache *StatusCache, port int, listen
 	}
 	go func() {
 		if err := srv.Start(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("[Beacon master] Status server: %v", err)
+			logger.Infof("Status server: %v", err)
 		}
 	}()
 }
@@ -227,7 +234,7 @@ func initTunnelManager(ctx context.Context, uc *identity.UserConfig) *tunnel.Tun
 	}
 	tm, err := tunnel.NewTunnelManager(ctx)
 	if err != nil {
-		log.Printf("[Beacon master] Failed to create tunnel manager: %v", err)
+		logger.Infof("Failed to create tunnel manager: %v", err)
 		return nil
 	}
 	apiKey := strings.TrimSpace(uc.APIKey)
@@ -241,16 +248,16 @@ func initTunnelManager(ctx context.Context, uc *identity.UserConfig) *tunnel.Tun
 			continue
 		}
 		if started >= tunnel.MaxActiveTunnels {
-			log.Printf("[Beacon master] Tunnel %s skipped (limit: %d active tunnels)", t.ID, tunnel.MaxActiveTunnels)
+			logger.Infof("Tunnel %s skipped (limit: %d active tunnels)", t.ID, tunnel.MaxActiveTunnels)
 			continue
 		}
 		if err := tm.EnsureStarted(t, uc.EffectiveCloudAPIBase(), apiKey, deviceName); err != nil {
-			log.Printf("[Beacon master] Tunnel %s failed to start: %v", t.ID, err)
+			logger.Infof("Tunnel %s failed to start: %v", t.ID, err)
 		} else {
 			started++
 		}
 	}
-	log.Printf("[Beacon master] Tunnel manager started (%d/%d tunnel(s) active)", started, len(uc.Tunnels))
+	logger.Infof("Tunnel manager started (%d/%d tunnel(s) active)", started, len(uc.Tunnels))
 	return tm
 }
 
@@ -268,7 +275,7 @@ type heartbeatLoop struct {
 func (h *heartbeatLoop) tryBeat() {
 	uc, err := identity.LoadUserConfig()
 	if err != nil {
-		log.Printf("[Beacon master] Reload config: %v", err)
+		logger.Infof("Reload config: %v", err)
 		return
 	}
 	if uc == nil || !uc.CloudReportingEnabled {
@@ -286,7 +293,7 @@ func (h *heartbeatLoop) tryBeat() {
 	h.dispatcher.CollectResults()
 
 	if err := sendCloudHeartbeat(h.ctx, h, uc, name, h.pm, h.dispatcher, h.tm); err != nil {
-		log.Printf("[Beacon master] Heartbeat: %v", err)
+		logger.Infof("Heartbeat: %v", err)
 	} else {
 		h.statusCache.UpdateCloudSync()
 		h.eventLog.Append(Event{
@@ -330,10 +337,10 @@ func sendCloudHeartbeat(ctx context.Context, h *heartbeatLoop, cfg *identity.Use
 	}
 
 	if len(payload.Projects) > 0 {
-		log.Printf("[Beacon master] Heartbeat includes %d project(s)", len(payload.Projects))
+		logger.Infof("Heartbeat includes %d project(s)", len(payload.Projects))
 	}
 	if len(payload.CommandResults) > 0 {
-		log.Printf("[Beacon master] Heartbeat includes %d command result(s)", len(payload.CommandResults))
+		logger.Infof("Heartbeat includes %d command result(s)", len(payload.CommandResults))
 	}
 
 	body, err := json.Marshal(payload)
@@ -366,19 +373,19 @@ func sendCloudHeartbeat(ctx context.Context, h *heartbeatLoop, cfg *identity.Use
 	// Parse response
 	var hr heartbeatResponse
 	if err := json.Unmarshal(respBody, &hr); err != nil {
-		log.Printf("[Beacon master] Failed to parse heartbeat response: %v", err)
+		logger.Infof("Failed to parse heartbeat response: %v", err)
 	} else {
 		// Save device_id if changed
 		if hr.DeviceID != "" && cfg.DeviceID != hr.DeviceID {
 			cfg.DeviceID = hr.DeviceID
 			if err := cfg.Save(); err != nil {
-				log.Printf("[Beacon master] Could not save device_id: %v", err)
+				logger.Infof("Could not save device_id: %v", err)
 			}
 		}
 
 		// Dispatch any commands from the response
 		if dispatcher != nil && len(hr.Commands) > 0 {
-			log.Printf("[Beacon master] Received %d command(s) from server", len(hr.Commands))
+			logger.Infof("Received %d command(s) from server", len(hr.Commands))
 			dispatcher.DispatchCommands(hr.Commands)
 		}
 	}
