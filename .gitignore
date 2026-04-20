@@ -54,3 +54,6 @@ test-results/
 # Extracted modules (pending move to separate repos)
 _extracted/
 
+# Editor/IDE
+.idea/
+.vscode/
