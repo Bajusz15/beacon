@@ -26,6 +26,7 @@ type UserConfig struct {
 	LogLevel              string          `yaml:"log_level,omitempty"`           // debug|info|warn|error; default "info"
 	Projects              []ProjectConfig `yaml:"projects,omitempty"`
 	Tunnels               []TunnelConfig  `yaml:"tunnels,omitempty"`
+	VPN                   *VPNConfig      `yaml:"vpn,omitempty"`
 	// SystemMetrics configures host metrics sent with cloud heartbeats (~/.beacon/config.yaml only).
 	// Per-project monitor.yml should not duplicate this; omit system_metrics there.
 	SystemMetrics *UserSystemMetricsConfig `yaml:"system_metrics,omitempty"`
@@ -52,10 +53,22 @@ type ProjectConfig struct {
 	Enabled *bool `yaml:"enabled,omitempty"`
 }
 
+// VPNConfig is the per-device WireGuard VPN section in ~/.beacon/config.yaml.
+// The master watches this struct: a non-nil Enabled toggles the VPN manager,
+// Role and PeerDevice describe the topology, and VPNAddress is filled in by
+// the server after the first /api/agent/vpn/register call.
+type VPNConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Role       string `yaml:"role"`                  // exit_node | client
+	PeerDevice string `yaml:"peer_device,omitempty"` // client mode: device-name to connect to
+	ListenPort int    `yaml:"listen_port,omitempty"` // default 51820
+	VPNAddress string `yaml:"vpn_address,omitempty"` // assigned by server, cached locally
+}
+
 // TunnelConfig defines a tunnel the master can open to the cloud on demand (tunnel_connect piggyback only).
 type TunnelConfig struct {
-	ID        string `yaml:"id"`
-	LocalPort int    `yaml:"local_port,omitempty"`
+	ID        string          `yaml:"id"`
+	LocalPort int             `yaml:"local_port,omitempty"`
 	Upstream  *TunnelUpstream `yaml:"upstream,omitempty"`
 	// Enabled is tri-state: nil => omitted in YAML (default: true), true/false => explicitly set.
 	Enabled *bool `yaml:"enabled,omitempty"`
@@ -316,6 +329,76 @@ func SetTunnelEnabled(tunnelID string, enabled bool) error {
 		}
 	}
 	return fmt.Errorf("tunnel %q not found", tunnelID)
+}
+
+// SetVPNExitNode marks this device as an exit node in ~/.beacon/config.yaml.
+// `beacon vpn enable` calls this; the master picks the change up on its next config reload.
+func SetVPNExitNode(listenPort int, vpnAddress string) error {
+	if listenPort <= 0 {
+		listenPort = 51820
+	}
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		f = &UserConfig{}
+	}
+	f.VPN = &VPNConfig{
+		Enabled:    true,
+		Role:       "exit_node",
+		ListenPort: listenPort,
+		VPNAddress: strings.TrimSpace(vpnAddress),
+	}
+	return saveUserConfig(p, f)
+}
+
+// SetVPNClient marks this device as a VPN client of the given peer device.
+func SetVPNClient(peerDevice string, vpnAddress string) error {
+	peerDevice = strings.TrimSpace(peerDevice)
+	if peerDevice == "" {
+		return errors.New("peer device is required")
+	}
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		f = &UserConfig{}
+	}
+	f.VPN = &VPNConfig{
+		Enabled:    true,
+		Role:       "client",
+		PeerDevice: peerDevice,
+		ListenPort: 51820,
+		VPNAddress: strings.TrimSpace(vpnAddress),
+	}
+	return saveUserConfig(p, f)
+}
+
+// ClearVPN removes the VPN block from ~/.beacon/config.yaml. Idempotent.
+func ClearVPN() error {
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		return nil
+	}
+	f.VPN = nil
+	return saveUserConfig(p, f)
 }
 
 // WriteCloudLogin writes BeaconInfra API credentials and enables cloud reporting.

@@ -367,3 +367,103 @@ func TestUserConfig_YAMLStructure(t *testing.T) {
 	require.Contains(t, yamlStr, "device_id:")
 	require.NotContains(t, yamlStr, "cloud_url:") // cloud_url is compile-time only
 }
+
+func TestSetVPNExitNode_writesYAML(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	// Pre-populate a baseline config so we can verify the VPN block is added,
+	// not that the whole file is replaced.
+	base := &UserConfig{DeviceName: "n100-pi", APIKey: "usr_test"}
+	require.NoError(t, base.Save())
+
+	require.NoError(t, SetVPNExitNode(0, "10.13.37.5"))
+
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.NotNil(t, loaded.VPN)
+	require.True(t, loaded.VPN.Enabled)
+	require.Equal(t, "exit_node", loaded.VPN.Role)
+	require.Equal(t, 51820, loaded.VPN.ListenPort, "zero listen port should default to 51820")
+	require.Equal(t, "10.13.37.5", loaded.VPN.VPNAddress)
+	require.Empty(t, loaded.VPN.PeerDevice)
+	// Untouched fields stay put.
+	require.Equal(t, "n100-pi", loaded.DeviceName)
+	require.Equal(t, "usr_test", loaded.APIKey)
+}
+
+func TestSetVPNExitNode_customListenPort(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	require.NoError(t, SetVPNExitNode(41820, "10.13.37.7"))
+
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.Equal(t, 41820, loaded.VPN.ListenPort)
+}
+
+func TestSetVPNClient_writesYAML(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	require.NoError(t, SetVPNClient("home-pi", "10.13.37.9"))
+
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.NotNil(t, loaded.VPN)
+	require.True(t, loaded.VPN.Enabled)
+	require.Equal(t, "client", loaded.VPN.Role)
+	require.Equal(t, "home-pi", loaded.VPN.PeerDevice)
+	require.Equal(t, "10.13.37.9", loaded.VPN.VPNAddress)
+}
+
+func TestSetVPNClient_emptyPeerRejected(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	err := SetVPNClient("   ", "10.13.37.9")
+	require.Error(t, err)
+}
+
+func TestClearVPN_idempotent(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	// ClearVPN against a non-existent config is a no-op.
+	require.NoError(t, ClearVPN())
+
+	require.NoError(t, SetVPNExitNode(51820, "10.13.37.5"))
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.NotNil(t, loaded.VPN)
+
+	require.NoError(t, ClearVPN())
+	loaded, err = LoadUserConfig()
+	require.NoError(t, err)
+	require.Nil(t, loaded.VPN, "VPN block should be gone after ClearVPN")
+
+	// And calling Clear again should still succeed.
+	require.NoError(t, ClearVPN())
+}
+
+func TestSetVPNExitNode_overwritesClientMode(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	// Start as a client, switch to exit node — peer_device must be cleared
+	// or the master would try to do both at once.
+	require.NoError(t, SetVPNClient("home-pi", "10.13.37.9"))
+	require.NoError(t, SetVPNExitNode(51820, "10.13.37.1"))
+
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.Equal(t, "exit_node", loaded.VPN.Role)
+	require.Empty(t, loaded.VPN.PeerDevice, "switching to exit node must clear peer_device")
+}

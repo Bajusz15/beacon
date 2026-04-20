@@ -10,6 +10,7 @@ import (
 	"beacon/internal/ipc"
 	"beacon/internal/tunnel"
 	"beacon/internal/version"
+	"beacon/internal/vpn"
 )
 
 const defaultMetricsPort = 9100
@@ -57,12 +58,12 @@ type CloudStatus struct {
 
 // TunnelStatusInfo describes a tunnel's status for /api/status.
 type TunnelStatusInfo struct {
-	ID                string `json:"id"`
-	LocalPort         int    `json:"local_port"`
-	UpstreamHost      string `json:"upstream_host,omitempty"`
-	UpstreamProtocol  string `json:"upstream_protocol,omitempty"`
-	Status            string `json:"status"` // "connected", "reconnecting", "failed", "disabled"
-	UptimeSeconds     int64  `json:"uptime_seconds,omitempty"`
+	ID               string `json:"id"`
+	LocalPort        int    `json:"local_port"`
+	UpstreamHost     string `json:"upstream_host,omitempty"`
+	UpstreamProtocol string `json:"upstream_protocol,omitempty"`
+	Status           string `json:"status"` // "connected", "reconnecting", "failed", "disabled"
+	UptimeSeconds    int64  `json:"uptime_seconds,omitempty"`
 }
 
 // StatusSnapshot is the full /api/status response body.
@@ -74,6 +75,7 @@ type StatusSnapshot struct {
 	System   DeviceMetrics      `json:"system"`
 	Children []ChildStatus      `json:"projects"`
 	Tunnels  []TunnelStatusInfo `json:"tunnels,omitempty"`
+	VPN      *vpn.Status        `json:"vpn,omitempty"`
 	Events   []Event            `json:"events"`
 	Cloud    CloudStatus        `json:"cloud"`
 }
@@ -84,6 +86,7 @@ type StatusCache struct {
 	snapshot  StatusSnapshot
 	pm        *ProcessManager
 	tm        *tunnel.TunnelManager
+	vm        *vpn.Manager
 	eventLog  *EventLog
 	startedAt time.Time
 	cfg       *identity.UserConfig
@@ -116,6 +119,12 @@ func (sc *StatusCache) Refresh() {
 	// Build children from IPC health + PID map
 	if sc.pm != nil {
 		snap.Children = sc.buildChildren()
+	}
+
+	// VPN runtime state (live counters fetched on each Refresh).
+	if sc.vm != nil {
+		s := sc.vm.Status()
+		snap.VPN = &s
 	}
 
 	// Build tunnel statuses
@@ -168,6 +177,13 @@ func (sc *StatusCache) SetTunnelManager(tm *tunnel.TunnelManager) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	sc.tm = tm
+}
+
+// SetVPNManager sets the VPN manager for status reporting.
+func (sc *StatusCache) SetVPNManager(vm *vpn.Manager) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.vm = vm
 }
 
 // UpdateConfig updates the config reference on hot-reload.

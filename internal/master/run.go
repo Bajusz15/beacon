@@ -13,10 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"beacon/internal/cloud"
 	"beacon/internal/identity"
 	"beacon/internal/logging"
 	"beacon/internal/tunnel"
 	"beacon/internal/version"
+	"beacon/internal/vpn"
 )
 
 type tunnelHeartbeatReport struct {
@@ -27,6 +29,16 @@ type tunnelHeartbeatReport struct {
 	Enabled          bool   `json:"enabled"`
 	Autostart        *bool  `json:"autostart,omitempty"`
 	Connected        *bool  `json:"connected,omitempty"`
+}
+
+type vpnHeartbeatReport struct {
+	Enabled    bool   `json:"enabled"`
+	Role       string `json:"role,omitempty"`
+	VPNAddress string `json:"vpn_address,omitempty"`
+	PeerDevice string `json:"peer_device,omitempty"`
+	Connected  bool   `json:"connected"`
+	BytesRx    uint64 `json:"bytes_rx,omitempty"`
+	BytesTx    uint64 `json:"bytes_tx,omitempty"`
 }
 
 type heartbeatRequest struct {
@@ -40,6 +52,7 @@ type heartbeatRequest struct {
 	Metadata       map[string]string       `json:"metadata"`
 	Projects       []ProjectHealth         `json:"projects,omitempty"`
 	Tunnels        []tunnelHeartbeatReport `json:"tunnels,omitempty"`
+	VPN            *vpnHeartbeatReport     `json:"vpn,omitempty"`
 	CommandResults []CommandResultReport   `json:"command_results,omitempty"`
 	SystemMetrics  *heartbeatSystemMetrics `json:"system_metrics,omitempty"`
 }
@@ -166,6 +179,9 @@ func Run(ctx context.Context) {
 	tm := initTunnelManager(ctx, uc)
 	statusCache.SetTunnelManager(tm)
 
+	vm := initVPNManager(ctx, uc)
+	statusCache.SetVPNManager(vm)
+
 	dispatcher := NewCommandDispatcher(pm, tm)
 
 	ticker := time.NewTicker(interval)
@@ -177,6 +193,7 @@ func Run(ctx context.Context) {
 		ctx:         ctx,
 		pm:          pm,
 		tm:          tm,
+		vm:          vm,
 		dispatcher:  dispatcher,
 		statusCache: statusCache,
 		eventLog:    eventLog,
@@ -190,6 +207,9 @@ func Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			logger.Infof("Stopping")
+			if vm != nil {
+				vm.Stop()
+			}
 			if tm != nil {
 				tm.Shutdown()
 			}
@@ -232,6 +252,51 @@ func startCacheRefresh(ctx context.Context, cache *StatusCache) {
 	}()
 }
 
+// vpnCloudAdapter adapts cloud.VPNClient to the vpn.PeerResolver interface.
+// The two packages can't import each other directly (cycle via identity), so the
+// adapter lives in master where both are already imported.
+type vpnCloudAdapter struct {
+	c *cloud.VPNClient
+}
+
+func (a *vpnCloudAdapter) RegisterVPN(ctx context.Context, publicKey, role string, listenPort int, endpoint string) (string, error) {
+	return a.c.RegisterVPN(ctx, publicKey, role, listenPort, endpoint)
+}
+
+func (a *vpnCloudAdapter) GetPeer(ctx context.Context, deviceName string) (*vpn.PeerInfo, error) {
+	p, err := a.c.GetPeer(ctx, deviceName)
+	if err != nil {
+		return nil, err
+	}
+	return &vpn.PeerInfo{
+		DeviceName: p.DeviceName,
+		PublicKey:  p.PublicKey,
+		Endpoint:   p.Endpoint,
+		VPNAddress: p.VPNAddress,
+		AllowedIPs: p.AllowedIPs,
+	}, nil
+}
+
+func (a *vpnCloudAdapter) DeregisterVPN(ctx context.Context) error {
+	return a.c.DeregisterVPN(ctx)
+}
+
+// initVPNManager constructs a VPN manager. Cloud reporting must be enabled —
+// without an API key the manager has no way to register the public key.
+// The manager is created in "stopped" state; the heartbeat loop's first
+// Reconcile() will bring the interface up if cfg.VPN.Enabled is true.
+func initVPNManager(ctx context.Context, uc *identity.UserConfig) *vpn.Manager {
+	if uc == nil || !uc.CloudReportingEnabled || strings.TrimSpace(uc.APIKey) == "" {
+		return nil
+	}
+	deviceName := strings.TrimSpace(uc.DeviceName)
+	if deviceName == "" {
+		deviceName = getHostname()
+	}
+	client := cloud.NewVPNClient(uc.EffectiveCloudAPIBase(), uc.APIKey, deviceName)
+	return vpn.NewManager(&vpnCloudAdapter{c: client})
+}
+
 // initTunnelManager creates and auto-starts enabled tunnels if cloud reporting is configured.
 func initTunnelManager(ctx context.Context, uc *identity.UserConfig) *tunnel.TunnelManager {
 	if uc == nil || len(uc.Tunnels) == 0 || !uc.CloudReportingEnabled || strings.TrimSpace(uc.APIKey) == "" {
@@ -271,6 +336,7 @@ type heartbeatLoop struct {
 	ctx                     context.Context
 	pm                      *ProcessManager
 	tm                      *tunnel.TunnelManager
+	vm                      *vpn.Manager
 	dispatcher              *CommandDispatcher
 	statusCache             *StatusCache
 	eventLog                *EventLog
@@ -297,6 +363,14 @@ func (h *heartbeatLoop) tryBeat() {
 	h.statusCache.UpdateConfig(uc)
 	h.dispatcher.CollectResults()
 
+	// Reconcile VPN state with the (possibly hot-reloaded) config. Reconcile is
+	// idempotent — a no-op if nothing changed — so it's cheap to call every tick.
+	if h.vm != nil {
+		if err := h.vm.Reconcile(h.ctx, uc.VPN); err != nil {
+			logger.Infof("VPN reconcile: %v", err)
+		}
+	}
+
 	if err := sendCloudHeartbeat(h.ctx, h, uc, name, h.pm, h.dispatcher, h.tm); err != nil {
 		logger.Infof("Heartbeat: %v", err)
 	} else {
@@ -306,6 +380,25 @@ func (h *heartbeatLoop) tryBeat() {
 			Type:      EventSync,
 			Message:   "cloud heartbeat OK",
 		})
+	}
+}
+
+func buildVPNHeartbeatReport(vm *vpn.Manager) *vpnHeartbeatReport {
+	if vm == nil {
+		return nil
+	}
+	s := vm.Status()
+	if !s.Enabled {
+		return nil
+	}
+	return &vpnHeartbeatReport{
+		Enabled:    true,
+		Role:       string(s.Role),
+		VPNAddress: s.VPNAddress,
+		PeerDevice: s.PeerDevice,
+		Connected:  s.Connected,
+		BytesRx:    s.BytesRx,
+		BytesTx:    s.BytesTx,
 	}
 }
 
@@ -333,6 +426,9 @@ func sendCloudHeartbeat(ctx context.Context, h *heartbeatLoop, cfg *identity.Use
 		Projects:       AggregateProjectHealth(pm),
 		Tunnels:        buildTunnelHeartbeatReports(cfg, tm),
 		CommandResults: commandResults,
+	}
+	if h != nil {
+		payload.VPN = buildVPNHeartbeatReport(h.vm)
 	}
 
 	if h != nil {
