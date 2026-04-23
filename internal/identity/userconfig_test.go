@@ -467,3 +467,132 @@ func TestSetVPNExitNode_overwritesClientMode(t *testing.T) {
 	require.Equal(t, "exit_node", loaded.VPN.Role)
 	require.Empty(t, loaded.VPN.PeerDevice, "switching to exit node must clear peer_device")
 }
+
+func TestAppendTunnelIfMissing(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	require.NoError(t, AppendTunnelIfMissing("tun1", 8080))
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.Len(t, loaded.Tunnels, 1)
+	require.Equal(t, "tun1", loaded.Tunnels[0].ID)
+	require.Equal(t, 8080, loaded.Tunnels[0].LocalPort)
+
+	// Add a second tunnel
+	require.NoError(t, AppendTunnelIfMissing("tun2", 9090))
+	loaded, err = LoadUserConfig()
+	require.NoError(t, err)
+	require.Len(t, loaded.Tunnels, 2)
+
+	// Update existing tunnel port
+	require.NoError(t, AppendTunnelIfMissing("tun1", 7070))
+	loaded, err = LoadUserConfig()
+	require.NoError(t, err)
+	require.Len(t, loaded.Tunnels, 2, "should update, not append duplicate")
+	require.Equal(t, 7070, loaded.Tunnels[0].LocalPort)
+}
+
+func TestAppendTunnelIfMissing_validation(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	require.Error(t, AppendTunnelIfMissing("", 8080), "empty ID should fail")
+	require.Error(t, AppendTunnelIfMissing("tun1", 0), "zero port should fail")
+	require.Error(t, AppendTunnelIfMissing("tun1", 99999), "port > 65535 should fail")
+}
+
+func TestUpsertTunnelUpstream(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	require.NoError(t, UpsertTunnelUpstream("tun1", "http", "192.168.1.50", 3000))
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.Len(t, loaded.Tunnels, 1)
+	require.NotNil(t, loaded.Tunnels[0].Upstream)
+	require.Equal(t, "http", loaded.Tunnels[0].Upstream.Protocol)
+	require.Equal(t, "192.168.1.50", loaded.Tunnels[0].Upstream.Host)
+	require.Equal(t, 3000, loaded.Tunnels[0].Upstream.Port)
+	require.Zero(t, loaded.Tunnels[0].LocalPort, "upstream mode should clear LocalPort")
+
+	// Update existing
+	require.NoError(t, UpsertTunnelUpstream("tun1", "https", "", 443))
+	loaded, err = LoadUserConfig()
+	require.NoError(t, err)
+	require.Len(t, loaded.Tunnels, 1)
+	require.Equal(t, "https", loaded.Tunnels[0].Upstream.Protocol)
+}
+
+func TestUpsertTunnelUpstream_validation(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	require.Error(t, UpsertTunnelUpstream("", "http", "", 3000), "empty ID")
+	require.Error(t, UpsertTunnelUpstream("tun1", "ftp", "", 3000), "invalid protocol")
+	require.Error(t, UpsertTunnelUpstream("tun1", "http", "", 0), "zero port")
+	require.Error(t, UpsertTunnelUpstream("tun1", "http", "", 99999), "port > 65535")
+}
+
+func TestRemoveTunnel(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	// Remove from non-existent config is a no-op
+	require.NoError(t, RemoveTunnel("tun1"))
+
+	require.NoError(t, AppendTunnelIfMissing("tun1", 8080))
+	require.NoError(t, AppendTunnelIfMissing("tun2", 9090))
+
+	require.NoError(t, RemoveTunnel("tun1"))
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.Len(t, loaded.Tunnels, 1)
+	require.Equal(t, "tun2", loaded.Tunnels[0].ID)
+
+	require.Error(t, RemoveTunnel(""), "empty ID should fail")
+}
+
+func TestSetTunnelEnabled(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	require.NoError(t, AppendTunnelIfMissing("tun1", 8080))
+
+	require.NoError(t, SetTunnelEnabled("tun1", false))
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.NotNil(t, loaded.Tunnels[0].Enabled)
+	require.False(t, *loaded.Tunnels[0].Enabled)
+
+	require.NoError(t, SetTunnelEnabled("tun1", true))
+	loaded, err = LoadUserConfig()
+	require.NoError(t, err)
+	require.True(t, *loaded.Tunnels[0].Enabled)
+
+	// Non-existent tunnel
+	err = SetTunnelEnabled("nonexistent", true)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not found")
+
+	// Empty ID
+	require.Error(t, SetTunnelEnabled("", true))
+}
+
+func TestEffectiveCloudAPIBase_nilReceiver(t *testing.T) {
+	var uc *UserConfig
+	require.Empty(t, uc.EffectiveCloudAPIBase())
+}
+
+func TestUserConfig_Save_nilReceiver(t *testing.T) {
+	var uc *UserConfig
+	err := uc.Save()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nil")
+}
