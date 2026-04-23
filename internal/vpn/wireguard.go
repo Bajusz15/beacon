@@ -25,10 +25,10 @@ type wgDevice struct {
 	mtu      int
 	listenPt int
 
-	mu        sync.Mutex
-	closed    bool
-	peerKey   string // base64
-	peerEnd   string
+	mu      sync.Mutex
+	closed  bool
+	peerKey string // base64
+	peerEnd string
 }
 
 // createWGDevice brings up a userspace WireGuard interface and configures the
@@ -139,12 +139,12 @@ func (w *wgDevice) stats() (rx uint64, tx uint64, lastHandshake time.Time, err e
 		}
 		switch k {
 		case "rx_bytes":
-			fmt.Sscanf(v, "%d", &rx)
+			_, _ = fmt.Sscanf(v, "%d", &rx)
 		case "tx_bytes":
-			fmt.Sscanf(v, "%d", &tx)
+			_, _ = fmt.Sscanf(v, "%d", &tx)
 		case "last_handshake_time_sec":
 			var sec int64
-			fmt.Sscanf(v, "%d", &sec)
+			_, _ = fmt.Sscanf(v, "%d", &sec)
 			if sec > 0 {
 				lastHandshake = time.Unix(sec, 0)
 			}

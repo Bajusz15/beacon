@@ -29,12 +29,12 @@ type PeerResolver interface {
 type Manager struct {
 	resolver PeerResolver
 
-	mu       sync.Mutex
-	cfg      *identity.VPNConfig // last config we acted on (nil = VPN disabled)
-	wg       *wgDevice
-	keyPair  *KeyPair
-	egress   string  // detected egress iface (exit node only) — needed for teardown
-	status   Status
+	mu      sync.Mutex
+	cfg     *identity.VPNConfig // last config we acted on (nil = VPN disabled)
+	wg      *wgDevice
+	keyPair *KeyPair
+	egress  string // detected egress iface (exit node only) — needed for teardown
+	status  Status
 }
 
 // NewManager constructs a Manager. Pass the cloud client (or a mock) as resolver.
@@ -72,7 +72,8 @@ func (m *Manager) Reconcile(ctx context.Context, cfg *identity.VPNConfig) error 
 
 	// Disabled path
 	if cfg == nil || !cfg.Enabled {
-		return m.shutdownLocked()
+		m.shutdownLocked()
+		return nil
 	}
 
 	// Already running with the same intent — refresh peer info but don't churn the device.
@@ -90,9 +91,7 @@ func (m *Manager) Reconcile(ctx context.Context, cfg *identity.VPNConfig) error 
 	}
 
 	// Role/peer changed (or first start) — tear down then bring up.
-	if err := m.shutdownLocked(); err != nil {
-		return err
-	}
+	m.shutdownLocked()
 
 	switch cfg.Role {
 	case string(RoleExitNode):
@@ -227,13 +226,11 @@ func (m *Manager) refreshClientPeerLocked(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) shutdownLocked() error {
+func (m *Manager) shutdownLocked() {
 	hadDevice := m.wg != nil
 	if m.wg != nil {
 		m.wg.close()
 	}
-	// Only run network teardown if we actually brought an interface up — otherwise
-	// every disabled-state Reconcile would needlessly shell out to `ip`/`ifconfig`.
 	if hadDevice {
 		teardownNetwork(InterfaceName, m.egress)
 	}
@@ -245,7 +242,6 @@ func (m *Manager) shutdownLocked() error {
 	m.egress = ""
 	m.cfg = nil
 	m.status = Status{}
-	return nil
 }
 
 // Stop is the master-shutdown entry point. Same as Reconcile(nil) but doesn't
@@ -253,5 +249,5 @@ func (m *Manager) shutdownLocked() error {
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	_ = m.shutdownLocked()
+	m.shutdownLocked()
 }

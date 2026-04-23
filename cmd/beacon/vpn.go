@@ -163,35 +163,35 @@ func runVPNStatus(cmd *cobra.Command, args []string) {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer func() { _ = w.Flush() }()
-	fmt.Fprintf(w, "Role:\t%s\n", cfg.VPN.Role)
+	_, _ = fmt.Fprintf(w, "Role:\t%s\n", cfg.VPN.Role)
 	if cfg.VPN.PeerDevice != "" {
-		fmt.Fprintf(w, "Peer:\t%s\n", cfg.VPN.PeerDevice)
+		_, _ = fmt.Fprintf(w, "Peer:\t%s\n", cfg.VPN.PeerDevice)
 	}
 	if cfg.VPN.VPNAddress != "" {
-		fmt.Fprintf(w, "VPN Address:\t%s\n", cfg.VPN.VPNAddress)
+		_, _ = fmt.Fprintf(w, "VPN Address:\t%s\n", cfg.VPN.VPNAddress)
 	}
 	if cfg.VPN.ListenPort > 0 {
-		fmt.Fprintf(w, "Listen Port:\t%d\n", cfg.VPN.ListenPort)
+		_, _ = fmt.Fprintf(w, "Listen Port:\t%d\n", cfg.VPN.ListenPort)
 	}
 	if live != nil {
 		connected := "no"
 		if live.Connected {
 			connected = "yes"
 		}
-		fmt.Fprintf(w, "Connected:\t%s\n", connected)
+		_, _ = fmt.Fprintf(w, "Connected:\t%s\n", connected)
 		if !live.LastHandshake.IsZero() {
-			fmt.Fprintf(w, "Last handshake:\t%s ago\n", time.Since(live.LastHandshake).Round(time.Second))
+			_, _ = fmt.Fprintf(w, "Last handshake:\t%s ago\n", time.Since(live.LastHandshake).Round(time.Second))
 		}
-		fmt.Fprintf(w, "Bytes RX:\t%s\n", humanBytes(live.BytesRx))
-		fmt.Fprintf(w, "Bytes TX:\t%s\n", humanBytes(live.BytesTx))
+		_, _ = fmt.Fprintf(w, "Bytes RX:\t%s\n", humanBytes(live.BytesRx))
+		_, _ = fmt.Fprintf(w, "Bytes TX:\t%s\n", humanBytes(live.BytesTx))
 		if live.PeerEndpoint != "" {
-			fmt.Fprintf(w, "Peer endpoint:\t%s\n", live.PeerEndpoint)
+			_, _ = fmt.Fprintf(w, "Peer endpoint:\t%s\n", live.PeerEndpoint)
 		}
 		if live.Error != "" {
-			fmt.Fprintf(w, "Error:\t%s\n", live.Error)
+			_, _ = fmt.Fprintf(w, "Error:\t%s\n", live.Error)
 		}
 	} else {
-		fmt.Fprintln(w, "Live state:\tunavailable (is `beacon master` running?)")
+		_, _ = fmt.Fprintln(w, "Live state:\tunavailable (is `beacon master` running?)")
 	}
 }
 

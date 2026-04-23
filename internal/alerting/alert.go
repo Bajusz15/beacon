@@ -351,12 +351,12 @@ func sendSMTP(addr string, auth smtp.Auth, from string, to []string, msg []byte)
 		if err != nil {
 			return fmt.Errorf("smtp tls dial: %w", err)
 		}
-		defer conn.Close()
+		defer logger.CloseAndLog(conn, "smtp tls conn")
 		c, err := smtp.NewClient(conn, host)
 		if err != nil {
 			return fmt.Errorf("smtp client: %w", err)
 		}
-		defer c.Close()
+		defer logger.CloseAndLog(c, "smtp client")
 		if auth != nil {
 			if ok, _ := c.Extension("AUTH"); ok {
 				if err := c.Auth(auth); err != nil {

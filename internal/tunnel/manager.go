@@ -20,11 +20,11 @@ const MaxActiveTunnels = 2
 
 // TunnelStatus describes a managed tunnel's current state.
 type TunnelStatus struct {
-	ID              string `json:"id"`
-	LocalPort       int    `json:"local_port"`
-	UpstreamHost    string `json:"upstream_host,omitempty"`
+	ID               string `json:"id"`
+	LocalPort        int    `json:"local_port"`
+	UpstreamHost     string `json:"upstream_host,omitempty"`
 	UpstreamProtocol string `json:"upstream_protocol,omitempty"`
-	Status          string `json:"status"` // "connected", "reconnecting", "failed", "disabled"
+	Status           string `json:"status"` // "connected", "reconnecting", "failed", "disabled"
 }
 
 // TunnelManager manages tunnel goroutines within the master process.

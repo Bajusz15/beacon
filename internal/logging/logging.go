@@ -155,3 +155,11 @@ func (l *Logger) Fatalf(format string, args ...any) {
 	l.write(LevelError, format, args...)
 	os.Exit(1)
 }
+
+// CloseAndLog closes c and logs a warning if Close returns an error.
+// Intended for use with defer: defer logger.CloseAndLog(c, "smtp client")
+func (l *Logger) CloseAndLog(c io.Closer, label string) {
+	if err := c.Close(); err != nil {
+		l.Warnf("close %s: %v", label, err)
+	}
+}

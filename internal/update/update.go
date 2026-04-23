@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	githubRepo    = "Bajusz15/beacon"
-	releaseAPIURL = "https://api.github.com/repos/" + githubRepo + "/releases/latest"
+	githubRepo = "Bajusz15/beacon"
 )
+
+var releaseURL = "https://api.github.com/repos/" + githubRepo + "/releases/latest"
 
 type githubRelease struct {
 	TagName string        `json:"tag_name"`
@@ -50,7 +51,7 @@ func binaryAssetName() string {
 
 func CheckLatest(ctx context.Context) (*ReleaseInfo, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseAPIURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +89,7 @@ func CheckLatest(ctx context.Context) (*ReleaseInfo, error) {
 func DownloadAndReplace(ctx context.Context) error {
 	client := &http.Client{Timeout: 15 * time.Second}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseAPIURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseURL, nil)
 	if err != nil {
 		return err
 	}

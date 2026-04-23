@@ -285,7 +285,7 @@ func (a *vpnCloudAdapter) DeregisterVPN(ctx context.Context) error {
 // without an API key the manager has no way to register the public key.
 // The manager is created in "stopped" state; the heartbeat loop's first
 // Reconcile() will bring the interface up if cfg.VPN.Enabled is true.
-func initVPNManager(ctx context.Context, uc *identity.UserConfig) *vpn.Manager {
+func initVPNManager(_ context.Context, uc *identity.UserConfig) *vpn.Manager {
 	if uc == nil || !uc.CloudReportingEnabled || strings.TrimSpace(uc.APIKey) == "" {
 		return nil
 	}

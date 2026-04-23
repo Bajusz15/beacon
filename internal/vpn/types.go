@@ -24,9 +24,9 @@ const (
 type PeerInfo struct {
 	DeviceName string `json:"device_name"`
 	PublicKey  string `json:"public_key"`
-	Endpoint   string `json:"endpoint"`     // host:port — may be empty if peer hasn't reported one
-	VPNAddress string `json:"vpn_address"`  // 10.13.37.x assigned by server
-	AllowedIPs string `json:"allowed_ips"`  // CIDR(s) routed to this peer
+	Endpoint   string `json:"endpoint"`    // host:port — may be empty if peer hasn't reported one
+	VPNAddress string `json:"vpn_address"` // 10.13.37.x assigned by server
+	AllowedIPs string `json:"allowed_ips"` // CIDR(s) routed to this peer
 }
 
 // Status is the runtime state of the local WireGuard interface.
