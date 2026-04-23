@@ -5,34 +5,35 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Release Binaries
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
-    
+
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
         go-version: '1.26.1'
         cache: true
-    
+
     - name: Build binaries with version info
       run: |
-        # Get version info using Makefile variables
-        VERSION=$(date +%Y%m%d)-$(git rev-parse --short HEAD)
+        VERSION="${GITHUB_REF_NAME#v}"
         COMMIT=$(git rev-parse --short HEAD)
         BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        
+
         echo "Building version: $VERSION"
         echo "Commit: $COMMIT"
         echo "Build Date: $BUILD_DATE"
-        
-        # Build with version injection
+
         RELDFLAGS="-s -w -X beacon/internal/version.Version=$VERSION -X beacon/internal/version.Commit=$COMMIT -X beacon/internal/version.BuildDate=$BUILD_DATE -X beacon/internal/cloud.DefaultBeaconInfraAPIURL=https://beaconinfra.dev/api"
 
         GOOS=linux GOARCH=amd64 go build -ldflags="$RELDFLAGS" -o beacon-linux_amd64 ./cmd/beacon
@@ -40,21 +41,20 @@ jobs:
         GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="$RELDFLAGS" -o beacon-linux_arm ./cmd/beacon
         GOOS=darwin GOARCH=amd64 go build -ldflags="$RELDFLAGS" -o beacon-darwin_amd64 ./cmd/beacon
         GOOS=darwin GOARCH=arm64 go build -ldflags="$RELDFLAGS" -o beacon-darwin_arm64 ./cmd/beacon
-    
+
     - name: Generate checksums
       run: |
         sha256sum beacon-linux_amd64 beacon-linux_arm64 beacon-linux_arm beacon-darwin_amd64 beacon-darwin_arm64 > SHA256SUMS.txt
         cat SHA256SUMS.txt
-    
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
       with:
-        name: release-binaries
-        path: |
+        generate_release_notes: true
+        files: |
           beacon-linux_amd64
           beacon-linux_arm64
           beacon-linux_arm
           beacon-darwin_amd64
           beacon-darwin_arm64
           SHA256SUMS.txt
-        retention-days: 30

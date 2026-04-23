@@ -42,6 +42,7 @@ var rootCmd = &cobra.Command{
   beacon bootstrap set up a new project (interactive or from a config file)
   beacon monitor   run a single project's health checks (dev/debug)
   beacon deploy    poll a Git repo for new tags and deploy
+  beacon update    self-update to the latest release
   beacon version   show version`,
 	Version: version.GetVersion(),
 }
@@ -295,6 +296,7 @@ func main() {
 	rootCmd.AddCommand(createCloudCommand())
 	rootCmd.AddCommand(createTunnelCommand())
 	rootCmd.AddCommand(createVPNCommand())
+	rootCmd.AddCommand(createUpdateCommand())
 
 	// If no subcommand is provided, run in deploy mode
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {

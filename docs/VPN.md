@@ -36,37 +36,205 @@ unless the operator misconfigures something.
 
 ---
 
-## How it works
+## How it works — the full handshake
+
+Your devices never talk to each other before setup. BeaconInfra acts as a phone
+book: it stores public keys and endpoints so each side knows where to find the
+other. Once they have that info, all traffic is direct.
 
 ```
-┌────────────────┐                          ┌────────────────┐
-│  Your laptop   │                          │  Home N100     │
-│  (client)      │◄─── WireGuard tunnel ───►│  (exit node)   │
-│                │     direct, encrypted    │                │
-└───────┬────────┘                          └────────┬───────┘
-        │                                            │
-        │  HTTPS heartbeat (key+endpoint exchange)   │
-        │                                            │
-        └────────────► BeaconInfra cloud ◄───────────┘
-                       (no VPN traffic)
+        N100 (home WiFi)                 BeaconInfra                 Laptop (cafe / hotspot)
+             │                               │                              │
+ 1.  beacon vpn enable                       │                              │
+     ─ generate Curve25519 key pair          │                              │
+     ─ POST /vpn/register ─────────────────►│                              │
+       { public_key: "N100_PUB",             │                              │
+         role: "exit_node",                  │                              │
+         listen_port: 51820 }                │                              │
+             │◄──────────────────────────────│                              │
+             │  { vpn_address: "10.13.37.1" }│                              │
+             │                               │                              │
+             │                               │   2.  beacon vpn use n100    │
+             │                               │◄─────────────────────────────│
+             │                               │  POST /vpn/register          │
+             │                               │  { public_key: "LAPTOP_PUB", │
+             │                               │    role: "client" }          │
+             │                               │─────────────────────────────►│
+             │                               │  { vpn_address: "10.13.37.2"}│
+             │                               │                              │
+             │                               │◄─────────────────────────────│
+             │                               │  GET /vpn/peer?device_name=n100
+             │                               │─────────────────────────────►│
+             │                               │  { public_key: "N100_PUB",   │
+             │                               │    endpoint: "HOME_IP:51820",│
+             │                               │    vpn_address: "10.13.37.1"}│
+             │                               │                              │
+ 3.  WireGuard handshake — direct, peer-to-peer, no cloud                   │
+             │◄════════════════════════════════════════════════════════════►│
+             │           UDP :51820  ◄──►  UDP :51820                       │
+             │           Curve25519 mutual authentication                   │
+             │                                                              │
+ 4.  Tunnel is up — all traffic encrypted, direct between devices           │
+             │◄═══════ ping 10.13.37.1 ═══════════════════════════════════►│
+             │◄═══════ curl 10.13.37.1:8123 (Home Assistant) ═════════════►│
 ```
 
-1. Each device generates a WireGuard key pair locally. **Private keys never
-   leave the device** — they're encrypted at rest with the existing master key
-   under `~/.beacon/vpn/private.key`.
-2. Each device sends only its **public key + listen endpoint** to BeaconInfra
-   over the regular heartbeat channel.
-3. When you run `beacon vpn use my-pi`, your laptop fetches `my-pi`'s public key
-   and endpoint from BeaconInfra and configures a WireGuard peer with it.
-4. WireGuard then establishes a direct UDP path between the two devices. The
-   handshake and all subsequent traffic flows peer-to-peer.
+**Step by step:**
 
-BeaconInfra never has the private keys, never sees the traffic, and can't
-decrypt anything even if compelled to. The cloud is a phone book, not a relay.
+1. **N100 registers as exit node.** It generates a Curve25519 key pair (private
+   key stored AES-GCM encrypted in `~/.beacon/vpn/private.key`), sends only the
+   public key to BeaconInfra, and gets a VPN address (`10.13.37.1`) back.
+
+2. **Laptop registers as client.** Same key generation. Then it asks BeaconInfra:
+   "give me n100's public key and endpoint." BeaconInfra returns the N100's
+   public key + `YOUR_HOME_PUBLIC_IP:51820`.
+
+3. **Laptop sends a WireGuard handshake** directly to `HOME_IP:51820`. The
+   packet travels: hotspot → carrier → internet → your home router → port
+   forward → N100. The N100 validates the handshake: "is this from a known
+   public key?" Yes — the laptop's key was exchanged through BeaconInfra.
+
+4. **Tunnel is up.** Both sides have authenticated each other via Curve25519.
+   All subsequent traffic flows peer-to-peer, encrypted with session keys.
+   A persistent keepalive (every 25s) keeps NAT bindings alive.
+
+**Why random scanners can't connect:** WireGuard drops any packet that doesn't
+contain a valid Curve25519 handshake from a known peer. No public key in the
+peer list = silent drop. No response, no error, no indication the port is even
+open.
 
 ---
 
-## Phase 1 — Direct connections (shipping now)
+## Step-by-step setup guide
+
+This walkthrough uses an N100 mini PC as the home exit node and a MacBook as the
+client. Substitute your own device names.
+
+### Prerequisites
+
+- Both devices have Beacon installed and `beacon cloud login` done (same account)
+- Both devices have run `beacon master` at least once (so they're registered)
+- You have access to your home router's port forwarding settings
+
+### 1. Set up the exit node (N100, at home)
+
+```bash
+# Update beacon to the latest version
+sudo beacon update
+
+# Start the master agent (or use systemd for auto-start)
+sudo beacon master --foreground
+```
+
+In another terminal:
+
+```bash
+# Enable VPN exit-node mode
+sudo beacon vpn enable
+
+# Verify it wrote the config
+cat ~/.beacon/config.yaml
+# You should see:
+#   vpn:
+#     enabled: true
+#     role: exit_node
+#     listen_port: 51820
+```
+
+The master agent will pick up the new config on its next tick (~30s), generate
+keys, register with BeaconInfra, and bring up the `beacon0` interface.
+
+```bash
+# Check status (wait ~30s after enabling)
+beacon vpn status
+# Should show:
+#   Role:        exit_node
+#   VPN Address: 10.13.37.1
+#   Listen Port: 51820
+#   Connected:   false (no peer yet)
+```
+
+### 2. Forward the port on your router
+
+Log into your router and add a port forward:
+
+| Field | Value |
+|---|---|
+| Protocol | UDP |
+| External port | 51820 |
+| Internal IP | Your N100's LAN IP (e.g. `192.168.1.50`) |
+| Internal port | 51820 |
+
+This is the only port you need to forward. Unlike forwarding Plex (port 32400)
+or Home Assistant (port 8123), forwarding the WireGuard port exposes zero attack
+surface — see the comparison table above.
+
+### 3. Connect from your laptop (different network)
+
+**Important:** Your laptop must be on a **different network** than the N100.
+If both are on the same WiFi, the tunnel works but you're not testing the real
+scenario.
+
+The easiest way: **connect your laptop to your phone's hotspot.** This puts it
+on the carrier's network — same as being at a cafe.
+
+```bash
+# On your laptop (connected to phone hotspot, NOT home WiFi):
+sudo beacon master --foreground
+```
+
+In another terminal:
+
+```bash
+# Connect to the N100 by its device name
+sudo beacon vpn use n100
+
+# Wait ~30s for the master to reconcile, then check:
+beacon vpn status
+# Should show:
+#   Role:          client
+#   VPN Address:   10.13.37.2
+#   Peer Device:   n100
+#   Peer Endpoint: <your-home-public-ip>:51820
+#   Connected:     true
+#   Bytes Rx:      1.2 KB
+#   Bytes Tx:      0.8 KB
+```
+
+### 4. Verify the tunnel
+
+```bash
+# Ping the N100 through the tunnel
+ping 10.13.37.1
+
+# Access services running on the N100
+curl http://10.13.37.1:8123    # Home Assistant
+curl http://10.13.37.1:32400   # Plex
+curl http://10.13.37.1:8096    # Jellyfin
+
+# Your regular internet still works (we route only /32, not everything)
+curl ifconfig.me   # shows your hotspot IP, NOT your home IP
+```
+
+On the N100:
+```bash
+beacon vpn status
+# Bytes Rx/Tx should be increasing
+```
+
+### 5. Disconnect
+
+```bash
+# On the laptop:
+sudo beacon vpn disable
+
+# On the N100 (if you want to tear down the exit node too):
+sudo beacon vpn disable
+```
+
+---
+
+## Phase 1 — Direct connections (current)
 
 Phase 1 requires the **exit node** (the home device) to have a reachable UDP port:
 
@@ -79,37 +247,6 @@ The default port is `51820/UDP`. You can change it with `--listen-port`.
 This works for ~70% of self-hosters out of the box. Remember: forwarding the
 WireGuard port is dramatically safer than forwarding Plex's port (see table
 above).
-
-### Setup
-
-**On your home device** (Raspberry Pi, N100, NAS, etc.):
-
-```bash
-# 1. Run beacon master at least once so the device is registered.
-sudo beacon master --foreground   # or via systemd
-
-# 2. Mark this device as the exit node.
-sudo beacon vpn enable
-```
-
-Forward UDP `51820` on your router → home device. Done.
-
-**On your laptop / phone / second device**:
-
-```bash
-# Same prerequisite — beacon master must be running.
-sudo beacon master --foreground
-
-# Connect to the home exit node by name.
-sudo beacon vpn use my-home-pi
-```
-
-The master agent on each side will reconcile the new config on its next
-heartbeat tick (~30 s). Check status with:
-
-```bash
-beacon vpn status
-```
 
 ### What gets routed
 
@@ -151,6 +288,17 @@ silently route your traffic through someone else's server.
 
 ---
 
+## CLI reference
+
+```bash
+beacon vpn enable [--listen-port 51820]   # Become exit node
+beacon vpn use <device-name>              # Connect to an exit node as client
+beacon vpn disable                        # Tear down tunnel, deregister
+beacon vpn status                         # Show role, address, peer, tx/rx
+```
+
+---
+
 ## Requirements
 
 - **Linux** (primary target). macOS works for client mode (developer smoke test).
@@ -173,6 +321,10 @@ running, only the static config is shown.
 2. The exit node's `beacon master` is running (`systemctl --user status beacon-master`).
 3. `sudo iptables -t nat -L POSTROUTING` shows the MASQUERADE rule on the exit node.
 4. `ip addr show beacon0` shows the assigned `10.13.37.x` address on both ends.
+
+**Both devices on the same WiFi?** The tunnel will still work, but you're not
+testing the port-forward path. Connect your laptop to a phone hotspot to
+simulate being on a different network.
 
 **"hole-punching timed out"** (Phase 2 only) — your router is doing symmetric
 NAT. Either set up a port forward on the exit node, or switch to a different

@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"beacon/internal/identity"
 	"beacon/internal/ipc"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewCommandDispatcher(t *testing.T) {
@@ -37,6 +40,7 @@ func TestCommandDispatcher_DispatchCommands_projectNotFound(t *testing.T) {
 	d := &CommandDispatcher{
 		pm:             nil,
 		pendingResults: make([]CommandResultReport, 0),
+		seenCommands:   make(map[string]time.Time),
 	}
 
 	// Manually record a failed result
@@ -151,4 +155,178 @@ func TestCommandResultReport_structure(t *testing.T) {
 	if r.Timestamp != now {
 		t.Errorf("timestamp mismatch")
 	}
+}
+
+// --- New tests for dedup, allowlist, VPN commands ---
+
+func TestDispatcher_UnknownActionAllowedByDefault(t *testing.T) {
+	d := NewCommandDispatcher(nil, nil)
+	d.DispatchCommands([]HeartbeatCommand{
+		{ID: "cmd1", Action: "custom_action", TargetProject: "myapp"},
+	})
+
+	results := d.GetPendingResults()
+	require.Len(t, results, 1)
+	// Fails because PM is nil, NOT because the action is blocked.
+	require.Equal(t, ipc.ResultFailed, results[0].Status)
+	require.Contains(t, results[0].Message, "Process manager not available")
+}
+
+func TestDispatcher_UnknownActionRejectedByOverride(t *testing.T) {
+	d := NewCommandDispatcher(nil, nil)
+	d.SetAllowedActions([]string{"health_check"})
+
+	d.DispatchCommands([]HeartbeatCommand{
+		{ID: "cmd1", Action: "custom_action", TargetProject: "myapp"},
+	})
+
+	results := d.GetPendingResults()
+	require.Len(t, results, 1)
+	require.Equal(t, ipc.ResultFailed, results[0].Status)
+	require.Contains(t, results[0].Message, "not allowed")
+}
+
+func TestDispatcher_DuplicateCommandRejected(t *testing.T) {
+	d := NewCommandDispatcher(nil, nil)
+
+	// First dispatch — accepted (will fail because pm is nil, but passes allowlist + dedup).
+	d.DispatchCommands([]HeartbeatCommand{
+		{ID: "cmd_dup", Action: "restart", TargetProject: "myapp"},
+	})
+	_ = d.GetPendingResults() // drain
+
+	// Second dispatch with same ID — should be silently skipped.
+	d.DispatchCommands([]HeartbeatCommand{
+		{ID: "cmd_dup", Action: "restart", TargetProject: "myapp"},
+	})
+	results := d.GetPendingResults()
+	require.Empty(t, results, "duplicate command should produce no result")
+}
+
+func TestDispatcher_EmptyIDNotDeduped(t *testing.T) {
+	d := NewCommandDispatcher(nil, nil)
+
+	// Commands with empty ID should still be dispatched every time.
+	d.DispatchCommands([]HeartbeatCommand{
+		{ID: "", Action: "restart", TargetProject: "myapp"},
+	})
+	d.DispatchCommands([]HeartbeatCommand{
+		{ID: "", Action: "restart", TargetProject: "myapp"},
+	})
+	results := d.GetPendingResults()
+	require.Len(t, results, 2, "empty-ID commands should not be deduplicated")
+}
+
+func TestDispatcher_AllowedOverride(t *testing.T) {
+	d := NewCommandDispatcher(nil, nil)
+
+	// By default, "restart" is allowed.
+	require.True(t, d.isAllowed("restart"))
+
+	// Override with a restricted list.
+	d.SetAllowedActions([]string{"health_check", "fetch_logs"})
+	require.False(t, d.isAllowed("restart"), "restart should be blocked by override")
+	require.True(t, d.isAllowed("health_check"))
+	require.True(t, d.isAllowed("fetch_logs"))
+
+	// Revert to defaults.
+	d.SetAllowedActions(nil)
+	require.True(t, d.isAllowed("restart"), "should revert to default allowlist")
+}
+
+func TestDispatcher_VPNEnable(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	d := NewCommandDispatcher(nil, nil)
+	d.DispatchCommands([]HeartbeatCommand{
+		{ID: "vpn1", Action: "vpn_enable", Payload: map[string]any{"listen_port": float64(41820)}},
+	})
+
+	results := d.GetPendingResults()
+	require.Len(t, results, 1)
+	require.Equal(t, ipc.ResultSuccess, results[0].Status)
+
+	uc, err := identity.LoadUserConfig()
+	require.NoError(t, err)
+	require.NotNil(t, uc.VPN)
+	require.True(t, uc.VPN.Enabled)
+	require.Equal(t, "exit_node", uc.VPN.Role)
+	require.Equal(t, 41820, uc.VPN.ListenPort)
+}
+
+func TestDispatcher_VPNUse(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	d := NewCommandDispatcher(nil, nil)
+	d.DispatchCommands([]HeartbeatCommand{
+		{ID: "vpn2", Action: "vpn_use", Payload: map[string]any{"peer_device": "home-pi"}},
+	})
+
+	results := d.GetPendingResults()
+	require.Len(t, results, 1)
+	require.Equal(t, ipc.ResultSuccess, results[0].Status)
+
+	uc, err := identity.LoadUserConfig()
+	require.NoError(t, err)
+	require.NotNil(t, uc.VPN)
+	require.Equal(t, "client", uc.VPN.Role)
+	require.Equal(t, "home-pi", uc.VPN.PeerDevice)
+}
+
+func TestDispatcher_VPNUse_missingPeerDevice(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	d := NewCommandDispatcher(nil, nil)
+	d.DispatchCommands([]HeartbeatCommand{
+		{ID: "vpn3", Action: "vpn_use", Payload: map[string]any{}},
+	})
+
+	results := d.GetPendingResults()
+	require.Len(t, results, 1)
+	require.Equal(t, ipc.ResultFailed, results[0].Status)
+	require.Contains(t, results[0].Message, "peer_device")
+}
+
+func TestDispatcher_VPNDisable(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("BEACON_HOME", "")
+
+	// First enable, then disable.
+	d := NewCommandDispatcher(nil, nil)
+	d.DispatchCommands([]HeartbeatCommand{
+		{ID: "vpn4a", Action: "vpn_enable"},
+	})
+	_ = d.GetPendingResults()
+
+	d.DispatchCommands([]HeartbeatCommand{
+		{ID: "vpn4b", Action: "vpn_disable"},
+	})
+	results := d.GetPendingResults()
+	require.Len(t, results, 1)
+	require.Equal(t, ipc.ResultSuccess, results[0].Status)
+
+	uc, err := identity.LoadUserConfig()
+	require.NoError(t, err)
+	require.Nil(t, uc.VPN, "VPN config should be cleared after vpn_disable")
+}
+
+func TestDispatcher_VPNBlockedByAllowlist(t *testing.T) {
+	d := NewCommandDispatcher(nil, nil)
+	d.SetAllowedActions([]string{"health_check"})
+
+	d.DispatchCommands([]HeartbeatCommand{
+		{ID: "vpn5", Action: "vpn_enable"},
+	})
+
+	results := d.GetPendingResults()
+	require.Len(t, results, 1)
+	require.Equal(t, ipc.ResultFailed, results[0].Status)
+	require.Contains(t, results[0].Message, "not allowed")
 }

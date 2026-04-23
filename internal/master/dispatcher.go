@@ -12,7 +12,28 @@ import (
 	"beacon/internal/tunnel"
 )
 
-const actionTunnelConnect = "tunnel_connect"
+const (
+	actionTunnelConnect = "tunnel_connect"
+	actionVPNEnable     = "vpn_enable"
+	actionVPNUse        = "vpn_use"
+	actionVPNDisable    = "vpn_disable"
+
+	commandTTL = 1 * time.Hour
+)
+
+// defaultAllowedActions is the set of actions the dispatcher will accept from the
+// server. Commands with any other action string are rejected with a warning.
+// Users can override this via allowed_remote_commands in config.yaml.
+var defaultAllowedActions = map[string]bool{
+	ipc.ActionRestart:     true,
+	ipc.ActionStop:        true,
+	ipc.ActionHealthCheck: true,
+	ipc.ActionFetchLogs:   true,
+	actionTunnelConnect:   true,
+	actionVPNEnable:       true,
+	actionVPNUse:          true,
+	actionVPNDisable:      true,
+}
 
 // HeartbeatCommand represents a command received from the heartbeat response.
 type HeartbeatCommand struct {
@@ -36,6 +57,12 @@ type CommandDispatcher struct {
 	tm             *tunnel.TunnelManager
 	pendingResults []CommandResultReport
 	mu             sync.Mutex
+
+	seenMu       sync.Mutex
+	seenCommands map[string]time.Time
+
+	allowedMu       sync.RWMutex
+	allowedOverride map[string]bool // nil = use defaultAllowedActions
 }
 
 // NewCommandDispatcher creates a new command dispatcher.
@@ -44,6 +71,61 @@ func NewCommandDispatcher(pm *ProcessManager, tm *tunnel.TunnelManager) *Command
 		pm:             pm,
 		tm:             tm,
 		pendingResults: make([]CommandResultReport, 0),
+		seenCommands:   make(map[string]time.Time),
+	}
+}
+
+// SetAllowedActions updates the action allowlist from user config. Pass nil to
+// revert to the default built-in list.
+func (d *CommandDispatcher) SetAllowedActions(actions []string) {
+	d.allowedMu.Lock()
+	defer d.allowedMu.Unlock()
+	if len(actions) == 0 {
+		d.allowedOverride = nil
+		return
+	}
+	m := make(map[string]bool, len(actions))
+	for _, a := range actions {
+		a = strings.TrimSpace(a)
+		if a != "" {
+			m[a] = true
+		}
+	}
+	d.allowedOverride = m
+}
+
+func (d *CommandDispatcher) isAllowed(action string) bool {
+	d.allowedMu.RLock()
+	defer d.allowedMu.RUnlock()
+	if d.allowedOverride != nil {
+		return d.allowedOverride[action]
+	}
+	return true
+}
+
+func (d *CommandDispatcher) isDuplicate(id string) bool {
+	if id == "" {
+		return false
+	}
+	d.seenMu.Lock()
+	defer d.seenMu.Unlock()
+	if t, ok := d.seenCommands[id]; ok && time.Since(t) < commandTTL {
+		return true
+	}
+	d.seenCommands[id] = time.Now()
+	// Prune stale entries periodically to avoid unbounded growth.
+	if len(d.seenCommands) > 500 {
+		d.pruneSeenLocked()
+	}
+	return false
+}
+
+func (d *CommandDispatcher) pruneSeenLocked() {
+	now := time.Now()
+	for id, t := range d.seenCommands {
+		if now.Sub(t) > commandTTL {
+			delete(d.seenCommands, id)
+		}
 	}
 }
 
@@ -59,8 +141,22 @@ func (d *CommandDispatcher) DispatchCommands(commands []HeartbeatCommand) {
 	}
 
 	for _, cmd := range commands {
+		if !d.isAllowed(cmd.Action) {
+			logger.Infof("Command %s: action %q rejected (not in allowlist)", cmd.ID, cmd.Action)
+			d.recordResult(cmd.ID, ipc.ResultFailed, fmt.Sprintf("action %q not allowed", cmd.Action))
+			continue
+		}
+		if d.isDuplicate(cmd.ID) {
+			logger.Infof("Command %s: duplicate (already executed), skipping", cmd.ID)
+			continue
+		}
+
 		if cmd.Action == actionTunnelConnect {
 			d.dispatchTunnelConnect(cmd)
+			continue
+		}
+		if isVPNAction(cmd.Action) {
+			d.dispatchVPNCommand(cmd)
 			continue
 		}
 		if d.pm == nil {
@@ -68,7 +164,7 @@ func (d *CommandDispatcher) DispatchCommands(commands []HeartbeatCommand) {
 			continue
 		}
 		if cmd.TargetProject == "" {
-			d.recordResult(cmd.ID, ipc.ResultFailed, "Device-level commands not supported")
+			d.recordResult(cmd.ID, ipc.ResultFailed, "Device-level commands not supported for action: "+cmd.Action)
 			continue
 		}
 
@@ -79,7 +175,6 @@ func (d *CommandDispatcher) DispatchCommands(commands []HeartbeatCommand) {
 			continue
 		}
 
-		// Write command to child's IPC directory
 		ipcCmd := &ipc.Command{
 			ID:        cmd.ID,
 			Action:    cmd.Action,
@@ -94,6 +189,44 @@ func (d *CommandDispatcher) DispatchCommands(commands []HeartbeatCommand) {
 		}
 
 		logger.Infof("Dispatched command %s (%s) to %s", cmd.ID, cmd.Action, cmd.TargetProject)
+	}
+}
+
+func isVPNAction(action string) bool {
+	return action == actionVPNEnable || action == actionVPNUse || action == actionVPNDisable
+}
+
+func (d *CommandDispatcher) dispatchVPNCommand(cmd HeartbeatCommand) {
+	switch cmd.Action {
+	case actionVPNEnable:
+		listenPort := 0
+		if p, ok := cmd.Payload["listen_port"].(float64); ok {
+			listenPort = int(p)
+		}
+		if err := identity.SetVPNExitNode(listenPort, ""); err != nil {
+			d.recordResult(cmd.ID, ipc.ResultFailed, err.Error())
+			return
+		}
+		d.recordResult(cmd.ID, ipc.ResultSuccess, "VPN exit-node config written; master will reconcile")
+
+	case actionVPNUse:
+		peerDevice, _ := cmd.Payload["peer_device"].(string)
+		if strings.TrimSpace(peerDevice) == "" {
+			d.recordResult(cmd.ID, ipc.ResultFailed, "peer_device required in payload")
+			return
+		}
+		if err := identity.SetVPNClient(peerDevice, ""); err != nil {
+			d.recordResult(cmd.ID, ipc.ResultFailed, err.Error())
+			return
+		}
+		d.recordResult(cmd.ID, ipc.ResultSuccess, fmt.Sprintf("VPN client config written (peer: %s); master will reconcile", peerDevice))
+
+	case actionVPNDisable:
+		if err := identity.ClearVPN(); err != nil {
+			d.recordResult(cmd.ID, ipc.ResultFailed, err.Error())
+			return
+		}
+		d.recordResult(cmd.ID, ipc.ResultSuccess, "VPN config cleared; master will reconcile")
 	}
 }
 
@@ -161,7 +294,7 @@ func (d *CommandDispatcher) CollectResults() {
 			continue
 		}
 		if result == nil {
-			continue // No result
+			continue
 		}
 
 		logger.Infof("Collected result for command %s from %s: %s", result.CommandID, projectID, result.Status)
