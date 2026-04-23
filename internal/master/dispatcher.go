@@ -21,20 +21,6 @@ const (
 	commandTTL = 1 * time.Hour
 )
 
-// defaultAllowedActions is the set of actions the dispatcher will accept from the
-// server. Commands with any other action string are rejected with a warning.
-// Users can override this via allowed_remote_commands in config.yaml.
-var defaultAllowedActions = map[string]bool{
-	ipc.ActionRestart:     true,
-	ipc.ActionStop:        true,
-	ipc.ActionHealthCheck: true,
-	ipc.ActionFetchLogs:   true,
-	actionTunnelConnect:   true,
-	actionVPNEnable:       true,
-	actionVPNUse:          true,
-	actionVPNDisable:      true,
-}
-
 // HeartbeatCommand represents a command received from the heartbeat response.
 type HeartbeatCommand struct {
 	ID            string         `json:"id"`
