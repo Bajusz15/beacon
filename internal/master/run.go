@@ -361,6 +361,7 @@ func (h *heartbeatLoop) tryBeat() {
 	}
 
 	h.statusCache.UpdateConfig(uc)
+	h.dispatcher.SetAllowedActions(uc.AllowedRemoteCommands)
 	h.dispatcher.CollectResults()
 
 	// Reconcile VPN state with the (possibly hot-reloaded) config. Reconcile is

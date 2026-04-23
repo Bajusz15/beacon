@@ -27,6 +27,7 @@ type UserConfig struct {
 	Projects              []ProjectConfig `yaml:"projects,omitempty"`
 	Tunnels               []TunnelConfig  `yaml:"tunnels,omitempty"`
 	VPN                   *VPNConfig      `yaml:"vpn,omitempty"`
+	AllowedRemoteCommands []string        `yaml:"allowed_remote_commands,omitempty"`
 	// SystemMetrics configures host metrics sent with cloud heartbeats (~/.beacon/config.yaml only).
 	// Per-project monitor.yml should not duplicate this; omit system_metrics there.
 	SystemMetrics *UserSystemMetricsConfig `yaml:"system_metrics,omitempty"`
