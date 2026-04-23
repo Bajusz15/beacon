@@ -59,6 +59,7 @@ Beacon projects in a consistent way.`,
 	projectCmd.AddCommand(createRemoveCommand(pm))
 	projectCmd.AddCommand(createInfoCommand(pm))
 	projectCmd.AddCommand(createCleanCommand(pm))
+	projectCmd.AddCommand(createRedeployCommand(pm))
 
 	return projectCmd
 }

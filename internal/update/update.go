@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -139,7 +140,7 @@ func DownloadAndReplace(ctx context.Context) error {
 		return fmt.Errorf("cannot determine binary path: %w", err)
 	}
 
-	tmpFile, err := os.CreateTemp("", "beacon-update-*")
+	tmpFile, err := os.CreateTemp(filepath.Dir(execPath), ".beacon-update-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}

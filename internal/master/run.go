@@ -134,6 +134,14 @@ func Run(ctx context.Context) {
 		logger.Infof("Failed to load config: %v", err)
 		uc = nil
 	}
+	if uc == nil {
+		logger.Infof("No config found — running auto-init (equivalent to `beacon init`)")
+		if err := identity.WriteUserLocalInit("", 0); err != nil {
+			logger.Infof("Auto-init failed: %v", err)
+		} else {
+			uc, _ = identity.LoadUserConfig()
+		}
+	}
 	if uc != nil && uc.LogLevel != "" {
 		logging.SetLevel(uc.LogLevel)
 		// Propagate to spawned children via env inheritance (only if env var not already set).

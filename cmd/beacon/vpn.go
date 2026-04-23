@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"runtime"
 	"strconv"
 	"text/tabwriter"
 	"time"
@@ -50,9 +49,10 @@ on your laptop or phone to route through it.`,
   3. Bring up the beacon0 TUN interface and enable IP forwarding
   4. Install an iptables NAT rule so client traffic can reach your LAN
 
-Requires root/sudo (TUN device creation).`,
-		Example: `  sudo beacon vpn enable
-  sudo beacon vpn enable --listen-port 51820`,
+The master agent needs root/sudo to create the TUN device — this command
+only writes config.`,
+		Example: `  beacon vpn enable
+  beacon vpn enable --listen-port 51820`,
 		Run: runVPNEnable,
 	}
 	enableCmd.Flags().Int("listen-port", 51820, "UDP port WireGuard listens on (must be port-forwarded on your router)")
@@ -67,9 +67,8 @@ Requires root/sudo (TUN device creation).`,
   4. Bring up the beacon0 TUN interface and configure the peer
 
 The peer must have run "beacon vpn enable" first.
-
-Requires root/sudo.`,
-		Example: `  sudo beacon vpn use my-pi`,
+The master agent needs root/sudo — this command only writes config.`,
+		Example: `  beacon vpn use my-pi`,
 		Args:    cobra.ExactArgs(1),
 		Run:     runVPNUse,
 	}
@@ -106,7 +105,6 @@ Requires root/sudo.`,
 }
 
 func runVPNEnable(cmd *cobra.Command, args []string) {
-	requireRootForVPN()
 	listenPort, _ := cmd.Flags().GetInt("listen-port")
 	if listenPort <= 0 {
 		listenPort = 51820
@@ -122,15 +120,26 @@ func runVPNEnable(cmd *cobra.Command, args []string) {
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Printf("  1. Forward UDP port %d on your router to this device.\n", listenPort)
-	fmt.Println("  2. Make sure `beacon master` is running (it brings up the WireGuard interface).")
-	fmt.Println("  3. On another Beacon device, run: sudo beacon vpn use <this-device-name>")
+	fmt.Println("  2. Make sure beacon master is running with NET_ADMIN capability.")
+	fmt.Println("     Grant capabilities (one-time, re-run after each binary update):")
+	fmt.Println("       sudo setcap cap_net_admin,cap_net_raw+eip $(which beacon)")
+	fmt.Println("     Then run without sudo:")
+	fmt.Println("       beacon master --foreground")
+	deviceName := ""
+	if uc, err := identity.LoadUserConfig(); err == nil && uc != nil && uc.DeviceName != "" {
+		deviceName = uc.DeviceName
+	}
+	if deviceName != "" {
+		fmt.Printf("  3. On another Beacon device, run: beacon vpn use %s\n", deviceName)
+	} else {
+		fmt.Println("  3. On another Beacon device, run: beacon vpn use <this-device-name>")
+	}
 	fmt.Println()
 	fmt.Println("Security note: WireGuard is cryptographically silent — port scanners can't")
 	fmt.Println("tell the forwarded port from a closed one without your private key.")
 }
 
 func runVPNUse(cmd *cobra.Command, args []string) {
-	requireRootForVPN()
 	peer := args[0]
 	if err := identity.SetVPNClient(peer, ""); err != nil {
 		logger.Fatalf("beacon vpn use: %v", err)
@@ -228,21 +237,6 @@ func fetchVPNLiveStatus() *vpnLiveStatus {
 		return nil
 	}
 	return snap.VPN
-}
-
-// requireRootForVPN bails out early on Linux if not running as root. Creating a
-// TUN device requires CAP_NET_ADMIN, and iptables MASQUERADE needs root too.
-// We check the CLI process specifically (not the master) so users get a clear
-// failure here, before silently writing config the master can't act on.
-func requireRootForVPN() {
-	if runtime.GOOS != "linux" {
-		return // macOS dev path is allowed without root for client mode (utun is unprivileged)
-	}
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "beacon vpn: must run as root (TUN device + iptables require CAP_NET_ADMIN).")
-		fmt.Fprintln(os.Stderr, "Try: sudo beacon vpn ...")
-		os.Exit(1)
-	}
 }
 
 func humanBytes(n uint64) string {

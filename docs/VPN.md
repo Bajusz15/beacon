@@ -116,21 +116,35 @@ client. Substitute your own device names.
 - Both devices have run `beacon master` at least once (so they're registered)
 - You have access to your home router's port forwarding settings
 
+### 0. Grant network capabilities (Linux only, one-time)
+
+The master agent needs `CAP_NET_ADMIN` and `CAP_NET_RAW` to create TUN devices
+and set up iptables NAT. **Do not run `sudo beacon master`** — that runs the
+entire process tree as root, including all child project agents.
+
+Instead, grant just the capabilities the binary needs:
+
+```bash
+sudo setcap cap_net_admin,cap_net_raw+eip $(which beacon)
+```
+
+After this, `beacon master` works without sudo. You only need to re-run `setcap`
+after updating the binary (`beacon update`).
+
+On macOS this step is not needed — `utun` devices are unprivileged.
+
 ### 1. Set up the exit node (N100, at home)
 
 ```bash
-# Update beacon to the latest version
-sudo beacon update
-
 # Start the master agent (or use systemd for auto-start)
-sudo beacon master --foreground
+beacon master --foreground
 ```
 
 In another terminal:
 
 ```bash
 # Enable VPN exit-node mode
-sudo beacon vpn enable
+beacon vpn enable
 
 # Verify it wrote the config
 cat ~/.beacon/config.yaml
@@ -180,14 +194,14 @@ on the carrier's network — same as being at a cafe.
 
 ```bash
 # On your laptop (connected to phone hotspot, NOT home WiFi):
-sudo beacon master --foreground
+beacon master --foreground
 ```
 
 In another terminal:
 
 ```bash
 # Connect to the N100 by its device name
-sudo beacon vpn use n100
+beacon vpn use n100
 
 # Wait ~30s for the master to reconcile, then check:
 beacon vpn status
@@ -226,10 +240,10 @@ beacon vpn status
 
 ```bash
 # On the laptop:
-sudo beacon vpn disable
+beacon vpn disable
 
 # On the N100 (if you want to tear down the exit node too):
-sudo beacon vpn disable
+beacon vpn disable
 ```
 
 ---
@@ -297,14 +311,19 @@ beacon vpn disable                        # Tear down tunnel, deregister
 beacon vpn status                         # Show role, address, peer, tx/rx
 ```
 
+VPN commands only write config — they don't need root. The master agent acts on
+the config and needs `CAP_NET_ADMIN` (see setup step 0).
+
 ---
 
 ## Requirements
 
-- **Linux** (primary target). macOS works for client mode (developer smoke test).
+- **Linux** (primary target). macOS works for client mode (developer use).
   Windows is not supported.
-- **Root / sudo** — required to create the TUN device and install iptables NAT
-  rules. The CLI checks early and bails out with a clear message if not root.
+- **`CAP_NET_ADMIN` + `CAP_NET_RAW`** on the beacon binary (Linux). Use
+  `sudo setcap cap_net_admin,cap_net_raw+eip $(which beacon)` once after
+  install. Do **not** run the master with `sudo` — it spawns child processes
+  that would all run as root.
 - `iproute2` (`ip` command) and `iptables` on Linux. Both are standard on every
   distro Beacon supports.
 
@@ -316,9 +335,14 @@ beacon vpn status                         # Show role, address, peer, tx/rx
 reads live state from the master's `/api/status` endpoint. If the master isn't
 running, only the static config is shown.
 
+`beacon vpn status` says "not enabled" after `beacon vpn enable` — make sure
+you're not mixing `sudo` and non-sudo. The VPN commands don't need sudo; if you
+ran `sudo beacon vpn enable` it wrote to `/root/.beacon/config.yaml` instead of
+your user's `~/.beacon/config.yaml`. Fix: `beacon vpn enable` (no sudo).
+
 **No handshake after a minute** — check that:
 1. UDP `51820` (or your custom port) is forwarded on the exit node's router.
-2. The exit node's `beacon master` is running (`systemctl --user status beacon-master`).
+2. The exit node's `beacon master` is running.
 3. `sudo iptables -t nat -L POSTROUTING` shows the MASQUERADE rule on the exit node.
 4. `ip addr show beacon0` shows the assigned `10.13.37.x` address on both ends.
 
