@@ -92,6 +92,39 @@ func downloadServer(t *testing.T, binary []byte, checksumHash string) {
 	t.Cleanup(func() { releaseURL = old })
 }
 
+func TestIsNewerVersion(t *testing.T) {
+	t.Run("higher major", func(t *testing.T) {
+		require.True(t, isNewerVersion("0.3.1", "1.0.0"))
+	})
+	t.Run("higher minor", func(t *testing.T) {
+		require.True(t, isNewerVersion("0.3.1", "0.4.0"))
+	})
+	t.Run("higher patch", func(t *testing.T) {
+		require.True(t, isNewerVersion("0.3.1", "0.3.2"))
+	})
+	t.Run("same version", func(t *testing.T) {
+		require.False(t, isNewerVersion("0.3.1", "0.3.1"))
+	})
+	t.Run("older version is not newer", func(t *testing.T) {
+		require.False(t, isNewerVersion("1.0.0", "0.9.9"))
+	})
+	t.Run("release beats prerelease", func(t *testing.T) {
+		require.True(t, isNewerVersion("0.3.1-beta", "0.3.1"))
+	})
+	t.Run("same prerelease is not newer", func(t *testing.T) {
+		require.False(t, isNewerVersion("0.3.1-beta", "0.3.1-beta"))
+	})
+	t.Run("prerelease does not beat release", func(t *testing.T) {
+		require.False(t, isNewerVersion("0.3.1", "0.3.1-beta"))
+	})
+	t.Run("higher version with prerelease", func(t *testing.T) {
+		require.True(t, isNewerVersion("0.3.1", "0.4.0-rc1"))
+	})
+	t.Run("different length versions", func(t *testing.T) {
+		require.True(t, isNewerVersion("0.3", "0.3.1"))
+	})
+}
+
 func TestBinaryAssetName(t *testing.T) {
 	name := binaryAssetName()
 	require.Contains(t, name, "beacon-")
