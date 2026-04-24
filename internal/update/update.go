@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,7 +84,7 @@ func CheckLatest(ctx context.Context) (*ReleaseInfo, error) {
 		Tag:        rel.TagName,
 		CurrentVer: current,
 		AssetName:  binaryAssetName(),
-		IsNewer:    currentClean != tag && current != "dev",
+		IsNewer:    current != "dev" && isNewerVersion(currentClean, tag),
 	}, nil
 }
 
@@ -217,4 +218,50 @@ func fetchExpectedHash(ctx context.Context, url, assetName string) (string, erro
 		}
 	}
 	return "", fmt.Errorf("no checksum for %q in SHA256SUMS.txt", assetName)
+}
+
+// isNewerVersion returns true if remote is a higher semver than current.
+// Pre-release suffixes (e.g. "-beta") are stripped for numeric comparison,
+// then a release (no suffix) is considered newer than a pre-release of the
+// same numeric version (0.3.1 > 0.3.1-beta).
+func isNewerVersion(current, remote string) bool {
+	curBase, curPre := splitPrerelease(current)
+	remBase, remPre := splitPrerelease(remote)
+
+	curParts := parseVersionParts(curBase)
+	remParts := parseVersionParts(remBase)
+
+	for i := 0; i < len(curParts) || i < len(remParts); i++ {
+		c, r := 0, 0
+		if i < len(curParts) {
+			c = curParts[i]
+		}
+		if i < len(remParts) {
+			r = remParts[i]
+		}
+		if r > c {
+			return true
+		}
+		if r < c {
+			return false
+		}
+	}
+	// Same numeric version: release beats pre-release.
+	return curPre != "" && remPre == ""
+}
+
+func splitPrerelease(v string) (base, pre string) {
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		return v[:i], v[i+1:]
+	}
+	return v, ""
+}
+
+func parseVersionParts(v string) []int {
+	var parts []int
+	for _, s := range strings.Split(v, ".") {
+		n, _ := strconv.Atoi(s)
+		parts = append(parts, n)
+	}
+	return parts
 }
