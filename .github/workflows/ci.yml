@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.26.1']
+        go-version: ['1.26.2']
     
     steps:
     - uses: actions/checkout@v4
@@ -33,11 +33,11 @@ jobs:
       run: go test -v -race -coverprofile=coverage.out ./...
     
     - name: Generate coverage report
-      if: matrix.go-version == '1.26.1'
+      if: matrix.go-version == '1.26.2'
       run: go tool cover -html=coverage.out -o coverage.html
     
     - name: Upload coverage to Codecov
-      if: matrix.go-version == '1.26.1'
+      if: matrix.go-version == '1.26.2'
       uses: codecov/codecov-action@v4
       with:
         file: ./coverage.out
@@ -47,7 +47,7 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
     
     - name: Upload coverage report
-      if: matrix.go-version == '1.26.1'
+      if: matrix.go-version == '1.26.2'
       uses: actions/upload-artifact@v4
       with:
         name: coverage-report
@@ -64,7 +64,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.26.1'
+        go-version: '1.26.2'
         cache: true
     
     - name: Build Linux AMD64
@@ -109,7 +109,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.26.1'
+        go-version: '1.26.2'
         cache: true
     
     - name: golangci-lint
@@ -133,7 +133,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.26.1'
+        go-version: '1.26.2'
         cache: true
     
     - name: Download build artifacts
@@ -179,7 +179,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.26.1'
+        go-version: '1.26.2'
         cache: true
 
     - name: Set up Git
@@ -189,31 +189,3 @@ jobs:
 
     - name: Run MCP E2E test
       run: bash tests/mcp/test.sh
-
-  e2e-k8s:
-    name: E2E Kubernetes (Log Forwarding)
-    runs-on: ubuntu-latest
-    needs: [test, build]
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.26.1'
-        cache: true
-
-    - name: Install kind
-      run: |
-        curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.25.0/kind-linux-amd64
-        chmod +x ./kind
-        sudo mv ./kind /usr/local/bin/kind
-
-    - name: Set up kubectl
-      run: |
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-        chmod +x kubectl
-        sudo mv kubectl /usr/local/bin/kubectl
-
-    - name: Run Kubernetes log-forwarding E2E
-      run: bash tests/k8s/test.sh

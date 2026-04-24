@@ -32,7 +32,7 @@ const (
 // ClientConfig holds parameters for a tunnel Client.
 type ClientConfig struct {
 	TunnelID   string
-	LocalPort  int
+	Dial       DialTarget
 	CloudURL   string // e.g. "https://beaconinfra.dev/api"
 	APIKey     string
 	DeviceName string
@@ -184,7 +184,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 }
 
 func (c *Client) handleHTTPRequest(msg Message) {
-	resp, err := ProxyHTTPRequest(c.cfg.LocalPort, &msg)
+	resp, err := ProxyHTTPRequest(c.cfg.Dial, &msg)
 	if err != nil {
 		c.log.Errorf("Proxy error for %s %s: %v", msg.Method, msg.Path, err)
 		resp = &Message{
@@ -198,7 +198,7 @@ func (c *Client) handleHTTPRequest(msg Message) {
 }
 
 func (c *Client) handleWSOpen(ctx context.Context, msg Message) {
-	localConn, err := ProxyWSOpen(ctx, c.cfg.LocalPort, msg.Path, msg.Headers)
+	localConn, err := ProxyWSOpen(ctx, c.cfg.Dial, msg.Path, msg.Headers)
 	if err != nil {
 		c.log.Errorf("WS open failed for %s: %v", msg.Path, err)
 		c.sendMessage(&Message{
@@ -330,10 +330,12 @@ func (c *Client) writeHealthOnce() {
 		Status:        status,
 		UptimeSeconds: int64(time.Since(c.startedAt).Seconds()),
 		Metrics: map[string]any{
-			"type":       "tunnel",
-			"tunnel_id":  c.cfg.TunnelID,
-			"local_port": c.cfg.LocalPort,
-			"connected":  c.connected,
+			"type":            "tunnel",
+			"tunnel_id":       c.cfg.TunnelID,
+			"local_port":      c.cfg.Dial.Port,
+			"upstream_host":   c.cfg.Dial.Host,
+			"upstream_scheme": c.cfg.Dial.Protocol,
+			"connected":       c.connected,
 		},
 	}
 

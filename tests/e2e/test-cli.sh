@@ -1058,6 +1058,69 @@ test_full_workflow() {
     log_success "Full workflow test completed"
 }
 
+# Alerts: mock HTTP server receives JSON webhook payload
+test_alerts_webhook() {
+    log_info "Testing beacon alerts webhook payload..."
+    export HOME="$HOME_DIR"
+    local proj="e2e-alerts-proj"
+    local port=18080
+    rm -f /tmp/beacon-e2e-webhook.log
+
+    ( cd /app && MOCK_WEBHOOK_PORT="$port" MOCK_WEBHOOK_OUT=/tmp/beacon-e2e-webhook.log go run ./tests/e2e/mock-webhook ) &
+    local wh_pid=$!
+    sleep 1
+
+    mkdir -p "$HOME/.beacon"
+    if ! beacon alerts init --project "$proj"; then
+        kill "$wh_pid" 2>/dev/null || true
+        log_error "beacon alerts init failed"
+        exit 1
+    fi
+
+    local af="$HOME/.beacon/config/projects/$proj/alerts.yml"
+    awk '
+      /webhook:/{w=1}
+      w && /enabled:/{sub(/false/,"true"); w=0}
+      {print}
+    ' "$af" > "${af}.tmp" && mv "${af}.tmp" "$af"
+
+    export WEBHOOK_URL="http://127.0.0.1:${port}/"
+    if ! beacon alerts test --project "$proj"; then
+        kill "$wh_pid" 2>/dev/null || true
+        log_error "beacon alerts test failed"
+        exit 1
+    fi
+
+    kill "$wh_pid" 2>/dev/null || true
+    wait "$wh_pid" 2>/dev/null || true
+
+    if ! grep -q '"schema_version"' /tmp/beacon-e2e-webhook.log 2>/dev/null; then
+        log_error "Webhook log missing schema_version"
+        cat /tmp/beacon-e2e-webhook.log 2>/dev/null || true
+        exit 1
+    fi
+    if ! grep -q '"project_id"' /tmp/beacon-e2e-webhook.log 2>/dev/null; then
+        log_error "Webhook log missing project_id"
+        exit 1
+    fi
+    if ! grep -q "e2e-alerts-proj" /tmp/beacon-e2e-webhook.log 2>/dev/null; then
+        log_error "Webhook log missing project id value"
+        exit 1
+    fi
+    log_success "beacon alerts webhook payload OK"
+}
+
+# CLI smoke: subcommands register and --help works
+test_cli_smoke() {
+    log_info "Smoke-testing CLI help for master, status, projects, keys..."
+    beacon master --help >/dev/null || { log_error "beacon master --help failed"; exit 1; }
+    beacon status --help >/dev/null || { log_error "beacon status --help failed"; exit 1; }
+    beacon projects list --help >/dev/null || { log_error "beacon projects list --help failed"; exit 1; }
+    beacon keys list --help >/dev/null || { log_error "beacon keys list --help failed"; exit 1; }
+    beacon alerts init --help >/dev/null || { log_error "beacon alerts init --help failed"; exit 1; }
+    log_success "CLI smoke OK"
+}
+
 # Main test execution
 main() {
     log_info "Starting Beacon E2E Integration Test"
@@ -1083,6 +1146,8 @@ main() {
     test_deployment_with_new_tag
     test_monitoring
     test_full_workflow
+    test_cli_smoke
+    test_alerts_webhook
     
     log_success "🎉 All E2E tests passed!"
     log_info "Beacon is working correctly in a real-world scenario"

@@ -290,7 +290,6 @@ All state lives under **`~/.beacon`** (override with `BEACON_HOME`):
   state/                         # Check results, deploy status
   ipc/                           # Master <-> project agent communication
   keys/                          # Encrypted token store (beacon keys)
-  templates/                     # Alert templates
   logs/
 ```
 
@@ -314,8 +313,7 @@ Inspect paths: `beacon config show`
 | `beacon monitor [-f config.yml]` | Run one project's health checks (debug) |
 | `beacon projects list\|add\|remove\|status\|info` | Project inventory management |
 | `beacon keys list\|add\|rotate\|delete\|validate` | Encrypted local token store |
-| `beacon alerts init\|status\|test\|acknowledge\|resolve` | Alert routing |
-| `beacon template list\|add\|remove\|show\|init` | Alert templates (Discord, Slack, email, webhook) |
+| `beacon alerts init\|status\|test\|acknowledge\|resolve` | Alert routing (webhook JSON + optional SMTP; `--project` required) |
 | `beacon setup-wizard` | Interactive monitor YAML + env helper |
 | `beacon source add\|list\|remove\|status` | Observation sources (e.g. Kubernetes) |
 | `beacon mcp serve` | MCP server for Cursor / Claude Desktop |
@@ -333,6 +331,8 @@ Hidden: `beacon agent` (project agent process, spawned by master only).
 | `BEACON_API_KEY` | API key for `beacon cloud login` when not passed as a flag |
 | `BEACON_DEVICE_NAME` | Device name when `--name` is omitted |
 | `NO_COLOR` | Disable ANSI colors in `beacon status` |
+| `WEBHOOK_URL` | Expanded in `~/.beacon/config/projects/<id>/alerts.yml` for outbound webhook alerts |
+| `SMTP_USER` / `SMTP_PASSWORD` | SMTP credentials when using email in `alerts.yml` |
 
 ---
 
@@ -410,6 +410,71 @@ The master is **stateless per project** — it doesn't know about Docker or syst
 2. Add a tunnel: `beacon tunnel add homeassistant --port 8123` (id and port as needed).
 3. Run `beacon master` (or restart your systemd unit). Tunnels connect automatically at startup and stay connected with exponential backoff reconnect.
 4. For **Home Assistant**, add `127.0.0.1` to `http` → `trusted_proxies` and use `use_x_forwarded_for: true` so URLs and sessions work behind the tunnel.
+
+---
+
+---
+
+## 📖 What you can do with Beacon
+
+Beacon does a lot in one binary. The tables below are a quick tour — if something looks useful, the sections above cover the full setup.
+
+### On your own machine (no account needed)
+
+Everything here works without an internet connection and without signing up for anything.
+
+| You want to… | How |
+|---|---|
+| **Deploy a Git repo automatically** when you push a new tag | `beacon bootstrap myapp` — point it at your repo, give it your deploy script. Beacon polls for new tags and runs the script. |
+| **Deploy Docker images automatically** from Docker Hub, GHCR, or any private registry | Use `deployment_type: docker` in your bootstrap config. Beacon watches for new tags and runs your `docker compose up -d` (or anything else). |
+| **Deploy a whole stack** where each image moves independently | List multiple images under `docker_images:` in your bootstrap. Only the image that changed redeploys. |
+| **Check that an HTTP endpoint is up** | Add an HTTP check to your project's `monitor.yml` — set a URL, an interval, and a timeout. |
+| **Check that a port is open** (databases, SSH, custom services) | Add a `type: port` check with a host and port. |
+| **Check anything a shell command can check** | Add a `type: command` check. The exit code tells Beacon if it's up. |
+| **See everything at a glance from the terminal** | `beacon status` — colored summary of every project. Add `--watch` for a live view. |
+| **See everything in a browser** | Open `http://<your-device>:9100`. Self-contained dashboard that auto-refreshes. |
+| **Pull metrics into Grafana / Prometheus** | Scrape `http://<your-device>:9100/metrics`. |
+| **See CPU, memory, disk, load, temperature** | Enabled by default. Shows up in `beacon status` and the dashboard. |
+| **Get a Slack / Discord / webhook message when something goes down** | Create `alerts.yml` next to your `monitor.yml`. Route by severity to any webhook. |
+| **Get an email when something goes down** | Same `alerts.yml`, add an `email` channel with your SMTP details. |
+| **Silence alerts at night** | Add `quiet_hours:` to your alert routing with a start/end time and timezone. |
+| **Test your alert setup without waiting for an outage** | `beacon alerts test --project myapp --severity critical` |
+| **Forward logs** from a file, a Docker container, or `journalctl` | Add a `log_sources:` block to your `monitor.yml`. Filter with include/exclude patterns so you only ship what you care about. |
+| **Keep your tokens out of config files** | `beacon keys add` — encrypted local token store for Git, Docker, webhooks. |
+| **Expose Home Assistant, Grafana, or any local service to the outside world** (with a BeaconInfra account — no port-forwarding needed) | `beacon tunnel add homeassistant --port 8123` |
+| **Run several tunnels at once** | `beacon tunnel list` / `beacon tunnel enable` / `beacon tunnel disable` |
+| **Query Beacon from Cursor or Claude Desktop** | `beacon mcp serve` — see [docs/MCP.md](./docs/MCP.md) |
+| **Monitor a Kubernetes cluster** | `beacon source add` with your kubeconfig. |
+| **Manage your project list** | `beacon projects list`, `beacon projects add`, `beacon projects status myapp` |
+
+### With a BeaconInfra account (optional)
+
+A free BeaconInfra account adds a hosted dashboard and remote access on top of everything above. Your device keeps running locally — the cloud just gives you somewhere to see it all from a browser, including from your phone.
+
+Turn it on with `beacon cloud login --api-key usr_…`. Turn it off any time with `beacon cloud logout`.
+
+| You want to… | What you get |
+|---|---|
+| **See all your devices in one place** | One dashboard showing every machine running Beacon — your Pi, your NAS, your VPS, your homelab server — with current health, uptime, and system metrics. |
+| **Open Home Assistant from your phone, anywhere** | Set up the `homeassistant` tunnel once. From then on, open the BeaconInfra dashboard on your phone and click through to your HA UI. No VPN, no port-forwarding, no dynamic DNS. |
+| **Reach any other local service remotely** | The same tunnel mechanism works for Grafana, Jellyfin, Pi-hole, your router's admin page, a staging VM — anything that speaks HTTP on your LAN. |
+| **View logs from anywhere** | The log lines you configured to forward show up in the dashboard, filterable by device and project. Useful when something breaks and you don't want to SSH in. |
+| **Watch your metrics remotely** | CPU, memory, disk, load, and temperature for every device — without being on the LAN. |
+| **See all your project health in one list** | Every project, every check, across every device. Sorted so the problems come first. |
+| **Trigger a deploy from the browser** | Click "deploy" in the dashboard and Beacon runs your existing deploy script on the device. Your secrets never leave home — the cloud just sends the signal. |
+| **Know when a device goes offline** | If a device stops sending heartbeats, you get notified — even if its last check said everything was fine. |
+
+### What we don't see
+
+Even with BeaconInfra enabled, some things stay on your device and never touch the cloud:
+
+- Your **source code** and **deploy scripts** — the cloud only sends a "deploy now" signal; your device runs the script.
+- Your **tokens** (Git, Docker, webhooks) — encrypted locally by `beacon keys`.
+- Your **application secrets** (database passwords, API keys loaded via `secure_env_path`) — Beacon hands them to your app at deploy time and nothing else.
+- **Raw log files** — only the lines you explicitly configured as `log_sources` are forwarded. Everything else stays on disk.
+- The **local dashboard** at port 9100 — it keeps working offline, BeaconInfra account or not.
+
+If you change your mind, `beacon cloud logout` stops all outbound reporting on the next heartbeat. There's nothing to delete from a control panel because there's no persistent account state beyond what you chose to send.
 
 ---
 

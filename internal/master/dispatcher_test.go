@@ -1,117 +1,219 @@
 package master
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
+	"beacon/internal/identity"
 	"beacon/internal/ipc"
+
+	"github.com/stretchr/testify/require"
 )
-
-func TestNewCommandDispatcher(t *testing.T) {
-	d := NewCommandDispatcher(nil, nil)
-	if d == nil {
-		t.Fatal("NewCommandDispatcher returned nil")
-	}
-}
-
-func TestCommandDispatcher_DispatchCommands_nilPM(t *testing.T) {
-	d := NewCommandDispatcher(nil, nil)
-	d.DispatchCommands([]HeartbeatCommand{
-		{ID: "cmd1", Action: "restart", TargetProject: "test"},
-	})
-
-	results := d.GetPendingResults()
-	if len(results) != 1 {
-		t.Errorf("expected 1 failed result for nil PM, got %d", len(results))
-	}
-}
-
-func TestCommandDispatcher_DispatchCommands_projectNotFound(t *testing.T) {
-	dir := t.TempDir()
-	ipcDir := filepath.Join(dir, "ipc", "other-project")
-	os.MkdirAll(ipcDir, 0755)
-
-	// Create a mock process manager state by writing to IPC
-	d := &CommandDispatcher{
-		pm:             nil,
-		pendingResults: make([]CommandResultReport, 0),
-	}
-
-	// Manually record a failed result
-	d.recordResult("cmd1", ipc.ResultFailed, "Project not found: missing-project")
-
-	results := d.GetPendingResults()
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	if results[0].Status != ipc.ResultFailed {
-		t.Errorf("expected failed status, got %s", results[0].Status)
-	}
-}
-
-func TestCommandDispatcher_GetPendingResults_clearsResults(t *testing.T) {
-	d := NewCommandDispatcher(nil, nil)
-
-	// Add some results
-	d.recordResult("cmd1", ipc.ResultSuccess, "done")
-	d.recordResult("cmd2", ipc.ResultFailed, "error")
-
-	// First call should return 2 results
-	results1 := d.GetPendingResults()
-	if len(results1) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(results1))
-	}
-
-	// Second call should return 0 (cleared)
-	results2 := d.GetPendingResults()
-	if len(results2) != 0 {
-		t.Errorf("expected 0 results after clear, got %d", len(results2))
-	}
-}
 
 func TestCommandDispatcher_recordResult(t *testing.T) {
 	d := NewCommandDispatcher(nil, nil)
 
-	beforeTime := time.Now()
+	before := time.Now()
 	d.recordResult("cmd123", ipc.ResultSuccess, "Operation completed")
-	afterTime := time.Now()
+	after := time.Now()
 
 	results := d.GetPendingResults()
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
+	require.Len(t, results, 1)
 
 	r := results[0]
-	if r.CommandID != "cmd123" {
-		t.Errorf("command ID mismatch: got %s", r.CommandID)
-	}
-	if r.Status != ipc.ResultSuccess {
-		t.Errorf("status mismatch: got %s", r.Status)
-	}
-	if r.Message != "Operation completed" {
-		t.Errorf("message mismatch: got %s", r.Message)
-	}
-	if r.Timestamp.Before(beforeTime) || r.Timestamp.After(afterTime) {
-		t.Errorf("timestamp out of range: %v", r.Timestamp)
-	}
+	require.Equal(t, "cmd123", r.CommandID)
+	require.Equal(t, ipc.ResultSuccess, r.Status)
+	require.Equal(t, "Operation completed", r.Message)
+	require.False(t, r.Timestamp.Before(before))
+	require.False(t, r.Timestamp.After(after))
 }
 
-func TestCommandDispatcher_DispatchCommands_deviceLevel(t *testing.T) {
+func TestCommandDispatcher_GetPendingResults(t *testing.T) {
 	d := NewCommandDispatcher(nil, nil)
+	d.recordResult("cmd1", ipc.ResultSuccess, "done")
+	d.recordResult("cmd2", ipc.ResultFailed, "error")
 
-	d.DispatchCommands([]HeartbeatCommand{
-		{ID: "cmd1", Action: "restart", TargetProject: ""},
+	t.Run("returns all results", func(t *testing.T) {
+		results := d.GetPendingResults()
+		require.Len(t, results, 2)
 	})
 
-	results := d.GetPendingResults()
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result for nil PM, got %d", len(results))
+	t.Run("clears after read", func(t *testing.T) {
+		results := d.GetPendingResults()
+		require.Empty(t, results)
+	})
+}
+
+func TestCommandDispatcher_Dispatch(t *testing.T) {
+	t.Run("nil PM fails gracefully", func(t *testing.T) {
+		d := NewCommandDispatcher(nil, nil)
+		d.DispatchCommands([]HeartbeatCommand{
+			{ID: "cmd1", Action: "restart", TargetProject: "test"},
+		})
+		results := d.GetPendingResults()
+		require.Len(t, results, 1)
+		require.Equal(t, ipc.ResultFailed, results[0].Status)
+	})
+
+	t.Run("empty target project rejected", func(t *testing.T) {
+		d := NewCommandDispatcher(nil, nil)
+		d.DispatchCommands([]HeartbeatCommand{
+			{ID: "cmd1", Action: "restart", TargetProject: ""},
+		})
+		results := d.GetPendingResults()
+		require.Len(t, results, 1)
+		require.Equal(t, ipc.ResultFailed, results[0].Status)
+	})
+
+	t.Run("unknown action allowed by default", func(t *testing.T) {
+		d := NewCommandDispatcher(nil, nil)
+		d.DispatchCommands([]HeartbeatCommand{
+			{ID: "cmd1", Action: "custom_action", TargetProject: "myapp"},
+		})
+		results := d.GetPendingResults()
+		require.Len(t, results, 1)
+		require.Equal(t, ipc.ResultFailed, results[0].Status)
+		require.Contains(t, results[0].Message, "Process manager not available")
+	})
+
+	t.Run("unknown action rejected by override", func(t *testing.T) {
+		d := NewCommandDispatcher(nil, nil)
+		d.SetAllowedActions([]string{"health_check"})
+		d.DispatchCommands([]HeartbeatCommand{
+			{ID: "cmd1", Action: "custom_action", TargetProject: "myapp"},
+		})
+		results := d.GetPendingResults()
+		require.Len(t, results, 1)
+		require.Contains(t, results[0].Message, "not allowed")
+	})
+}
+
+func TestCommandDispatcher_Dedup(t *testing.T) {
+	d := NewCommandDispatcher(nil, nil)
+
+	t.Run("duplicate command skipped", func(t *testing.T) {
+		d.DispatchCommands([]HeartbeatCommand{
+			{ID: "cmd_dup", Action: "restart", TargetProject: "myapp"},
+		})
+		_ = d.GetPendingResults()
+
+		d.DispatchCommands([]HeartbeatCommand{
+			{ID: "cmd_dup", Action: "restart", TargetProject: "myapp"},
+		})
+		results := d.GetPendingResults()
+		require.Empty(t, results)
+	})
+
+	t.Run("empty ID never deduped", func(t *testing.T) {
+		d.DispatchCommands([]HeartbeatCommand{
+			{ID: "", Action: "restart", TargetProject: "myapp"},
+		})
+		d.DispatchCommands([]HeartbeatCommand{
+			{ID: "", Action: "restart", TargetProject: "myapp"},
+		})
+		results := d.GetPendingResults()
+		require.Len(t, results, 2)
+	})
+}
+
+func TestCommandDispatcher_Allowlist(t *testing.T) {
+	d := NewCommandDispatcher(nil, nil)
+
+	t.Run("default allows everything", func(t *testing.T) {
+		require.True(t, d.isAllowed("restart"))
+		require.True(t, d.isAllowed("anything_goes"))
+	})
+
+	t.Run("override restricts", func(t *testing.T) {
+		d.SetAllowedActions([]string{"health_check", "fetch_logs"})
+		require.False(t, d.isAllowed("restart"))
+		require.True(t, d.isAllowed("health_check"))
+		require.True(t, d.isAllowed("fetch_logs"))
+	})
+
+	t.Run("nil reverts to default", func(t *testing.T) {
+		d.SetAllowedActions(nil)
+		require.True(t, d.isAllowed("restart"))
+	})
+}
+
+func TestCommandDispatcher_VPN(t *testing.T) {
+	setup := func(t *testing.T) *CommandDispatcher {
+		t.Helper()
+		tmp := t.TempDir()
+		t.Setenv("HOME", tmp)
+		t.Setenv("BEACON_HOME", "")
+		return NewCommandDispatcher(nil, nil)
 	}
-	if results[0].Status != ipc.ResultFailed {
-		t.Errorf("expected failed status, got %s", results[0].Status)
-	}
+
+	t.Run("enable", func(t *testing.T) {
+		d := setup(t)
+		d.DispatchCommands([]HeartbeatCommand{
+			{ID: "vpn1", Action: "vpn_enable", Payload: map[string]any{"listen_port": float64(41820)}},
+		})
+		results := d.GetPendingResults()
+		require.Len(t, results, 1)
+		require.Equal(t, ipc.ResultSuccess, results[0].Status)
+
+		uc, err := identity.LoadUserConfig()
+		require.NoError(t, err)
+		require.NotNil(t, uc.VPN)
+		require.True(t, uc.VPN.Enabled)
+		require.Equal(t, "exit_node", uc.VPN.Role)
+		require.Equal(t, 41820, uc.VPN.ListenPort)
+	})
+
+	t.Run("use", func(t *testing.T) {
+		d := setup(t)
+		d.DispatchCommands([]HeartbeatCommand{
+			{ID: "vpn2", Action: "vpn_use", Payload: map[string]any{"peer_device": "home-pi"}},
+		})
+		results := d.GetPendingResults()
+		require.Len(t, results, 1)
+		require.Equal(t, ipc.ResultSuccess, results[0].Status)
+
+		uc, err := identity.LoadUserConfig()
+		require.NoError(t, err)
+		require.Equal(t, "client", uc.VPN.Role)
+		require.Equal(t, "home-pi", uc.VPN.PeerDevice)
+	})
+
+	t.Run("use missing peer_device", func(t *testing.T) {
+		d := setup(t)
+		d.DispatchCommands([]HeartbeatCommand{
+			{ID: "vpn3", Action: "vpn_use", Payload: map[string]any{}},
+		})
+		results := d.GetPendingResults()
+		require.Len(t, results, 1)
+		require.Equal(t, ipc.ResultFailed, results[0].Status)
+		require.Contains(t, results[0].Message, "peer_device")
+	})
+
+	t.Run("disable", func(t *testing.T) {
+		d := setup(t)
+		d.DispatchCommands([]HeartbeatCommand{{ID: "a", Action: "vpn_enable"}})
+		_ = d.GetPendingResults()
+
+		d.DispatchCommands([]HeartbeatCommand{{ID: "b", Action: "vpn_disable"}})
+		results := d.GetPendingResults()
+		require.Len(t, results, 1)
+		require.Equal(t, ipc.ResultSuccess, results[0].Status)
+
+		uc, err := identity.LoadUserConfig()
+		require.NoError(t, err)
+		require.Nil(t, uc.VPN)
+	})
+
+	t.Run("blocked by allowlist", func(t *testing.T) {
+		d := setup(t)
+		d.SetAllowedActions([]string{"health_check"})
+		d.DispatchCommands([]HeartbeatCommand{{ID: "vpn5", Action: "vpn_enable"}})
+
+		results := d.GetPendingResults()
+		require.Len(t, results, 1)
+		require.Equal(t, ipc.ResultFailed, results[0].Status)
+		require.Contains(t, results[0].Message, "not allowed")
+	})
 }
 
 func TestHeartbeatCommand_structure(t *testing.T) {
@@ -121,16 +223,9 @@ func TestHeartbeatCommand_structure(t *testing.T) {
 		TargetProject: "my-project",
 		Payload:       map[string]any{"lines": 100},
 	}
-
-	if cmd.ID != "cmd_abc123" {
-		t.Errorf("ID mismatch")
-	}
-	if cmd.Action != "restart" {
-		t.Errorf("action mismatch")
-	}
-	if cmd.TargetProject != "my-project" {
-		t.Errorf("target project mismatch")
-	}
+	require.Equal(t, "cmd_abc123", cmd.ID)
+	require.Equal(t, "restart", cmd.Action)
+	require.Equal(t, "my-project", cmd.TargetProject)
 }
 
 func TestCommandResultReport_structure(t *testing.T) {
@@ -141,14 +236,7 @@ func TestCommandResultReport_structure(t *testing.T) {
 		Message:   "Done",
 		Timestamp: now,
 	}
-
-	if r.CommandID != "cmd_xyz" {
-		t.Errorf("command ID mismatch")
-	}
-	if r.Status != ipc.ResultSuccess {
-		t.Errorf("status mismatch")
-	}
-	if r.Timestamp != now {
-		t.Errorf("timestamp mismatch")
-	}
+	require.Equal(t, "cmd_xyz", r.CommandID)
+	require.Equal(t, ipc.ResultSuccess, r.Status)
+	require.Equal(t, now, r.Timestamp)
 }

@@ -186,9 +186,6 @@ type ConfigInfo struct {
 func (ch *ConfigHierarchy) ExplainHierarchy() string {
 	return `Beacon Configuration Hierarchy:
 
-🔧 SHARED (Global) - Used by all projects:
-   • ~/.beacon/templates/      - Alert templates (Email, Webhook, etc.)
-
 📁 PER-PROJECT - Each project has its own:
    • ~/.beacon/config/projects/{project}/env        - Environment variables
    • ~/.beacon/config/projects/{project}/monitor.yml - Monitoring config
@@ -201,12 +198,10 @@ func (ch *ConfigHierarchy) ExplainHierarchy() string {
    1. Each project is completely isolated
    2. Projects can have multiple devices/keys
    3. Different projects can use different BeaconInfra accounts
-   4. Alert templates are shared for consistency
-   5. No global configuration - everything is project-specific
+   4. No global configuration - everything is project-specific
 
 💡 EXAMPLES:
    • Project "home-server" → Own keys, alerts, logs
    • Project "iot-sensors" → Different keys, different alerts
-   • Shared templates → Same Email/Webhook formatting across projects
    • Multiple devices per project → Multiple keys in project/keys/`
 }

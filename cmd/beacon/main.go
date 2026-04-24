@@ -16,14 +16,12 @@ import (
 	"beacon/internal/projects"
 	"beacon/internal/server"
 	"beacon/internal/state"
-	"beacon/internal/templates"
 	"beacon/internal/version"
 	"beacon/internal/wizard"
 
 	"beacon/internal/bootstrap"
 	"beacon/internal/child"
 	"beacon/internal/identity"
-	"beacon/internal/k8sobserver"
 	"beacon/internal/master"
 	"beacon/internal/mcp"
 	"beacon/internal/monitor"
@@ -44,6 +42,7 @@ var rootCmd = &cobra.Command{
   beacon bootstrap set up a new project (interactive or from a config file)
   beacon monitor   run a single project's health checks (dev/debug)
   beacon deploy    poll a Git repo for new tags and deploy
+  beacon update    self-update to the latest release
   beacon version   show version`,
 	Version: version.GetVersion(),
 }
@@ -110,129 +109,9 @@ and reporting configuration.`,
 	},
 }
 
-var templateCmd = &cobra.Command{
-	Use:   "template",
-	Short: "Manage alert templates",
-	Long: `Manage alert templates for customizing notification formats.
-Templates use Go template syntax and can be JSON, HTML, or plain text.`,
-	Example: `  beacon template add my-alerts ./templates/discord.json
-  beacon template list
-  beacon template remove my-alerts
-  beacon template show my-alerts
-  beacon template check`,
-}
-
-var templateAddCmd = &cobra.Command{
-	Use:   "add",
-	Short: "Add a template",
-	Long:  `Add a new template from a file. The template will be stored and monitored for changes.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		cli, err := templates.NewCLI()
-		if err != nil {
-			logger.Fatalf("Failed to initialize template CLI: %v", err)
-		}
-		if err := cli.AddTemplate(); err != nil {
-			logger.Fatalf("Failed to add template: %v", err)
-		}
-	},
-}
-
-var templateListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all templates",
-	Long:  `List all registered templates with their paths and modification times.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		cli, err := templates.NewCLI()
-		if err != nil {
-			logger.Fatalf("Failed to initialize template CLI: %v", err)
-		}
-		if err := cli.ListTemplates(); err != nil {
-			logger.Fatalf("Failed to list templates: %v", err)
-		}
-	},
-}
-
-var templateRemoveCmd = &cobra.Command{
-	Use:   "remove",
-	Short: "Remove a template",
-	Long:  `Remove a registered template.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		cli, err := templates.NewCLI()
-		if err != nil {
-			logger.Fatalf("Failed to initialize template CLI: %v", err)
-		}
-		if err := cli.RemoveTemplate(); err != nil {
-			logger.Fatalf("Failed to remove template: %v", err)
-		}
-	},
-}
-
-var templateShowCmd = &cobra.Command{
-	Use:   "show [template-name]",
-	Short: "Show template content",
-	Long:  `Show the content of a registered template.`,
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		cli, err := templates.NewCLI()
-		if err != nil {
-			logger.Fatalf("Failed to initialize template CLI: %v", err)
-		}
-		if err := cli.ShowTemplate(args[0]); err != nil {
-			logger.Fatalf("Failed to show template: %v", err)
-		}
-	},
-}
-
-var templateCheckCmd = &cobra.Command{
-	Use:   "check",
-	Short: "Check for template changes",
-	Long:  `Check if any registered templates have been modified since last check.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		cli, err := templates.NewCLI()
-		if err != nil {
-			logger.Fatalf("Failed to initialize template CLI: %v", err)
-		}
-		if err := cli.CheckChanges(); err != nil {
-			logger.Fatalf("Failed to check template changes: %v", err)
-		}
-	},
-}
-
-var templateInitCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Initialize default templates",
-	Long:  `Create default template files in ~/.beacon/templates/ directory.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		templateDir := templates.GetDefaultTemplatePath()
-		if err := templates.CreateDefaultTemplates(templateDir); err != nil {
-			logger.Fatalf("Failed to create default templates: %v", err)
-		}
-		fmt.Printf("✅ Default templates created in: %s\n", templateDir)
-		fmt.Println()
-		fmt.Println("Available templates:")
-		fmt.Println("  - discord.json   (Discord webhook format)")
-		fmt.Println("  - telegram.txt  (Telegram message format)")
-		fmt.Println("  - email.html    (HTML email format)")
-		fmt.Println("  - webhook.json  (Generic webhook format)")
-		fmt.Println()
-		fmt.Println("Next steps:")
-		fmt.Println("1. Edit templates as needed")
-		fmt.Println("2. Add templates: beacon template add discord " + templateDir + "/discord.json")
-		fmt.Println("3. Start monitoring: beacon monitor")
-	},
-}
-
 func init() {
 	wizardCmd.Flags().StringP("config", "c", "beacon.monitor.yml", "Path to monitor configuration file")
 	wizardCmd.Flags().StringP("env", "e", ".env", "Path to environment file")
-
-	// Add template subcommands
-	templateCmd.AddCommand(templateAddCmd)
-	templateCmd.AddCommand(templateListCmd)
-	templateCmd.AddCommand(templateRemoveCmd)
-	templateCmd.AddCommand(templateShowCmd)
-	templateCmd.AddCommand(templateCheckCmd)
-	templateCmd.AddCommand(templateInitCmd)
 }
 
 var initAgentCmd = &cobra.Command{
@@ -409,15 +288,15 @@ func main() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(restartCmd)
 	rootCmd.AddCommand(wizardCmd)
-	rootCmd.AddCommand(templateCmd)
 	rootCmd.AddCommand(keys.KeysCmd)
 	rootCmd.AddCommand(alerting.CreateSimpleAlertingCommand())
 	rootCmd.AddCommand(projects.CreateProjectCommand())
-	rootCmd.AddCommand(createSourceCommand())
 	rootCmd.AddCommand(createMCPCommand())
 	rootCmd.AddCommand(createConfigCommand())
 	rootCmd.AddCommand(createCloudCommand())
 	rootCmd.AddCommand(createTunnelCommand())
+	rootCmd.AddCommand(createVPNCommand())
+	rootCmd.AddCommand(createUpdateCommand())
 
 	// If no subcommand is provided, run in deploy mode
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {
@@ -428,24 +307,6 @@ func main() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
-}
-
-func createSourceCommand() *cobra.Command {
-	sourceCmd := &cobra.Command{
-		Use:   "source",
-		Short: "Manage observation sources (e.g. Kubernetes)",
-		Long:  `Add, list, remove, or show status of observation sources such as Kubernetes (read-only workload observer).`,
-		Example: `  beacon source add kubernetes my-k8s --kubeconfig ~/.kube/config --project myapp
-  beacon source list --project myapp
-  beacon source status my-k8s --project myapp`,
-	}
-	sourceCmd.AddCommand(k8sobserver.ListSourcesCommand())
-	sourceCmd.AddCommand(k8sobserver.RemoveSourceCommand())
-	sourceCmd.AddCommand(k8sobserver.StatusSourceCommand())
-	addCmd := &cobra.Command{Use: "add", Short: "Add an observation source"}
-	addCmd.AddCommand(k8sobserver.AddSourceCommand())
-	sourceCmd.AddCommand(addCmd)
-	return sourceCmd
 }
 
 func createMCPCommand() *cobra.Command {

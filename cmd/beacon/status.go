@@ -389,10 +389,19 @@ func renderStatusTunnels(tunnels []master.TunnelStatusInfo, noColor bool) {
 			dot = c(noColor, colorRed) + "✕" + c(noColor, colorReset)
 			nameColor = colorRed
 		}
-		fmt.Printf("  %s %s%-20s%s %slocalhost:%d%s  %s%s%s\n",
+		host := t.UpstreamHost
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		proto := t.UpstreamProtocol
+		if proto == "" {
+			proto = "http"
+		}
+		target := fmt.Sprintf("%s://%s:%d", proto, host, t.LocalPort)
+		fmt.Printf("  %s %s%-20s%s %s%s%s  %s%s%s\n",
 			dot,
 			c(noColor, nameColor), t.ID, c(noColor, colorReset),
-			c(noColor, colorSubtle), t.LocalPort, c(noColor, colorReset),
+			c(noColor, colorSubtle), target, c(noColor, colorReset),
 			c(noColor, colorBody), t.Status, c(noColor, colorReset),
 		)
 	}

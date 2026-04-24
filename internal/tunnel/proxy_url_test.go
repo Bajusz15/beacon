@@ -43,6 +43,16 @@ func TestBuildLoopbackURL_ws(t *testing.T) {
 	}
 }
 
+func TestBuildUpstreamURL(t *testing.T) {
+	u, err := buildUpstreamURL("http", "homeassistant", 8123, "/?refresh=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Scheme != "http" || u.Host != "homeassistant:8123" || u.Path != "/" || u.RawQuery != "refresh=1" {
+		t.Fatalf("unexpected URL: %s", u.String())
+	}
+}
+
 func TestValidHTTPMethod(t *testing.T) {
 	if !validHTTPMethod("GET") || !validHTTPMethod("post") {
 		t.Fatal("expected valid")

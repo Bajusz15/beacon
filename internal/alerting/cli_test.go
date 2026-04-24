@@ -68,16 +68,17 @@ func TestSimpleAlertingCLI_Comprehensive(t *testing.T) {
 
 	t.Run("individual_commands", func(t *testing.T) {
 		cli := NewSimpleAlertingCLI()
+		var pn string
 
-		// Test init command
-		initCmd := createSimpleInitCommand(cli)
+		root := CreateSimpleAlertingCommand()
+		pf := root.PersistentFlags().Lookup("project")
+		require.NotNil(t, pf)
+		assert.Equal(t, "p", pf.Shorthand)
+
+		initCmd := createSimpleInitCommand(cli, &pn)
 		assert.NotNil(t, initCmd)
 		assert.Equal(t, "init", initCmd.Use)
 		assert.Equal(t, "Initialize simple alert routing configuration for a project", initCmd.Short)
-
-		projectFlag := initCmd.Flags().Lookup("project")
-		assert.NotNil(t, projectFlag)
-		assert.Equal(t, "p", projectFlag.Shorthand)
 
 		// Test status command
 		statusCmd := createSimpleStatusCommand(cli)
@@ -147,22 +148,11 @@ func TestSimpleAlertingCLI_Comprehensive(t *testing.T) {
 			Channels: map[string]interface{}{
 				"email": map[string]interface{}{
 					"smtp_host": "smtp.gmail.com",
-					"enabled":   true,
+					"enabled":   false,
 				},
 				"webhook": map[string]interface{}{
 					"url":     "${WEBHOOK_URL}",
-					"enabled": true,
-				},
-			},
-			Templates: map[string]interface{}{
-				"critical": map[string]interface{}{
-					"subject": "🚨 CRITICAL: {{.Service}} is {{.Status}}",
-				},
-				"warning": map[string]interface{}{
-					"subject": "⚠️ WARNING: {{.Service}} {{.Message}}",
-				},
-				"info": map[string]interface{}{
-					"subject": "ℹ️ INFO: {{.Service}} {{.Message}}",
+					"enabled": false,
 				},
 			},
 		}
@@ -213,12 +203,8 @@ func TestSimpleAlertingCLI_Comprehensive(t *testing.T) {
 		assert.Contains(t, infoRouting.Channels, "webhook")
 		assert.True(t, infoRouting.Enabled)
 
-		// Verify channels and templates exist
 		assert.Contains(t, config.Channels, "email")
 		assert.Contains(t, config.Channels, "webhook")
-		assert.Contains(t, config.Templates, "critical")
-		assert.Contains(t, config.Templates, "warning")
-		assert.Contains(t, config.Templates, "info")
 
 		// Test loading the config back
 		loadedConfig, err := cli.loadSimpleConfig()
@@ -406,6 +392,7 @@ alert_routing:
 
 		cli := NewSimpleAlertingCLI()
 		cli.configPath = configPath
+		cli.projectID = "test-project"
 
 		// Test routing (this will process the predefined test alerts)
 		err = cli.TestSimpleRouting()
@@ -443,11 +430,6 @@ alert_routing:
 					"enabled":   true,
 				},
 			},
-			Templates: map[string]interface{}{
-				"critical": map[string]interface{}{
-					"subject": "Critical Alert",
-				},
-			},
 			Rules: []map[string]interface{}{
 				{
 					"name":     "database-check",
@@ -459,7 +441,6 @@ alert_routing:
 		assert.Equal(t, 1, len(config.Routing))
 		assert.Equal(t, SeverityCritical, config.Routing[0].Severity)
 		assert.Contains(t, config.Channels, "email")
-		assert.Contains(t, config.Templates, "critical")
 		assert.Equal(t, 1, len(config.Rules))
 	})
 

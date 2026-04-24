@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"beacon/internal/config"
+	"beacon/internal/identity"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -14,20 +15,20 @@ import (
 // SimpleAlertingCLI provides CLI commands for simple alert routing
 type SimpleAlertingCLI struct {
 	configPath string
+	projectID  string
 }
 
 // NewSimpleAlertingCLI creates a new simple alerting CLI
 func NewSimpleAlertingCLI() *SimpleAlertingCLI {
-	return &SimpleAlertingCLI{
-		configPath: "", // Will be set per project
-	}
+	return &SimpleAlertingCLI{}
 }
 
 // CreateSimpleAlertingCommand creates the simplified alerting command
 func CreateSimpleAlertingCommand() *cobra.Command {
 	cli := NewSimpleAlertingCLI()
+	var projectName string
 
-	var alertingCmd = &cobra.Command{
+	alertingCmd := &cobra.Command{
 		Use:   "alerts",
 		Short: "Manage simple alert routing for projects",
 		Long: `Manage simple alert routing for Beacon projects.
@@ -46,7 +47,12 @@ Features:
   beacon alerts test --project myapp`,
 	}
 
-	alertingCmd.AddCommand(createSimpleInitCommand(cli))
+	alertingCmd.PersistentFlags().StringVarP(&projectName, "project", "p", "", "Beacon project id (required)")
+	if err := alertingCmd.MarkPersistentFlagRequired("project"); err != nil {
+		logger.Fatalf("alerts: %v", err)
+	}
+
+	alertingCmd.AddCommand(createSimpleInitCommand(cli, &projectName))
 	alertingCmd.AddCommand(createSimpleStatusCommand(cli))
 	alertingCmd.AddCommand(createSimpleAcknowledgeCommand(cli))
 	alertingCmd.AddCommand(createSimpleResolveCommand(cli))
@@ -55,19 +61,16 @@ Features:
 	return alertingCmd
 }
 
-func createSimpleInitCommand(cli *SimpleAlertingCLI) *cobra.Command {
-	var projectName string
-
+func createSimpleInitCommand(cli *SimpleAlertingCLI, projectName *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize simple alert routing configuration for a project",
 		Long:  `Create a simple alert routing configuration file with sensible defaults for a specific project.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			if projectName == "" {
+			if *projectName == "" {
 				logger.Fatalf("Project name is required. Use --project flag")
 			}
-
-			if err := cli.InitSimpleConfig(projectName); err != nil {
+			if err := cli.InitSimpleConfig(*projectName); err != nil {
 				logger.Fatalf("Failed to initialize alert config: %v", err)
 			}
 			fmt.Println("✅ Simple alert routing configuration initialized!")
@@ -75,9 +78,9 @@ func createSimpleInitCommand(cli *SimpleAlertingCLI) *cobra.Command {
 			fmt.Println()
 			fmt.Println("Next steps:")
 			fmt.Println("1. Edit the configuration file to match your needs")
-			fmt.Println("2. Set up your alert channels (email, webhook, slack, etc.)")
+			fmt.Println("2. Enable alert_channels (email and/or webhook) and set WEBHOOK_URL / SMTP as needed")
 			fmt.Println("3. Configure quiet hours if desired")
-			fmt.Println("4. Test your configuration with: beacon alerts test --project " + projectName)
+			fmt.Println("4. Test your configuration with: beacon alerts test --project " + *projectName)
 			fmt.Println()
 			fmt.Println("💡 Perfect for:")
 			fmt.Println("   - Self-hosted IoT monitoring")
@@ -85,12 +88,6 @@ func createSimpleInitCommand(cli *SimpleAlertingCLI) *cobra.Command {
 			fmt.Println("   - Small team setups")
 			fmt.Println("   - Privacy-first monitoring")
 		},
-	}
-
-	cmd.Flags().StringVarP(&projectName, "project", "p", "", "Project name (required)")
-	err := cmd.MarkFlagRequired("project")
-	if err != nil {
-		logger.Fatalf("Failed to mark flag required: %v", err)
 	}
 	return cmd
 }
@@ -101,6 +98,13 @@ func createSimpleStatusCommand(cli *SimpleAlertingCLI) *cobra.Command {
 		Short: "Show current alert status",
 		Long:  `Display all active alerts and their current status.`,
 		Run: func(cmd *cobra.Command, args []string) {
+			pn, err := cmd.Parent().PersistentFlags().GetString("project")
+			if err != nil || pn == "" {
+				logger.Fatalf("Project name is required. Use --project flag")
+			}
+			if err := cli.setProjectFromName(pn); err != nil {
+				logger.Fatalf("%v", err)
+			}
 			if err := cli.ShowSimpleStatus(); err != nil {
 				logger.Fatalf("Failed to show status: %v", err)
 			}
@@ -109,12 +113,19 @@ func createSimpleStatusCommand(cli *SimpleAlertingCLI) *cobra.Command {
 }
 
 func createSimpleAcknowledgeCommand(cli *SimpleAlertingCLI) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "acknowledge [alert-id]",
 		Short: "Acknowledge an alert",
 		Long:  `Acknowledge an alert to mark it as seen.`,
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			pn, err := cmd.Parent().PersistentFlags().GetString("project")
+			if err != nil || pn == "" {
+				logger.Fatalf("Project name is required. Use --project flag")
+			}
+			if err := cli.setProjectFromName(pn); err != nil {
+				logger.Fatalf("%v", err)
+			}
 			alertID := args[0]
 			acknowledgedBy, _ := cmd.Flags().GetString("by")
 			if acknowledgedBy == "" {
@@ -127,6 +138,8 @@ func createSimpleAcknowledgeCommand(cli *SimpleAlertingCLI) *cobra.Command {
 			fmt.Printf("✅ Alert %s acknowledged by %s\n", alertID, acknowledgedBy)
 		},
 	}
+	cmd.Flags().String("by", "", "Who is acknowledging (default: cli-user)")
+	return cmd
 }
 
 func createSimpleResolveCommand(cli *SimpleAlertingCLI) *cobra.Command {
@@ -136,6 +149,13 @@ func createSimpleResolveCommand(cli *SimpleAlertingCLI) *cobra.Command {
 		Long:  `Mark an alert as resolved.`,
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			pn, err := cmd.Parent().PersistentFlags().GetString("project")
+			if err != nil || pn == "" {
+				logger.Fatalf("Project name is required. Use --project flag")
+			}
+			if err := cli.setProjectFromName(pn); err != nil {
+				logger.Fatalf("%v", err)
+			}
 			alertID := args[0]
 			if err := cli.ResolveSimpleAlert(alertID); err != nil {
 				logger.Fatalf("Failed to resolve alert: %v", err)
@@ -151,11 +171,31 @@ func createSimpleTestCommand(cli *SimpleAlertingCLI) *cobra.Command {
 		Short: "Test simple alert routing",
 		Long:  `Test the simple alert routing system with sample alerts.`,
 		Run: func(cmd *cobra.Command, args []string) {
+			pn, err := cmd.Parent().PersistentFlags().GetString("project")
+			if err != nil || pn == "" {
+				logger.Fatalf("Project name is required. Use --project flag")
+			}
+			if err := cli.setProjectFromName(pn); err != nil {
+				logger.Fatalf("%v", err)
+			}
 			if err := cli.TestSimpleRouting(); err != nil {
 				logger.Fatalf("Failed to test routing: %v", err)
 			}
 		},
 	}
+}
+
+func (cli *SimpleAlertingCLI) setProjectFromName(projectName string) error {
+	if projectName == "" {
+		return fmt.Errorf("project name is required (use --project)")
+	}
+	h, err := config.NewConfigHierarchy()
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	cli.configPath = h.GetConfigPath(config.AlertsConfig, projectName)
+	cli.projectID = projectName
+	return nil
 }
 
 // InitSimpleConfig creates a simple alert routing configuration
@@ -165,7 +205,6 @@ func (cli *SimpleAlertingCLI) InitSimpleConfig(projectName string) error {
 		return fmt.Errorf("failed to initialize config hierarchy: %v", err)
 	}
 
-	// Ensure directories exist
 	paths, err := config.NewBeaconPaths()
 	if err != nil {
 		return fmt.Errorf("failed to initialize paths: %v", err)
@@ -175,21 +214,19 @@ func (cli *SimpleAlertingCLI) InitSimpleConfig(projectName string) error {
 		return fmt.Errorf("failed to create directories: %v", err)
 	}
 
-	// Set the config path for this project
 	cli.configPath = hierarchy.GetConfigPath(config.AlertsConfig, projectName)
+	cli.projectID = projectName
 
-	// Check if config already exists
 	if _, err := os.Stat(cli.configPath); err == nil {
 		return fmt.Errorf("configuration file already exists: %s", cli.configPath)
 	}
 
-	// Create simple configuration
 	alertConfig := SimpleAlertConfig{
 		Routing: []AlertRouting{
 			{
 				Severity:         SeverityCritical,
 				Channels:         []string{"email", "webhook"},
-				Recipients:       []string{"admin@example.com", "#alerts"},
+				Recipients:       []string{"admin@example.com"},
 				BackupDelay:      10 * time.Minute,
 				BackupRecipients: []string{"backup@example.com"},
 				Enabled:          true,
@@ -197,7 +234,7 @@ func (cli *SimpleAlertingCLI) InitSimpleConfig(projectName string) error {
 			{
 				Severity:         SeverityWarning,
 				Channels:         []string{"webhook"},
-				Recipients:       []string{"#alerts"},
+				Recipients:       []string{},
 				BackupDelay:      30 * time.Minute,
 				BackupRecipients: []string{"backup@example.com"},
 				Enabled:          true,
@@ -205,7 +242,7 @@ func (cli *SimpleAlertingCLI) InitSimpleConfig(projectName string) error {
 			{
 				Severity:    SeverityInfo,
 				Channels:    []string{"webhook"},
-				Recipients:  []string{"#logs"},
+				Recipients:  []string{},
 				BackupDelay: 0,
 				Enabled:     true,
 			},
@@ -217,30 +254,15 @@ func (cli *SimpleAlertingCLI) InitSimpleConfig(projectName string) error {
 				"smtp_user":     "${SMTP_USER}",
 				"smtp_password": "${SMTP_PASSWORD}",
 				"from":          "Beacon Alerts <alerts@example.com>",
-				"enabled":       true,
+				"enabled":       false,
 			},
 			"webhook": map[string]interface{}{
 				"url":     "${WEBHOOK_URL}",
-				"enabled": true,
-			},
-		},
-		Templates: map[string]interface{}{
-			"critical": map[string]interface{}{
-				"subject": "🚨 CRITICAL: {{.Service}} is {{.Status}}",
-				"body":    "🚨 **CRITICAL ALERT**\n\n**Service:** {{.Service}}\n**Status:** {{.Status}}\n**Time:** {{.Timestamp.Format \"2006-01-02 15:04:05\"}}\n\nPlease check immediately!",
-			},
-			"warning": map[string]interface{}{
-				"subject": "⚠️ WARNING: {{.Service}} {{.Message}}",
-				"body":    "⚠️ **WARNING**\n\n**Service:** {{.Service}}\n**Message:** {{.Message}}\n**Time:** {{.Timestamp.Format \"2006-01-02 15:04:05\"}}",
-			},
-			"info": map[string]interface{}{
-				"subject": "ℹ️ INFO: {{.Service}} {{.Message}}",
-				"body":    "ℹ️ **INFO**\n\n**Service:** {{.Service}}\n**Message:** {{.Message}}\n**Time:** {{.Timestamp.Format \"2006-01-02 15:04:05\"}}",
+				"enabled": false,
 			},
 		},
 	}
 
-	// Write configuration using hierarchy
 	if err := hierarchy.SaveConfig(config.AlertsConfig, projectName, alertConfig, false); err != nil {
 		return fmt.Errorf("failed to save config: %v", err)
 	}
@@ -313,13 +335,25 @@ func (cli *SimpleAlertingCLI) TestSimpleRouting() error {
 		return err
 	}
 
+	deviceName := ""
+	if uc, err := identity.LoadUserConfig(); err == nil && uc != nil {
+		deviceName = uc.DeviceName
+	}
+	if deviceName == "" {
+		deviceName = os.Getenv("BEACON_DEVICE_NAME")
+	}
+	if deviceName == "" {
+		deviceName = "unknown-device"
+	}
+
 	fmt.Println("🧪 Testing Simple Alert Routing")
 	fmt.Println()
 
-	// Test alert contexts
 	testAlerts := []AlertContext{
 		{
 			AlertID:     "test-db-down",
+			ProjectID:   cli.projectID,
+			DeviceName:  deviceName,
 			Service:     "postgresql",
 			Severity:    SeverityCritical,
 			Message:     "Database connection failed",
@@ -333,6 +367,8 @@ func (cli *SimpleAlertingCLI) TestSimpleRouting() error {
 		},
 		{
 			AlertID:     "test-api-slow",
+			ProjectID:   cli.projectID,
+			DeviceName:  deviceName,
 			Service:     "api",
 			Severity:    SeverityWarning,
 			Message:     "Response time exceeded threshold",
@@ -346,6 +382,8 @@ func (cli *SimpleAlertingCLI) TestSimpleRouting() error {
 		},
 		{
 			AlertID:     "test-deployment",
+			ProjectID:   cli.projectID,
+			DeviceName:  deviceName,
 			Service:     "app",
 			Severity:    SeverityInfo,
 			Message:     "Deployment completed successfully",
@@ -359,21 +397,23 @@ func (cli *SimpleAlertingCLI) TestSimpleRouting() error {
 		},
 	}
 
+	var lastErr error
 	for _, alert := range testAlerts {
 		fmt.Printf("📤 Processing alert: %s (%s)\n", alert.AlertID, alert.Service)
 
 		err := sam.ProcessAlert(alert)
 		if err != nil {
 			fmt.Printf("❌ Failed to process alert: %v\n", err)
+			lastErr = err
 			continue
 		}
 
 		fmt.Printf("✅ Alert processed successfully\n")
 
-		// Show alert status
 		status, err := sam.GetAlertStatus(alert.AlertID)
 		if err != nil {
 			fmt.Printf("❌ Failed to get alert status: %v\n", err)
+			lastErr = err
 			continue
 		}
 
@@ -381,6 +421,10 @@ func (cli *SimpleAlertingCLI) TestSimpleRouting() error {
 		fmt.Printf("   Channels: %v\n", status.Routing.Channels)
 		fmt.Printf("   Recipients: %v\n", status.Routing.Recipients)
 		fmt.Println()
+	}
+
+	if lastErr != nil {
+		return lastErr
 	}
 
 	fmt.Println("🎉 Simple alert routing test completed!")
@@ -391,21 +435,19 @@ func (cli *SimpleAlertingCLI) TestSimpleRouting() error {
 func (cli *SimpleAlertingCLI) loadSimpleAlertManager() (*SimpleAlertManager, error) {
 	sam := NewSimpleAlertManager()
 
-	// Check if config file exists
 	if _, err := os.Stat(cli.configPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("alert config not found: %s\nRun 'beacon alerts init' to create it", cli.configPath)
 	}
 
-	// Load configuration
-	config, err := cli.loadSimpleConfig()
+	cfg, err := cli.loadSimpleConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	// Load routing
-	if err := sam.LoadRouting(config.Routing); err != nil {
+	if err := sam.LoadRouting(cfg.Routing); err != nil {
 		return nil, fmt.Errorf("failed to load routing: %v", err)
 	}
+	sam.LoadChannels(cfg.Channels)
 
 	return sam, nil
 }
@@ -427,8 +469,7 @@ func (cli *SimpleAlertingCLI) loadSimpleConfig() (*SimpleAlertConfig, error) {
 
 // SimpleAlertConfig represents the simple alert configuration
 type SimpleAlertConfig struct {
-	Routing   []AlertRouting           `yaml:"alert_routing"`
-	Channels  map[string]interface{}   `yaml:"alert_channels"`
-	Templates map[string]interface{}   `yaml:"alert_templates"`
-	Rules     []map[string]interface{} `yaml:"alert_rules"`
+	Routing  []AlertRouting           `yaml:"alert_routing"`
+	Channels map[string]interface{}   `yaml:"alert_channels"`
+	Rules    []map[string]interface{} `yaml:"alert_rules"`
 }

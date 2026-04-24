@@ -538,7 +538,7 @@ func resolveBeaconExecutable() string {
 	return "/usr/local/bin/beacon"
 }
 
-// promptForInput prompts the user for input with a default value
+// promptForInput roadmap the user for input with a default value
 func promptForInput(prompt, defaultValue string) string {
 	if defaultValue != "" {
 		fmt.Printf("%s [%s]: ", prompt, defaultValue)

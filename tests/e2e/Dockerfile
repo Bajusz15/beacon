@@ -1,4 +1,4 @@
-FROM golang:1.26.1-alpine
+FROM golang:1.26.2-alpine
 
 RUN apk add --no-cache git bash curl expect docker-cli
 
