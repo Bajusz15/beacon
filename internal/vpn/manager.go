@@ -118,6 +118,12 @@ func (m *Manager) startExitNodeLocked(ctx context.Context, cfg *identity.VPNConf
 	if err != nil {
 		return fmt.Errorf("register vpn with cloud: %w", err)
 	}
+	registered := true
+	defer func() {
+		if registered {
+			_ = m.resolver.DeregisterVPN(ctx)
+		}
+	}()
 
 	wg, err := createWGDevice(InterfaceName, kp.PrivateKey, listenPort)
 	if err != nil {
@@ -130,6 +136,7 @@ func (m *Manager) startExitNodeLocked(ctx context.Context, cfg *identity.VPNConf
 		return err
 	}
 
+	registered = false // success — keep the registration
 	m.wg = wg
 	m.keyPair = kp
 	m.egress = egress
@@ -142,8 +149,6 @@ func (m *Manager) startExitNodeLocked(ctx context.Context, cfg *identity.VPNConf
 		ListenPort:    listenPort,
 		PublicKey:     kp.PublicKey,
 	}
-	// Persist the assigned address back into config so subsequent restarts
-	// can show it via `beacon vpn status` even before the next register call.
 	_ = identity.SetVPNExitNode(listenPort, addr)
 	return nil
 }
@@ -165,6 +170,13 @@ func (m *Manager) startClientLocked(ctx context.Context, cfg *identity.VPNConfig
 	if err != nil {
 		return fmt.Errorf("register vpn with cloud: %w", err)
 	}
+	registered := true
+	defer func() {
+		if registered {
+			_ = m.resolver.DeregisterVPN(ctx)
+		}
+	}()
+
 	peer, err := m.resolver.GetPeer(ctx, cfg.PeerDevice)
 	if err != nil {
 		return fmt.Errorf("fetch peer info: %w", err)
@@ -183,14 +195,13 @@ func (m *Manager) startClientLocked(ctx context.Context, cfg *identity.VPNConfig
 		return err
 	}
 
-	// Phase 1 ships /32 routing — only the peer's VPN address goes through the tunnel.
-	// "Route everything" is a Phase 1.5 follow-up flag.
 	if err := wg.configurePeer(peer.PublicKey, peer.Endpoint, peer.VPNAddress+"/32", 25*time.Second); err != nil {
 		wg.close()
 		teardownNetwork(InterfaceName, "")
 		return err
 	}
 
+	registered = false // success — keep the registration
 	m.wg = wg
 	m.keyPair = kp
 	m.cfg = cfg

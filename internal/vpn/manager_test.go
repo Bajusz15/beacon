@@ -216,7 +216,7 @@ func TestManager_Reconcile(t *testing.T) {
 		require.Equal(t, "client", mr.lastRegister.role)
 	})
 
-	t.Run("client GetPeer error propagates", func(t *testing.T) {
+	t.Run("client GetPeer error rolls back registration", func(t *testing.T) {
 		isolateBeaconHomeForManager(t)
 		mr := &mockResolver{registerAddr: "10.13.37.5", getPeerErr: errors.New("peer not found")}
 		m := NewManager(mr)
@@ -225,12 +225,13 @@ func TestManager_Reconcile(t *testing.T) {
 		require.ErrorContains(t, err, "fetch peer info")
 		require.ErrorContains(t, err, "peer not found")
 
-		reg, get, _ := mr.counts()
+		reg, get, dereg := mr.counts()
 		require.Equal(t, 1, reg)
 		require.Equal(t, 1, get)
+		require.Equal(t, 1, dereg, "should deregister after post-register failure")
 	})
 
-	t.Run("client empty peer endpoint rejected", func(t *testing.T) {
+	t.Run("client empty peer endpoint rolls back registration", func(t *testing.T) {
 		isolateBeaconHomeForManager(t)
 		mr := &mockResolver{
 			registerAddr: "10.13.37.5",
@@ -240,5 +241,18 @@ func TestManager_Reconcile(t *testing.T) {
 
 		err := m.Reconcile(context.Background(), &identity.VPNConfig{Enabled: true, Role: "client", PeerDevice: "home-pi"})
 		require.ErrorContains(t, err, "no public endpoint")
+
+		_, _, dereg := mr.counts()
+		require.Equal(t, 1, dereg, "should deregister after post-register failure")
+	})
+
+	t.Run("register failure does not trigger deregister", func(t *testing.T) {
+		isolateBeaconHomeForManager(t)
+		mr := &mockResolver{registerErr: errors.New("network down")}
+		m := NewManager(mr)
+
+		_ = m.Reconcile(context.Background(), &identity.VPNConfig{Enabled: true, Role: "exit_node"})
+		_, _, dereg := mr.counts()
+		require.Zero(t, dereg, "should not deregister if register itself failed")
 	})
 }
