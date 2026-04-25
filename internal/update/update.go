@@ -228,6 +228,12 @@ func isNewerVersion(current, remote string) bool {
 	curBase, curPre := splitPrerelease(current)
 	remBase, remPre := splitPrerelease(remote)
 
+	// Non-semver current version (e.g. date-based "20260424"): any semver
+	// release is treated as newer so local builds can still self-update.
+	if !isSemver(curBase) {
+		return isSemver(remBase)
+	}
+
 	curParts := parseVersionParts(curBase)
 	remParts := parseVersionParts(remBase)
 
@@ -248,6 +254,10 @@ func isNewerVersion(current, remote string) bool {
 	}
 	// Same numeric version: release beats pre-release.
 	return curPre != "" && remPre == ""
+}
+
+func isSemver(v string) bool {
+	return strings.Contains(v, ".")
 }
 
 func splitPrerelease(v string) (base, pre string) {

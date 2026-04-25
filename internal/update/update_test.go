@@ -123,6 +123,12 @@ func TestIsNewerVersion(t *testing.T) {
 	t.Run("different length versions", func(t *testing.T) {
 		require.True(t, isNewerVersion("0.3", "0.3.1"))
 	})
+	t.Run("date-based current treats semver remote as newer", func(t *testing.T) {
+		require.True(t, isNewerVersion("20260424", "0.4.0"))
+	})
+	t.Run("date-based both not newer", func(t *testing.T) {
+		require.False(t, isNewerVersion("20260424", "20260425"))
+	})
 }
 
 func TestBinaryAssetName(t *testing.T) {
