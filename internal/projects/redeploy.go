@@ -1,11 +1,14 @@
 package projects
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
+	"path/filepath"
+
+	"beacon/internal/config"
+	"beacon/internal/deploy"
+	"beacon/internal/state"
+	"beacon/internal/util"
 
 	"github.com/spf13/cobra"
 )
@@ -13,12 +16,12 @@ import (
 func createRedeployCommand(pm *ProjectManager) *cobra.Command {
 	return &cobra.Command{
 		Use:   "redeploy <project-name>",
-		Short: "Pull latest changes and re-run the deploy command",
-		Long: `Fetches the latest code for a project and re-runs its deploy command.
+		Short: "Run a full deploy cycle for a project",
+		Long: `Triggers a full deploy for a project using its existing configuration.
 
-The project must be in the inventory (beacon projects list) and have a
-working directory with a git repository. The deploy command is read from
-the project's env file (BEACON_DEPLOY_CMD).`,
+Loads the project's env file, builds the deploy config (same as beacon deploy),
+and runs the full deploy cycle (clone + deploy command for git projects,
+or the configured deploy flow for docker projects).`,
 		Example: `  beacon projects redeploy myapp`,
 		Args:    cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
@@ -30,87 +33,32 @@ the project's env file (BEACON_DEPLOY_CMD).`,
 	}
 }
 
-// Redeploy pulls latest code and re-runs the deploy command for a project.
+// Redeploy runs a full deploy cycle for a project.
 func (pm *ProjectManager) Redeploy(projectName string) error {
-	inv, err := LoadInventory(pm.paths.GetProjectsFilePath())
-	if err != nil {
-		return fmt.Errorf("load inventory: %w", err)
-	}
-	entry := GetProject(inv, projectName)
-	if entry == nil {
-		return fmt.Errorf("project %q not found in inventory (run `beacon projects list` to see available projects)", projectName)
-	}
-
-	location := entry.Location
-	if location == "" {
-		location = pm.paths.GetProjectWorkingDir(projectName)
-	}
-	if _, err := os.Stat(location); err != nil {
-		return fmt.Errorf("project directory %s does not exist", location)
+	if !pm.paths.ProjectExists(projectName) {
+		return fmt.Errorf("project %q not found (run `beacon projects list` to see available projects)", projectName)
 	}
 
 	envFile := pm.paths.GetProjectEnvFile(projectName)
-	deployCmd := readEnvVar(envFile, "BEACON_DEPLOY_CMD")
-
-	fmt.Printf("Redeploying %s in %s\n", projectName, location)
-
-	fmt.Println("Pulling latest changes...")
-	pull := exec.Command("git", "pull")
-	pull.Dir = location
-	pull.Stdout = os.Stdout
-	pull.Stderr = os.Stderr
-	if err := pull.Run(); err != nil {
-		return fmt.Errorf("git pull failed: %w", err)
+	if _, err := os.Stat(envFile); err != nil {
+		return fmt.Errorf("env file not found: %s", envFile)
 	}
 
-	if deployCmd == "" {
-		fmt.Println("No BEACON_DEPLOY_CMD configured — skipping deploy command.")
-		fmt.Println("Done (code updated, no deploy command ran).")
-		return nil
+	if err := util.LoadEnvFile(envFile); err != nil {
+		return fmt.Errorf("load env file: %w", err)
 	}
 
-	fmt.Printf("Running deploy command: %s\n", deployCmd)
+	cfg := config.Load()
 
-	secureEnvPath := readEnvVar(envFile, "BEACON_SECURE_ENV_PATH")
-	command := deployCmd
-	if secureEnvPath != "" {
-		if _, err := os.Stat(os.ExpandEnv(secureEnvPath)); err == nil {
-			command = fmt.Sprintf("set -a && . %s && set +a && %s", secureEnvPath, deployCmd)
-		}
-	}
+	statusDir := filepath.Join(os.Getenv("HOME"), ".beacon", cfg.ProjectDir)
+	status := state.NewStatus(statusDir)
 
-	deploy := exec.Command("sh", "-c", command)
-	deploy.Dir = location
-	deploy.Stdout = os.Stdout
-	deploy.Stderr = os.Stderr
-	if err := deploy.Run(); err != nil {
-		return fmt.Errorf("deploy command failed: %w", err)
+	fmt.Printf("Deploying %s (%s) from %s\n", projectName, cfg.DeploymentType, cfg.LocalPath)
+
+	if err := deploy.Deploy(cfg, "", status); err != nil {
+		return err
 	}
 
 	fmt.Printf("Redeploy of %s complete.\n", projectName)
 	return nil
-}
-
-// readEnvVar reads a specific variable from a KEY=VALUE env file.
-func readEnvVar(path, key string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer func() { _ = f.Close() }()
-
-	prefix := key + "="
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-		if strings.HasPrefix(line, prefix) {
-			val := strings.TrimPrefix(line, prefix)
-			val = strings.Trim(val, "\"'")
-			return val
-		}
-	}
-	return ""
 }
