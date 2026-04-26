@@ -36,12 +36,13 @@ Or: BEACON_API_KEY=usr_... beacon cloud login`,
 			if err := identity.WriteCloudLogout(); err != nil {
 				logger.Fatalf("beacon cloud logout: %v", err)
 			}
-			p, err := identity.UserConfigPath()
-			if err != nil {
-				logger.Infof("Updated cloud settings")
-				return
-			}
-			logger.Infof("Cleared cloud credentials in %s", p)
+			fmt.Println()
+			fmt.Println("  ✓ Logged out — API key removed, cloud reporting disabled.")
+			fmt.Println()
+			fmt.Println("  Beacon will continue running locally. To re-authenticate:")
+			fmt.Println()
+			fmt.Println("    beacon cloud login --api-key YOUR_KEY")
+			fmt.Println()
 		},
 	}
 
@@ -71,6 +72,12 @@ func runCloudLogin(cmd *cobra.Command, args []string) {
 			logger.Fatalf("beacon cloud login: non-interactive terminal; use --api-key or set BEACON_API_KEY")
 		}
 	}
+	if apiKey == "" {
+		logger.Fatalf("beacon cloud login: API key cannot be empty. Get one at https://beaconinfra.dev → API Keys")
+	}
+	if !strings.HasPrefix(apiKey, "usr_") {
+		logger.Fatalf("beacon cloud login: invalid API key format (expected usr_...). Get one at https://beaconinfra.dev → API Keys")
+	}
 
 	name, _ := cmd.Flags().GetString("name")
 	if name == "" {
@@ -83,10 +90,24 @@ func runCloudLogin(cmd *cobra.Command, args []string) {
 	if err := identity.WriteCloudLogin(apiKey, name); err != nil {
 		logger.Fatalf("beacon cloud login: %v", err)
 	}
-	p, err := identity.UserConfigPath()
-	if err != nil {
-		logger.Infof("Wrote ~/.beacon/config.yaml")
-		return
+
+	cfg, _ := identity.LoadUserConfig()
+	deviceName := ""
+	if cfg != nil {
+		deviceName = cfg.DeviceName
 	}
-	logger.Infof("Wrote %s", p)
+
+	fmt.Println()
+	fmt.Println("  ✓ Authenticated successfully")
+	if deviceName != "" {
+		fmt.Printf("  ✓ Device name: %s\n", deviceName)
+	}
+	fmt.Println()
+	fmt.Println("  Next step — start Beacon:")
+	fmt.Println()
+	fmt.Println("    beacon master")
+	fmt.Println()
+	fmt.Println("  Your device will appear automatically in BeaconInfra")
+	fmt.Println("  after the first heartbeat (~30 seconds).")
+	fmt.Println()
 }

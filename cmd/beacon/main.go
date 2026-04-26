@@ -139,12 +139,25 @@ Environment: BEACON_DEVICE_NAME for default device name when --name is omitted.`
 		if err := identity.WriteUserLocalInit(name, metricsPort); err != nil {
 			logger.Fatalf("beacon init: %v", err)
 		}
-		p, err := identity.UserConfigPath()
-		if err != nil {
-			logger.Infof("Wrote ~/.beacon/config.yaml")
-			return
+
+		cfg, _ := identity.LoadUserConfig()
+		deviceName := ""
+		if cfg != nil {
+			deviceName = cfg.DeviceName
 		}
-		logger.Infof("Wrote %s", p)
+
+		fmt.Println()
+		fmt.Println("  ✓ Config written to ~/.beacon/config.yaml")
+		if deviceName != "" {
+			fmt.Printf("  ✓ Device name: %s\n", deviceName)
+		}
+		fmt.Println()
+		fmt.Println("  Next step — authenticate with BeaconInfra:")
+		fmt.Println()
+		fmt.Println("    beacon cloud login --api-key YOUR_KEY")
+		fmt.Println()
+		fmt.Println("  Get an API key at https://beaconinfra.dev → API Keys")
+		fmt.Println()
 	},
 }
 
@@ -191,9 +204,14 @@ in the foreground (useful for systemd, Docker, or debugging).`,
 			_ = logFile.Close()
 			_ = p.Release()
 
-			fmt.Printf("Beacon master started (pid %d)\n", p.Pid)
-			fmt.Printf("Logs: %s\n", logPath)
-			fmt.Printf("Dashboard: http://127.0.0.1:9100\n")
+			fmt.Println()
+			fmt.Printf("  ✓ Beacon master started (pid %d)\n", p.Pid)
+			fmt.Printf("  ✓ Logs: %s\n", logPath)
+			fmt.Printf("  ✓ Dashboard: http://127.0.0.1:9100\n")
+			fmt.Println()
+			fmt.Println("  Your device will appear in BeaconInfra after the first")
+			fmt.Println("  heartbeat (~30 seconds). View it at https://beaconinfra.dev")
+			fmt.Println()
 			return
 		}
 

@@ -36,8 +36,10 @@ cloud. The cloud is only a key/endpoint coordinator.
 Phase 1 requires the exit node to have a reachable UDP port (port-forwarded on
 your router or a public IP). The default port is 51820/UDP.
 
-Run "beacon vpn enable" on your home device, then "beacon vpn use <home-device>"
-on your laptop or phone to route through it.`,
+Run "beacon vpn enable" on your home device, then connect from another device.
+For laptops/desktops that only need VPN client mode, install the lightweight
+"beacon-vpn" binary and run "beacon-vpn connect <home-device>". Full beacon
+installs can continue to use "beacon vpn use <home-device>".`,
 	}
 
 	enableCmd := &cobra.Command{
@@ -58,8 +60,9 @@ only writes config.`,
 	enableCmd.Flags().Int("listen-port", 51820, "UDP port WireGuard listens on (must be port-forwarded on your router)")
 
 	useCmd := &cobra.Command{
-		Use:   "use <device-name>",
-		Short: "Connect to another Beacon device's exit node",
+		Use:     "use <device-name>",
+		Aliases: []string{"connect"},
+		Short:   "Connect to another Beacon device's exit node",
 		Long: `Mark this device as a VPN client of <device-name>. The master agent will:
   1. Generate a WireGuard key pair if needed
   2. Register with BeaconInfra
@@ -67,10 +70,14 @@ only writes config.`,
   4. Bring up the beacon0 TUN interface and configure the peer
 
 The peer must have run "beacon vpn enable" first.
-The master agent needs root/sudo — this command only writes config.`,
-		Example: `  beacon vpn use my-pi`,
-		Args:    cobra.ExactArgs(1),
-		Run:     runVPNUse,
+The master agent needs root/sudo — this command only writes config.
+
+On client-only laptops/desktops, prefer the standalone beacon-vpn binary:
+  beacon-vpn connect my-pi`,
+		Example: `  beacon vpn use my-pi
+  beacon vpn connect my-pi`,
+		Args: cobra.ExactArgs(1),
+		Run:  runVPNUse,
 	}
 
 	disableCmd := &cobra.Command{
