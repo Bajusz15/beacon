@@ -5,10 +5,11 @@ Beacon can open a **browser-based shell** on the device, relayed through BeaconI
 ## Flow
 
 1. User creates a session in the dashboard (device page → **Open terminal**).
-2. BeaconInfra stores a `terminal_sessions` row and enqueues a `terminal_open` command for the next agent heartbeat.
-3. The agent receives the command, connects to the provided `wss://…/api/terminal/sessions/{id}/agent/ws?token=…` URL with the same credentials as the tunnel (`X-API-Key` + `X-Device-Name` or device token as configured).
-4. A shell runs as the **same user** as the Beacon process (`$SHELL`, then `/bin/bash`, then `/bin/sh`).
-5. The dashboard opens a second WebSocket to `…/browser/ws?access_token=…` and attaches xterm.js.
+2. BeaconInfra stores a `terminal_sessions` row and enqueues a `terminal_open` command.
+3. A connected Beacon agent receives the command immediately over `/api/agent/control/ws`. Older agents, or agents without the control socket connected, receive it on the next heartbeat.
+4. The agent connects to the provided `wss://…/api/terminal/sessions/{id}/agent/ws?token=…` URL with the same credentials as the tunnel (`X-API-Key` + `X-Device-Name` or device token as configured).
+5. A shell runs as the **same user** as the Beacon process (`$SHELL`, then `/bin/bash`, then `/bin/sh`).
+6. The dashboard opens a second WebSocket to `…/browser/ws?access_token=…` and attaches xterm.js.
 
 ## Wire format
 
