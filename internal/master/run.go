@@ -191,6 +191,7 @@ func Run(ctx context.Context) {
 	statusCache.SetVPNManager(vm)
 
 	dispatcher := NewCommandDispatcher(pm, tm)
+	startAgentControl(ctx, uc, dispatcher)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
