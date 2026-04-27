@@ -34,7 +34,7 @@ var rootCmd = &cobra.Command{
 	Short: "Beacon - IoT deployment and monitoring agent",
 	Long: `Beacon is a lightweight agent for self-hosted devices — deploy, monitor, and report health.
 
-  With no subcommand, runs deploy mode (poll Git/Docker). For the local dashboard, use beacon start.
+  With no subcommand, this help is shown. Use beacon start for the master agent (dashboard, tunnels, heartbeats), or beacon deploy to poll Git/Docker for releases.
 
   beacon init      write local ~/.beacon/config.yaml (no network)
   beacon cloud login  save BeaconInfra API key (after local setup)
@@ -287,10 +287,9 @@ var childAgentCmd = &cobra.Command{
 
 var deployCmd = &cobra.Command{
 	Use:   "deploy",
-	Short: "Run beacon in deployment mode (default behavior)",
-	Long: `Run beacon in deployment mode that polls Git repositories for new tags
-and automatically deploys them. This is the default behavior when
-no subcommand is specified.`,
+	Short: "Run beacon in deployment mode (poll Git for new tags and deploy)",
+	Long: `Run beacon in deployment mode: polls Git repositories for new tags
+and automatically deploys them. Must be run explicitly: beacon deploy`,
 	Run: func(cmd *cobra.Command, args []string) {
 		runDeploy()
 	},
@@ -317,9 +316,9 @@ func main() {
 	rootCmd.AddCommand(createVPNCommand())
 	rootCmd.AddCommand(createUpdateCommand())
 
-	// If no subcommand is provided, run in deploy mode
+	// If no subcommand is provided, show help (matches common CLI expectations).
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {
-		runDeploy()
+		_ = cmd.Help()
 	}
 
 	// Execute the root command

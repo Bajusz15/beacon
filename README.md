@@ -72,13 +72,13 @@ beacon init --name my-pi
 
 This creates `~/.beacon/config.yaml` with your device name, metrics port, and an empty project list. No network calls — everything stays local. If you skip `--name`, Beacon auto-detects your hostname.
 
-### 3. Start the master agent
+### 3. Start Beacon
 
 ```bash
 beacon start
 ```
 
-Open **http://localhost:9100** — that’s your local dashboard. Auto-refreshes, no external dependencies, works fully offline.
+This launches the Beacon agent: local dashboard at **http://localhost:9100**, system metrics, project management, and (if logged in) cloud heartbeats. Auto-refreshes, no external dependencies, works fully offline.
 
 ### 4. (Optional) Connect to BeaconInfra cloud
 
@@ -89,7 +89,7 @@ beacon start   # restart to enable heartbeats
 
 The first heartbeat registers your device automatically — no separate signup wizard. To disconnect: `beacon cloud logout`.
 
-> **⚠️ Heads-up:** running plain **`beacon`** (no subcommand) starts **deploy mode** (Git/Docker tag polling) — **not** the dashboard. For the UI + master agent, always use **`beacon start`**.
+> **Note:** running plain **`beacon`** (no subcommand) prints **help**. For the full agent (dashboard, tunnels, heartbeats), use **`beacon start`**. For Git/Docker tag polling, use **`beacon deploy`**.
 
 ---
 
@@ -99,10 +99,10 @@ Once **`beacon start`** is running (and you’ve added projects), you get:
 
 ### 🖥️ Terminal — `beacon status`
 
-Connects to the running master and shows a colored summary:
+Connects to the running agent and shows a colored summary:
 
 ```
-⬡ beacon v0.3.1-beta  ● master running  pid 1847  uptime 14d 3h
+⬡ beacon v0.3.1-beta  ● running  pid 1847  uptime 14d 3h
 
 DEVICE  pi-homelab  192.168.1.42  arm64  Debian 12
 
@@ -121,7 +121,7 @@ Flags: `--json`, `--watch` (refresh every 5s), `--no-color`, `--port <N>`.
 
 ### 🌐 Browser — `http://localhost:9100`
 
-Self-contained HTML dashboard served by the master. No CDN, no external dependencies. Auto-refreshes every 10s.
+Self-contained HTML dashboard served by `beacon start`. No CDN, no external dependencies. Auto-refreshes every 10s.
 
 - `/api/status` — JSON API
 - `/metrics` — Prometheus format
@@ -189,7 +189,7 @@ See [examples/](./examples/) for more bootstrap configs (multi-image, private re
 - `~/.beacon/config/projects/myapp/env` — deploy environment (tokens, paths, commands)
 - `~/.beacon/config/projects/myapp/monitor.yml` — health check config
 - `beacon@myapp.service` — systemd service that runs `beacon deploy` (skipped if systemd unavailable)
-- Appends the project to `~/.beacon/config.yaml` so the master manages it
+- Appends the project to `~/.beacon/config.yaml` so `beacon start` manages it
 
 ### 🔄 How deploy works
 
@@ -230,7 +230,7 @@ checks:
     name: "myapp"
 ```
 
-Wire the project into the master via `~/.beacon/config.yaml`:
+Wire the project into `~/.beacon/config.yaml`:
 
 ```yaml
 projects:
@@ -238,7 +238,7 @@ projects:
     config_path: "/home/user/.beacon/config/projects/myapp/monitor.yml"
 ```
 
-Restart the master and the project appears in `beacon status` and the dashboard.
+Restart Beacon and the project appears in `beacon status` and the dashboard.
 
 ### 🔑 Application secrets
 
@@ -284,11 +284,11 @@ All state lives under **`~/.beacon`** (override with `BEACON_HOME`):
 
 ```
 ~/.beacon/
-  config.yaml                    # Master config + project list
+  config.yaml                    # Agent config + project list
   config/projects/<id>/env       # Per-project deploy environment
   config/projects/<id>/monitor.yml
   state/                         # Check results, deploy status
-  ipc/                           # Master <-> project agent communication
+  ipc/                           # Agent <-> project agent communication
   keys/                          # Encrypted token store (beacon keys)
   logs/
 ```
@@ -303,13 +303,13 @@ Inspect paths: `beacon config show`
 
 | Command | Purpose |
 |---------|---------|
-| `beacon start` | Start master agent (dashboard at :9100, manages projects + tunnels, optional heartbeats) |
+| `beacon start` | Start Beacon (dashboard at :9100, manages projects + tunnels, optional heartbeats) |
 | `beacon status` | Terminal health view from running master (`--json`, `--watch`, `--no-color`) |
 | `beacon init` | Write local `config.yaml` (`--name`, `--metrics-port`; no network) |
 | `beacon cloud login` / `logout` | Enable/disable cloud reporting |
 | `beacon config show` | Print resolved paths, identity, and project count |
 | `beacon bootstrap <name>` | Set up a new project (interactive or `-f config.yml`) |
-| `beacon deploy` | Git/Docker tag polling loop (also the default with no subcommand) |
+| `beacon deploy` | Git/Docker tag polling loop (must be run explicitly) |
 | `beacon monitor [-f config.yml]` | Run one project's health checks (debug) |
 | `beacon projects list\|add\|remove\|status\|info` | Project inventory management |
 | `beacon tunnel add\|list\|enable\|disable` | Manage reverse tunnels for remote access to local services |
@@ -323,7 +323,7 @@ Inspect paths: `beacon config show`
 | `beacon mcp serve` | MCP server for Cursor / Claude Desktop |
 | `beacon version` | Version info |
 
-Hidden: `beacon agent` (project agent process, spawned by master only).
+Hidden: `beacon agent` (project agent process, spawned internally by `beacon start`).
 
 ---
 
@@ -371,7 +371,7 @@ systemctl --user enable --now beacon-master.service
 
 ## 📚 Documentation
 
-- [docs/MASTER_AGENT.md](./docs/MASTER_AGENT.md) — master agent architecture and heartbeats
+- [docs/MASTER_AGENT.md](./docs/MASTER_AGENT.md) — agent architecture and heartbeats
 - [docs/LOG_FORWARDING.md](./docs/LOG_FORWARDING.md) — log forwarding configuration
 - [docs/KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md) — encrypted key store
 - [docs/MCP.md](./docs/MCP.md) — MCP server for editors
@@ -381,7 +381,11 @@ systemctl --user enable --now beacon-master.service
 
 ---
 
-## 🏗️ Architecture (how it fits together)
+## 🏗️ Architecture
+
+`beacon start` runs a single orchestrator process per device. Internally we call this the **master** — it manages everything else but stays deliberately simple: collect system metrics, serve the local dashboard, send heartbeats, and supervise project agents.
+
+The master is **stateless per project** — it doesn't know about Docker or systemd. Each project runs as its own isolated agent process; one crash doesn't affect others. The master auto-restarts failed projects with exponential backoff. Tunnels run as lightweight goroutines inside the master, connecting outbound to the cloud via WebSocket so local services are accessible without opening ports.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -391,6 +395,7 @@ systemctl --user enable --now beacon-master.service
            │ HTTPS                     │ WebSocket
 ┌──────────┴───────────────────────────┴───────────────┐
 │                  beacon start                        │
+│                  (the "master")                       │
 │                                                       │
 │  One per device. Collects system metrics, serves      │
 │  local dashboard (:9100), sends heartbeats.           │
@@ -405,8 +410,6 @@ systemctl --user enable --now beacon-master.service
 │ log tailing  │ │ log tailing │ │ (WS proxy)│ │          │
 └──────────────┘ └─────────────┘ └───────────┘ └──────────┘
 ```
-
-The master is **stateless per project** — it doesn't know about Docker or systemd. Projects are isolated: one crash doesn't affect others. The master auto-restarts failed projects with exponential backoff. Tunnels run as lightweight goroutines inside the master process, connecting outbound to the cloud via WebSocket so local services are accessible without opening ports.
 
 ### BeaconInfra “home away” tunnel (end user)
 
