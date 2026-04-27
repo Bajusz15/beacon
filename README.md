@@ -312,6 +312,10 @@ Inspect paths: `beacon config show`
 | `beacon deploy` | Git/Docker tag polling loop (also the default with no subcommand) |
 | `beacon monitor [-f config.yml]` | Run one project's health checks (debug) |
 | `beacon projects list\|add\|remove\|status\|info` | Project inventory management |
+| `beacon tunnel add\|list\|enable\|disable` | Manage reverse tunnels for remote access to local services |
+| `beacon vpn enable` | Turn this device into a WireGuard exit node (requires port-forward for 51820/UDP) |
+| `beacon vpn use <device>` | Connect to another Beacon device's VPN exit node |
+| `beacon vpn disable` | Tear down VPN interface and deregister |
 | `beacon keys list\|add\|rotate\|delete\|validate` | Encrypted local token store |
 | `beacon alerts init\|status\|test\|acknowledge\|resolve` | Alert routing (webhook JSON + optional SMTP; `--project` required) |
 | `beacon setup-wizard` | Interactive monitor YAML + env helper |
@@ -382,7 +386,7 @@ systemctl --user enable --now beacon-master.service
 ```
 ┌──────────────────────────────────────────────────────┐
 │             BeaconInfra Cloud (optional)              │
-│  heartbeats, commands, tunnel proxy (/home-away/*)    │
+│  heartbeats, commands, tunnel proxy, terminal relay   │
 └──────────┬───────────────────────────┬───────────────┘
            │ HTTPS                     │ WebSocket
 ┌──────────┴───────────────────────────┴───────────────┐
@@ -390,16 +394,16 @@ systemctl --user enable --now beacon-master.service
 │                                                       │
 │  One per device. Collects system metrics, serves      │
 │  local dashboard (:9100), sends heartbeats.           │
-│  Manages project agents (processes) and tunnels       │
-│  (goroutines).                                        │
-└──┬──────────────┬──────────────┬─────────────────────┘
-   │ IPC          │ IPC          │ goroutines
-┌──┴───────────┐ ┌┴────────────┐ ┌┴────────────────────┐
-│ project agent│ │project agent│ │ tunnels              │
-│ myapp        │ │ blog        │ │ homeassistant :8123  │
-│ health checks│ │ health check│ │ nextcloud     :8080  │
-│ log tailing  │ │ log tailing │ │ (reverse WS proxy)   │
-└──────────────┘ └─────────────┘ └──────────────────────┘
+│  Manages project agents (processes), tunnels          │
+│  (goroutines), VPN (WireGuard), and remote terminal.  │
+└──┬──────────────┬──────────────┬──────────┬──────────┘
+   │ IPC          │ IPC          │ goroutine │ WireGuard
+┌──┴───────────┐ ┌┴────────────┐ ┌┴─────────┐ ┌┴─────────┐
+│ project agent│ │project agent│ │ tunnels   │ │ VPN      │
+│ myapp        │ │ blog        │ │ HA  :8123 │ │ beacon0  │
+│ health checks│ │ health check│ │ NC  :8080 │ │ 51820/UDP│
+│ log tailing  │ │ log tailing │ │ (WS proxy)│ │          │
+└──────────────┘ └─────────────┘ └───────────┘ └──────────┘
 ```
 
 The master is **stateless per project** — it doesn't know about Docker or systemd. Projects are isolated: one crash doesn't affect others. The master auto-restarts failed projects with exponential backoff. Tunnels run as lightweight goroutines inside the master process, connecting outbound to the cloud via WebSocket so local services are accessible without opening ports.
@@ -411,7 +415,21 @@ The master is **stateless per project** — it doesn't know about Docker or syst
 3. Run `beacon master` (or restart your systemd unit). Tunnels connect automatically at startup and stay connected with exponential backoff reconnect.
 4. For **Home Assistant**, add `127.0.0.1` to `http` → `trusted_proxies` and use `use_x_forwarded_for: true` so URLs and sessions work behind the tunnel.
 
----
+### WireGuard VPN
+
+Beacon can turn any device into a WireGuard exit node so other devices route traffic through it — useful for accessing your home network from a laptop or phone.
+
+```bash
+# On your home device (needs a port-forwarded UDP port)
+beacon vpn enable --listen-port 51820
+
+# On your laptop or another Beacon device
+beacon vpn use my-home-pi
+```
+
+BeaconInfra coordinates the key exchange (endpoint, public keys) — the actual tunnel is peer-to-peer WireGuard. For laptops/desktops that only need client mode, install the standalone `beacon-vpn` binary instead of the full agent: `beacon-vpn connect my-home-pi`.
+
+Tear down: `beacon vpn disable`.
 
 ---
 
@@ -443,6 +461,7 @@ Everything here works without an internet connection and without signing up for 
 | **Keep your tokens out of config files** | `beacon keys add` — encrypted local token store for Git, Docker, webhooks. |
 | **Expose Home Assistant, Grafana, or any local service to the outside world** (with a BeaconInfra account — no port-forwarding needed) | `beacon tunnel add homeassistant --port 8123` |
 | **Run several tunnels at once** | `beacon tunnel list` / `beacon tunnel enable` / `beacon tunnel disable` |
+| **Route traffic through your home network from your laptop** | `beacon vpn enable` on the exit node, `beacon vpn use <device>` on the client. Peer-to-peer WireGuard. |
 | **Query Beacon from Cursor or Claude Desktop** | `beacon mcp serve` — see [docs/MCP.md](./docs/MCP.md) |
 | **Monitor a Kubernetes cluster** | `beacon source add` with your kubeconfig. |
 | **Manage your project list** | `beacon projects list`, `beacon projects add`, `beacon projects status myapp` |
@@ -463,6 +482,8 @@ Turn it on with `beacon cloud login --api-key usr_…`. Turn it off any time wit
 | **See all your project health in one list** | Every project, every check, across every device. Sorted so the problems come first. |
 | **Trigger a deploy from the browser** | Click "deploy" in the dashboard and Beacon runs your existing deploy script on the device. Your secrets never leave home — the cloud just sends the signal. |
 | **Know when a device goes offline** | If a device stops sending heartbeats, you get notified — even if its last check said everything was fine. |
+| **Open a remote terminal session** | Click "Open terminal" on a device in the dashboard. The cloud relays a shell session (PTY) between your browser and the Beacon agent — no SSH port, no VPN needed. Sessions auto-expire after 15 minutes. |
+| **Route traffic through your home network** | `beacon vpn enable` on your home device + `beacon vpn use my-pi` on your laptop. WireGuard peer exchange happens via BeaconInfra; the actual traffic is peer-to-peer. For client-only machines, use the lightweight `beacon-vpn` binary. |
 
 ### What we don't see
 

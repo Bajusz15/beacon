@@ -9,6 +9,7 @@ import (
 
 	"beacon/internal/identity"
 	"beacon/internal/ipc"
+	"beacon/internal/terminal"
 	"beacon/internal/tunnel"
 )
 
@@ -17,6 +18,7 @@ const (
 	actionVPNEnable     = "vpn_enable"
 	actionVPNUse        = "vpn_use"
 	actionVPNDisable    = "vpn_disable"
+	actionTerminalOpen  = "terminal_open"
 
 	commandTTL = 1 * time.Hour
 )
@@ -139,6 +141,10 @@ func (d *CommandDispatcher) DispatchCommands(commands []HeartbeatCommand) {
 
 		if cmd.Action == actionTunnelConnect {
 			d.dispatchTunnelConnect(cmd)
+			continue
+		}
+		if cmd.Action == actionTerminalOpen {
+			d.dispatchTerminalOpen(cmd)
 			continue
 		}
 		if isVPNAction(cmd.Action) {
@@ -309,4 +315,36 @@ func (d *CommandDispatcher) recordResult(commandID, status, message string) {
 		Message:   message,
 		Timestamp: time.Now(),
 	})
+}
+
+func (d *CommandDispatcher) dispatchTerminalOpen(cmd HeartbeatCommand) {
+	ws, _ := cmd.Payload["ws_url"].(string)
+	if strings.TrimSpace(ws) == "" {
+		d.recordResult(cmd.ID, ipc.ResultFailed, "ws_url required in payload")
+		return
+	}
+	uc, err := identity.LoadUserConfig()
+	if err != nil || uc == nil {
+		d.recordResult(cmd.ID, ipc.ResultFailed, "config unavailable")
+		return
+	}
+	apiKey := strings.TrimSpace(uc.APIKey)
+	if apiKey == "" {
+		d.recordResult(cmd.ID, ipc.ResultFailed, "API key not configured")
+		return
+	}
+	name := strings.TrimSpace(uc.DeviceName)
+	if name == "" {
+		if h, e := os.Hostname(); e == nil {
+			name = strings.TrimSpace(h)
+		}
+	}
+	go func() {
+		err := terminal.RunSession(terminal.RunConfig{WSURL: strings.TrimSpace(ws), APIKey: apiKey, DeviceName: name, CommandID: cmd.ID})
+		if err != nil {
+			d.recordResult(cmd.ID, ipc.ResultFailed, err.Error())
+			return
+		}
+		d.recordResult(cmd.ID, ipc.ResultSuccess, "remote terminal session finished")
+	}()
 }
