@@ -219,7 +219,7 @@ Tear down: `beacon vpn disable`.
 
 ---
 
-## What you can do with Beacon
+## 📖 What you can do with Beacon
 
 Beacon does a lot in one binary. The tables below are a quick tour — if something looks useful, the sections above cover the full setup.
 
@@ -271,7 +271,7 @@ Turn it on with `beacon cloud login --api-key usr_…`. Turn it off any time wit
 | **Open a remote terminal session** | Click "Open terminal" on a device in the dashboard. The cloud relays a shell session (PTY) between your browser and the Beacon agent — no SSH port, no VPN needed. Sessions auto-expire after 15 minutes. |
 | **Route traffic through your home network** | `beacon vpn enable` on your home device + `beacon vpn use my-pi` on your laptop. WireGuard peer exchange happens via BeaconInfra; the actual traffic is peer-to-peer. For client-only machines, use the lightweight `beacon-vpn` binary. |
 
-### What we don't see
+### 🔐 What we don't see
 
 Even with BeaconInfra enabled, some things stay on your device and never touch the cloud:
 
@@ -285,7 +285,7 @@ If you change your mind, `beacon cloud logout` stops all outbound reporting on t
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 `beacon start` runs one orchestrator process per device (the "master"). It collects system metrics, serves the local dashboard, sends heartbeats, and supervises everything else. It's stateless per project — it doesn't know about Docker or systemd.
 
@@ -314,7 +314,7 @@ Projects are isolated: one crash doesn't affect others. The master auto-restarts
 
 ---
 
-## Commands
+## ⌨️ Commands
 
 | Command | Purpose |
 |---------|---------|
@@ -335,7 +335,7 @@ Projects are isolated: one crash doesn't affect others. The master auto-restarts
 
 ---
 
-## Run as a service
+## 🔧 Run as a service
 
 `beacon bootstrap` installs systemd services automatically. For manual setup:
 
@@ -362,7 +362,7 @@ systemctl --user enable --now beacon.service
 
 ---
 
-## Documentation
+## 📚 Documentation
 
 - [docs/MASTER_AGENT.md](./docs/MASTER_AGENT.md) — agent architecture and heartbeats
 - [docs/VPN.md](./docs/VPN.md) — WireGuard VPN setup and security model
