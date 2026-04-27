@@ -10,7 +10,7 @@ BUILD_USER ?= $(shell git config user.email | sed 's/@.*//' | sed 's/[0-9]*+//' 
 CLOUD_API_URL ?= https://beaconinfra.dev/api
 
 # Build flags
-LDFLAGS = -ldflags "-X beacon/internal/version.Version=$(VERSION) -X beacon/internal/version.Commit=$(COMMIT) -X beacon/internal/version.BuildDate=$(BUILD_DATE) -X beacon/internal/version.BuildUser=$(BUILD_USER) -X beacon/internal/cloud.DefaultBeaconInfraAPIURL=$(CLOUD_API_URL)"
+LDFLAGS = -ldflags "-s -w -X beacon/internal/version.Version=$(VERSION) -X beacon/internal/version.Commit=$(COMMIT) -X beacon/internal/version.BuildDate=$(BUILD_DATE) -X beacon/internal/version.BuildUser=$(BUILD_USER) -X beacon/internal/cloud.DefaultBeaconInfraAPIURL=$(CLOUD_API_URL)"
 
 build:
 	go build $(LDFLAGS) -o beacon ./cmd/beacon
