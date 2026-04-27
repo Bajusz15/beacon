@@ -34,20 +34,20 @@ That's `beacon status`. There's also a browser dashboard at `http://localhost:91
 
 ---
 
-## What Beacon does
+## ✨ What Beacon does
 
-- **Remote access** — expose Home Assistant, Grafana, Jellyfin, or any local service to the internet through a reverse tunnel. No port-forwarding, no dynamic DNS, no Nabu Casa subscription. Check your security cameras from your phone while you're away.
-- **Remote terminal** — open a shell on your device from the browser. No SSH port needed, no VPN. The cloud relays a PTY session between your browser and the agent.
-- **Automated deploys** — point Beacon at a Git repo or Docker registry. It polls for new tags, pulls, and runs your deploy script. Push a tag, walk away.
-- **Monitoring** — health checks (HTTP, port, command), CPU/memory/disk/temperature, per-project status, Prometheus metrics. Alerts via webhook (Slack, Discord) or SMTP.
-- **Log forwarding** — tail log files, Docker container logs, or `journalctl` and forward them to the BeaconInfra dashboard. Filter with include/exclude patterns so you only ship what matters.
-- **WireGuard VPN** — turn any Beacon device into a WireGuard exit node. Route traffic through your home network from a laptop with a beacon-vpn client.
+- 🌐 **Remote access** — expose Home Assistant, Grafana, Jellyfin, or any local service to the internet through a reverse tunnel. No port-forwarding, no dynamic DNS, no Nabu Casa subscription. Check your security cameras from your phone while you're away.
+- 🖥️ **Remote terminal** — open a shell on your device from the browser. No SSH port needed, no VPN. The cloud relays a PTY session between your browser and the agent.
+- 🚀 **Automated deploys** — point Beacon at a Git repo or Docker registry. It polls for new tags, pulls, and runs your deploy script. Push a tag, walk away.
+- 📊 **Monitoring** — health checks (HTTP, port, command), CPU/memory/disk/temperature, per-project status, Prometheus metrics. Alerts via webhook (Slack, Discord) or SMTP.
+- 📋 **Log forwarding** — tail log files, Docker container logs, or `journalctl` and forward them to the BeaconInfra dashboard. Filter with include/exclude patterns so you only ship what matters.
+- 🔒 **WireGuard VPN** — turn any Beacon device into a WireGuard exit node. Route traffic through your home network from a laptop with a beacon-vpn client.
 
 Beacon is **local-first**. Everything above except tunnels and remote terminal works without a beaconinfra.dev account. [BeaconInfra](https://beaconinfra.dev) is the optional cloud that adds the multi-device dashboard, tunnels, and remote terminal access. When an API key is configured, `beacon start` sends periodic heartbeats to the cloud with device metrics and project health — the cloud uses these to power the dashboard, detect offline devices, and deliver commands back to the agent.
 
 ---
 
-## Access Home Assistant from anywhere
+## 🏠 Access Home Assistant from anywhere
 
 This is the tunnel flow. Three commands, no port-forwarding, no Nabu Casa.
 
@@ -70,7 +70,7 @@ For Home Assistant specifically, add `127.0.0.1` to `http` → `trusted_proxies`
 
 ---
 
-## Quick Start
+## ⚡ Quick Start
 
 ### 1. Install
 
@@ -107,7 +107,7 @@ The first heartbeat registers your device automatically. To disconnect: `beacon 
 
 ---
 
-## Set up a project
+## 🛠️ Set up a project
 
 Beacon manages your apps end-to-end: clone from Git or pull from Docker, run your deploy command, poll for updates, health check, and tail logs. Each project runs as its own isolated process — one crash doesn't affect others.
 
@@ -191,7 +191,7 @@ Test it: `beacon alerts test --project myapp --severity critical`
 
 ---
 
-## Remote terminal
+## 🖥️ Remote terminal
 
 Open a shell on your device from the BeaconInfra dashboard — no SSH, no VPN, no open ports.
 
@@ -201,7 +201,7 @@ Security: one-time tokens per session (SHA-256 hashed, server stores only the ha
 
 ---
 
-## WireGuard VPN
+## 🔒 WireGuard VPN
 
 Turn any Beacon device into a peer-to-peer WireGuard exit node. Your traffic flows directly between devices — BeaconInfra only coordinates the key exchange and endpoint discovery.
 
