@@ -58,8 +58,11 @@ func CheckForNewGitTag(cfg *config.Config, status *state.Status) {
 	}
 
 	if shouldDeploy {
-		// Clone default branch for initial deployment
-		err := Deploy(cfg, "", status)
+		latestTag := LatestGitTag(cfg)
+		if latestTag == "" {
+			logger.Infof("No Git tags found. Falling back to default branch for initial deployment...")
+		}
+		err := Deploy(cfg, latestTag, status)
 		if err != nil {
 			logger.Infof("Error during initial deployment: %v\n", err)
 			return
@@ -98,10 +101,7 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 		return err
 	}
 
-	repoURL := cfg.RepoURL
-	if cfg.GitToken != "" && len(repoURL) > 8 && repoURL[:8] == "https://" {
-		repoURL = "https://" + cfg.GitToken + "@" + repoURL[8:]
-	}
+	repoURL := authenticatedRepoURL(cfg.RepoURL, cfg.GitToken)
 
 	// Clone the repository
 	// Set working directory to parentDir to avoid "Unable to read current working directory" errors
@@ -199,6 +199,61 @@ func getLatestTagFromRepo(cfg *config.Config) string {
 	return strings.TrimSpace(string(output))
 }
 
+// LatestGitTag returns the newest Git tag visible for cfg.RepoURL.
+// It prefers an existing local checkout so fetch credentials/remotes behave as configured,
+// then falls back to ls-remote for first deployments where LocalPath does not exist yet.
+func LatestGitTag(cfg *config.Config) string {
+	gitToken, err := getGitToken(cfg)
+	if err != nil {
+		logger.Infof("No Git token configured; trying Git operations without a token: %v\n", err)
+	}
+	setupGitAuth(cfg, gitToken)
+
+	if st, err := os.Stat(cfg.LocalPath); err == nil && st.IsDir() {
+		entries, _ := os.ReadDir(cfg.LocalPath)
+		if len(entries) > 0 {
+			if tag := getLatestTagFromRepo(cfg); tag != "" {
+				return tag
+			}
+		}
+	}
+
+	return getLatestTagFromRemote(cfg, gitToken)
+}
+
+func getLatestTagFromRemote(cfg *config.Config, gitToken string) string {
+	repoURL := authenticatedRepoURL(cfg.RepoURL, gitToken)
+	cmd := exec.Command("git", "ls-remote", "--tags", "--sort=-creatordate", repoURL)
+	output, err := cmd.Output()
+	if err != nil {
+		logger.Infof("Error listing remote tags: %v\n", err)
+		return ""
+	}
+
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasSuffix(line, "^{}") {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		ref := strings.TrimPrefix(parts[1], "refs/tags/")
+		if ref != "" {
+			return ref
+		}
+	}
+	return ""
+}
+
+func authenticatedRepoURL(repoURL, gitToken string) string {
+	if gitToken != "" && strings.HasPrefix(repoURL, "https://") {
+		return "https://" + gitToken + "@" + strings.TrimPrefix(repoURL, "https://")
+	}
+	return repoURL
+}
+
 // getGitToken retrieves the Git token from config or key manager
 func getGitToken(cfg *config.Config) (string, error) {
 	// If token is directly specified in config, use it
@@ -222,7 +277,7 @@ func getGitToken(cfg *config.Config) (string, error) {
 		return storedKey.Key, nil
 	}
 
-	return "", fmt.Errorf("no Git token or token_name specified in configuration")
+	return "", nil
 }
 
 // setupGitAuth configures Git authentication based on the provided token

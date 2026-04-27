@@ -55,7 +55,17 @@ func (pm *ProjectManager) Redeploy(projectName string) error {
 
 	fmt.Printf("Deploying %s (%s) from %s\n", projectName, cfg.DeploymentType, cfg.LocalPath)
 
-	if err := deploy.Deploy(cfg, "", status); err != nil {
+	tag := ""
+	if cfg.DeploymentType == "" || cfg.DeploymentType == "git" {
+		tag = deploy.LatestGitTag(cfg)
+		if tag != "" {
+			fmt.Printf("Deploying latest tag: %s\n", tag)
+		} else {
+			fmt.Println("No Git tags found; deploying default branch.")
+		}
+	}
+
+	if err := deploy.Deploy(cfg, tag, status); err != nil {
 		return err
 	}
 

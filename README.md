@@ -304,7 +304,7 @@ Inspect paths: `beacon config show`
 | Command | Purpose |
 |---------|---------|
 | `beacon start` | Start Beacon (dashboard at :9100, manages projects + tunnels, optional heartbeats) |
-| `beacon status` | Terminal health view from running master (`--json`, `--watch`, `--no-color`) |
+| `beacon status` | Terminal health view from running agent (`--json`, `--watch`, `--no-color`) |
 | `beacon init` | Write local `config.yaml` (`--name`, `--metrics-port`; no network) |
 | `beacon cloud login` / `logout` | Enable/disable cloud reporting |
 | `beacon config show` | Print resolved paths, identity, and project count |
