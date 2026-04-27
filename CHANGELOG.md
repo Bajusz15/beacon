@@ -31,7 +31,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **`beacon projects redeploy <name>`** — pull latest code and re-run the deploy command
   for a project. Reads the project location from the inventory and `BEACON_DEPLOY_CMD`
   from the project's env file.
-- **Auto-init on `beacon master`** — if no `~/.beacon/config.yaml` exists, the master
+- **Auto-init on `beacon start`** — if no `~/.beacon/config.yaml` exists, the master
   automatically runs the equivalent of `beacon init` (using system hostname) instead of
   starting with a nil config.
 - **VPN security docs** (`docs/VPN.md`) — full handshake flow diagram showing how
@@ -51,7 +51,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - VPN manager `shutdownLocked` no longer shells out to `ip`/`ifconfig` when no device
   was ever created (avoids unnecessary syscalls on masters that never enable VPN).
 - `beacon vpn enable` now prints the actual device name instead of `<this-device-name>`.
-- `beacon vpn enable` no longer suggests `sudo beacon master` — recommends `setcap` instead
+- `beacon vpn enable` no longer suggests `sudo beacon start` — recommends `setcap` instead
   to avoid spawning child processes as root.
 - `beacon update` creates temp file in the same directory as the binary, fixing
   cross-filesystem rename failures when the binary is in `/usr/local/bin`.

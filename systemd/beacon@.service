@@ -9,7 +9,7 @@
 #
 # Or to create a master service:
 #   beacon cloud login --api-key usr_xxx
-#   beacon master  (will daemonize automatically)
+#   beacon start  (will daemonize automatically)
 
 [Unit]
 Description=Beacon Agent for %i - Lightweight deployment and monitoring

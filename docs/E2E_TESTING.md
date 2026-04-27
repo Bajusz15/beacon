@@ -8,7 +8,7 @@ The Beacon E2E (End-to-End) tests run in a Docker container with a mock Git HTTP
 2. **Cloud credentials** — `beacon cloud login` (non-interactive flags in CI), then `beacon cloud logout`; asserts `cloud_reporting_enabled` toggles and API key is cleared.
 3. **Legacy wizard path** — `beacon setup-wizard` with expect (optional; requires `expect`).
 4. **Bootstrap → deploy → monitor** — config-file bootstrap, clone, tag polling, and monitor parsing.
-5. **Alerts webhook** — `beacon alerts init` / `beacon alerts test` against a mock HTTP server; asserts JSON payload fields. **CLI smoke** — `beacon master`, `status`, `projects list`, `keys list`, and `beacon alerts init --help`.
+5. **Alerts webhook** — `beacon alerts init` / `beacon alerts test` against a mock HTTP server; asserts JSON payload fields. **CLI smoke** — `beacon start`, `status`, `projects list`, `keys list`, and `beacon alerts init --help`.
 
 The primary user journey documented in the README is **local master → projects → optional cloud**; the wizard remains an optional helper for generating monitor YAML.
 
@@ -199,7 +199,7 @@ The script will:
 
 ## Alert webhook E2E
 
-The shell suite (`tests/e2e/test-cli.sh`) starts a small Go mock HTTP server (`tests/e2e/mock-webhook`), runs `beacon alerts init` and `beacon alerts test` with `WEBHOOK_URL` set, and asserts `/tmp/beacon-e2e-webhook.log` contains the JSON fields `schema_version` and `project_id`. It also smoke-tests `beacon master`, `beacon status`, `beacon projects list`, `beacon keys list`, and `beacon alerts init --help`.
+The shell suite (`tests/e2e/test-cli.sh`) starts a small Go mock HTTP server (`tests/e2e/mock-webhook`), runs `beacon alerts init` and `beacon alerts test` with `WEBHOOK_URL` set, and asserts `/tmp/beacon-e2e-webhook.log` contains the JSON fields `schema_version` and `project_id`. It also smoke-tests `beacon start`, `beacon status`, `beacon projects list`, `beacon keys list`, and `beacon alerts init --help`.
 
 ## Future Improvements
 

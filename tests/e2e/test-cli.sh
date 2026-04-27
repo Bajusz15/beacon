@@ -1113,7 +1113,7 @@ test_alerts_webhook() {
 # CLI smoke: subcommands register and --help works
 test_cli_smoke() {
     log_info "Smoke-testing CLI help for master, status, projects, keys..."
-    beacon master --help >/dev/null || { log_error "beacon master --help failed"; exit 1; }
+    beacon start --help >/dev/null || { log_error "beacon start --help failed"; exit 1; }
     beacon status --help >/dev/null || { log_error "beacon status --help failed"; exit 1; }
     beacon projects list --help >/dev/null || { log_error "beacon projects list --help failed"; exit 1; }
     beacon keys list --help >/dev/null || { log_error "beacon keys list --help failed"; exit 1; }

@@ -8,7 +8,7 @@ Beacon has two complementary reporting mechanisms:
 
 | Component | Scope | Purpose |
 |-----------|-------|---------|
-| `beacon master` | Machine-wide | Device heartbeats, machine health |
+| `beacon start` | Machine-wide | Device heartbeats, machine health |
 | `beacon monitor` | Per-project | Project health checks, logs, metrics |
 
 The master agent is ideal when you want:
@@ -46,7 +46,7 @@ To stop sending heartbeats and remove the stored key, run **`beacon cloud logout
 
 ```bash
 # Run in foreground (for testing)
-beacon master
+beacon start
 
 # Or use systemd (recommended)
 systemctl --user start beacon-master.service
@@ -118,7 +118,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/beacon master
+ExecStart=/usr/local/bin/beacon start
 Restart=on-failure
 RestartSec=30
 
@@ -179,7 +179,7 @@ The `device_id` is cached in `~/.beacon/config.yaml` for subsequent requests.
 
 ## Master vs Monitor Heartbeats
 
-You can run both `beacon master` and `beacon monitor` with heartbeats enabled:
+You can run both `beacon start` and `beacon monitor` with heartbeats enabled:
 
 | Scenario | master | monitor heartbeat | Use Case |
 |----------|--------|-------------------|----------|
@@ -238,7 +238,7 @@ Check for configuration errors:
 
 ```bash
 # Test manually
-beacon master
+beacon start
 
 # Check logs
 journalctl --user -u beacon-master.service --no-pager -n 50

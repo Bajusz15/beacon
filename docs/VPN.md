@@ -113,13 +113,13 @@ client. Substitute your own device names.
 ### Prerequisites
 
 - Both devices have Beacon installed and `beacon cloud login` done (same account)
-- Both devices have run `beacon master` at least once (so they're registered)
+- Both devices have run `beacon start` at least once (so they're registered)
 - You have access to your home router's port forwarding settings
 
 ### 0. Grant network capabilities (Linux only, one-time)
 
 The master agent needs `CAP_NET_ADMIN` and `CAP_NET_RAW` to create TUN devices
-and set up iptables NAT. **Do not run `sudo beacon master`** — that runs the
+and set up iptables NAT. **Do not run `sudo beacon start`** — that runs the
 entire process tree as root, including all child project agents.
 
 Instead, grant just the capabilities the binary needs:
@@ -128,7 +128,7 @@ Instead, grant just the capabilities the binary needs:
 sudo setcap cap_net_admin,cap_net_raw+eip $(which beacon)
 ```
 
-After this, `beacon master` works without sudo. You only need to re-run `setcap`
+After this, `beacon start` works without sudo. You only need to re-run `setcap`
 after updating the binary (`beacon update`).
 
 On macOS this step is not needed — `utun` devices are unprivileged.
@@ -137,7 +137,7 @@ On macOS this step is not needed — `utun` devices are unprivileged.
 
 ```bash
 # Start the master agent (or use systemd for auto-start)
-beacon master --foreground
+beacon start --foreground
 ```
 
 In another terminal:
@@ -194,7 +194,7 @@ on the carrier's network — same as being at a cafe.
 
 ```bash
 # On your laptop (connected to phone hotspot, NOT home WiFi):
-beacon master --foreground
+beacon start --foreground
 ```
 
 In another terminal:
@@ -331,7 +331,7 @@ the config and needs `CAP_NET_ADMIN` (see setup step 0).
 
 ## Troubleshooting
 
-`beacon vpn status` says "unavailable" — is `beacon master` running? The CLI
+`beacon vpn status` says "unavailable" — is `beacon start` running? The CLI
 reads live state from the master's `/api/status` endpoint. If the master isn't
 running, only the static config is shown.
 
@@ -342,7 +342,7 @@ your user's `~/.beacon/config.yaml`. Fix: `beacon vpn enable` (no sudo).
 
 **No handshake after a minute** — check that:
 1. UDP `51820` (or your custom port) is forwarded on the exit node's router.
-2. The exit node's `beacon master` is running.
+2. The exit node's `beacon start` is running.
 3. `sudo iptables -t nat -L POSTROUTING` shows the MASQUERADE rule on the exit node.
 4. `ip addr show beacon0` shows the assigned `10.13.37.x` address on both ends.
 

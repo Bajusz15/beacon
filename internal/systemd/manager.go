@@ -305,7 +305,7 @@ func (sm *ServiceManager) masterServiceUnitPath() string {
 	return filepath.Join("/etc/systemd/system", masterServiceFile)
 }
 
-// CreateMasterService installs a project-independent unit that runs `beacon master` (cloud reporting).
+// CreateMasterService installs a project-independent unit that runs `beacon start` (cloud reporting).
 func (sm *ServiceManager) CreateMasterService(execStart, workingDir string) error {
 	if strings.TrimSpace(execStart) == "" {
 		return fmt.Errorf("execStart is empty")
@@ -331,7 +331,7 @@ func (sm *ServiceManager) generateMasterServiceContent(execStart, workingDir str
 		wantedBy = "multi-user.target"
 	}
 	// systemd requires absolute paths; WorkingDirectory must exist for the user running the service.
-	// --foreground is required because beacon master daemonizes by default, but systemd manages the lifecycle.
+	// --foreground is required because beacon start daemonizes by default, but systemd manages the lifecycle.
 	return fmt.Sprintf(`[Unit]
 Description=Beacon master agent (cloud health reporting, project-independent)
 After=network-online.target

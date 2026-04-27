@@ -105,7 +105,7 @@ func runCloudLogin(cmd *cobra.Command, args []string) {
 	fmt.Println()
 	fmt.Println("  Next step — start Beacon:")
 	fmt.Println()
-	fmt.Println("    beacon master")
+	fmt.Println("    beacon start")
 	fmt.Println()
 	fmt.Println("  Your device will appear automatically in BeaconInfra")
 	fmt.Println("  after the first heartbeat (~30 seconds).")

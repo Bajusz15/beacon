@@ -127,11 +127,11 @@ func runVPNEnable(cmd *cobra.Command, args []string) {
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Printf("  1. Forward UDP port %d on your router to this device.\n", listenPort)
-	fmt.Println("  2. Make sure beacon master is running with NET_ADMIN capability.")
+	fmt.Println("  2. Make sure beacon start is running with NET_ADMIN capability.")
 	fmt.Println("     Grant capabilities (one-time, re-run after each binary update):")
 	fmt.Println("       sudo setcap cap_net_admin,cap_net_raw+eip $(which beacon)")
 	fmt.Println("     Then run without sudo:")
-	fmt.Println("       beacon master --foreground")
+	fmt.Println("       beacon start --foreground")
 	deviceName := ""
 	if uc, err := identity.LoadUserConfig(); err == nil && uc != nil && uc.DeviceName != "" {
 		deviceName = uc.DeviceName
@@ -207,7 +207,7 @@ func runVPNStatus(cmd *cobra.Command, args []string) {
 			_, _ = fmt.Fprintf(w, "Error:\t%s\n", live.Error)
 		}
 	} else {
-		_, _ = fmt.Fprintln(w, "Live state:\tunavailable (is `beacon master` running?)")
+		_, _ = fmt.Fprintln(w, "Live state:\tunavailable (is `beacon start` running?)")
 	}
 }
 

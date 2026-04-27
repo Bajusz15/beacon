@@ -426,7 +426,7 @@ func (bm *BootstrapManager) displaySuccessMessage(config *BootstrapConfig, syste
 		fmt.Printf("   cp beacon.monitor.example.yml %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
 		fmt.Println("   # Optional: beacon setup-wizard generates a monitor YAML elsewhere — copy or merge checks into the path above.")
 		fmt.Println("5. Run the master agent (spawns child agents per project; local dashboard):")
-		fmt.Println("   beacon master")
+		fmt.Println("   beacon start")
 		fmt.Println("   # In another terminal: beacon status")
 		fmt.Println("6. Debug a single project’s monitor without the master (optional):")
 		fmt.Printf("   beacon monitor -f %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
@@ -439,7 +439,7 @@ func (bm *BootstrapManager) displaySuccessMessage(config *BootstrapConfig, syste
 		fmt.Println("3. Add health checks (monitor config):")
 		fmt.Printf("   cp beacon.monitor.example.yml %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
 		fmt.Println("4. Run the master agent:")
-		fmt.Println("   beacon master")
+		fmt.Println("   beacon start")
 		fmt.Println("5. Optional — debug monitor only:")
 		fmt.Printf("   beacon monitor -f %s\n", bm.paths.GetProjectMonitorFile(config.ProjectName))
 	}

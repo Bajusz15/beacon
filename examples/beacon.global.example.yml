@@ -1,7 +1,7 @@
 # Machine-wide settings (~/.beacon/config/global.yml).
 # Created on first `beacon bootstrap` (interactive prompt or bootstrap YAML).
 #
-# The master agent (`beacon master`, systemd beacon-master.service) reads this file.
+# The master agent (`beacon start`, systemd beacon-master.service) reads this file.
 
 cloud_reporting_enabled: true
 heartbeat_interval: 60s

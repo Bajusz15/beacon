@@ -18,6 +18,31 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+var allowedShells = map[string]bool{
+	"/bin/sh":       true,
+	"/bin/bash":     true,
+	"/bin/zsh":      true,
+	"/bin/ash":      true,
+	"/bin/dash":     true,
+	"/usr/bin/bash": true,
+	"/usr/bin/zsh":  true,
+	"/usr/bin/fish": true,
+}
+
+func safeShell() (string, error) {
+	if s := strings.TrimSpace(os.Getenv("SHELL")); s != "" && allowedShells[s] {
+		if _, err := os.Stat(s); err == nil {
+			return s, nil
+		}
+	}
+	for _, fallback := range []string{"/bin/bash", "/bin/sh"} {
+		if _, err := os.Stat(fallback); err == nil {
+			return fallback, nil
+		}
+	}
+	return "", fmt.Errorf("no suitable shell found")
+}
+
 // RunSession dials the cloud terminal WebSocket and relays a local shell until disconnect.
 func RunSession(cfg RunConfig) error {
 	if strings.TrimSpace(cfg.WSURL) == "" {
@@ -38,17 +63,11 @@ func RunSession(cfg RunConfig) error {
 	}
 	defer func() { _ = conn.Close() }()
 
-	shell := os.Getenv("SHELL")
-	if strings.TrimSpace(shell) == "" {
-		shell = "/bin/bash"
+	shell, err := safeShell()
+	if err != nil {
+		return err
 	}
-	if _, err := os.Stat(shell); err != nil {
-		shell = "/bin/sh"
-	}
-	if _, err := os.Stat(shell); err != nil {
-		return fmt.Errorf("no suitable shell: %w", err)
-	}
-	c := exec.Command(shell, "-l")
+	c := exec.Command(shell, "-l") // #nosec G702 -- shell is validated by safeShell allow-list
 	c.Env = os.Environ()
 	if wd, err := os.Getwd(); err == nil {
 		c.Dir = wd

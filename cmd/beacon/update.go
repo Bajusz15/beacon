@@ -58,7 +58,7 @@ if an update is available without installing it.`,
 			}
 
 			fmt.Printf("Updated to %s\n", info.Tag)
-			fmt.Println("Restart beacon master to use the new version.")
+			fmt.Println("Restart beacon start to use the new version.")
 		},
 	}
 

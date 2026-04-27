@@ -34,11 +34,11 @@ var rootCmd = &cobra.Command{
 	Short: "Beacon - IoT deployment and monitoring agent",
 	Long: `Beacon is a lightweight agent for self-hosted devices — deploy, monitor, and report health.
 
-  With no subcommand, runs deploy mode (poll Git/Docker). For the local dashboard, use beacon master.
+  With no subcommand, runs deploy mode (poll Git/Docker). For the local dashboard, use beacon start.
 
   beacon init      write local ~/.beacon/config.yaml (no network)
   beacon cloud login  save BeaconInfra API key (after local setup)
-  beacon master    start the master agent — manages projects, tunnels, local dashboard
+  beacon start     start the master agent — manages projects, tunnels, local dashboard
   beacon bootstrap set up a new project (interactive or from a config file)
   beacon monitor   run a single project's health checks (dev/debug)
   beacon deploy    poll a Git repo for new tags and deploy
@@ -63,11 +63,11 @@ var restartCmd = &cobra.Command{
 	Use:   "restart [service]",
 	Short: "Restart beacon services",
 	Long: `Restart beacon services. If no service is specified, restarts the deploy service.
-Available services: deploy, monitor, master (cloud agent: systemctl --user restart beacon-master.service)`,
+Available services: deploy, monitor, start (cloud agent: systemctl --user restart beacon.service)`,
 	Example: `  beacon restart
   beacon restart deploy
   beacon restart monitor
-  beacon restart master`,
+  beacon restart start`,
 	Run: func(cmd *cobra.Command, args []string) {
 		service := "deploy"
 		if len(args) > 0 {
@@ -81,10 +81,10 @@ Available services: deploy, monitor, master (cloud agent: systemctl --user resta
 		case "monitor":
 			logger.Infof("Restarting monitor service...")
 			logger.Infof("Monitor service restart requested")
-		case "master":
-			logger.Infof("Restart master: systemctl --user restart beacon-master.service")
+		case "start", "master":
+			logger.Infof("Restart master: systemctl --user restart beacon.service")
 		default:
-			logger.Infof("Unknown service: %s. Available services: deploy, monitor, master\n", service)
+			logger.Infof("Unknown service: %s. Available services: deploy, monitor, start\n", service)
 			os.Exit(1)
 		}
 	},
@@ -162,8 +162,9 @@ Environment: BEACON_DEVICE_NAME for default device name when --name is omitted.`
 }
 
 var masterCmd = &cobra.Command{
-	Use:   "master",
-	Short: "Start the master agent (detaches to background by default)",
+	Use:     "start",
+	Aliases: []string{"master"},
+	Short:   "Start the master agent (detaches to background by default)",
 	Long: `Reads ~/.beacon/config.yaml, manages project agents and tunnel connections,
 serves a local dashboard, and sends heartbeats to BeaconInfra cloud.
 
@@ -179,8 +180,8 @@ in the foreground (useful for systemd, Docker, or debugging).`,
 				logger.Fatalf("Cannot find executable: %v", err)
 			}
 
-			// Build args: beacon master --foreground (pass through any other flags)
-			childArgs := []string{"master", "--foreground"}
+			// Build args: beacon start --foreground (pass through any other flags)
+			childArgs := []string{"start", "--foreground"}
 
 			logPath := filepath.Join(os.Getenv("HOME"), ".beacon", "master.log")
 			if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
@@ -205,7 +206,7 @@ in the foreground (useful for systemd, Docker, or debugging).`,
 			_ = p.Release()
 
 			fmt.Println()
-			fmt.Printf("  ✓ Beacon master started (pid %d)\n", p.Pid)
+			fmt.Printf("  ✓ Beacon started (pid %d)\n", p.Pid)
 			fmt.Printf("  ✓ Logs: %s\n", logPath)
 			fmt.Printf("  ✓ Dashboard: http://127.0.0.1:9100\n")
 			fmt.Println()

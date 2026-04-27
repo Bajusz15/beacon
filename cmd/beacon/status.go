@@ -33,7 +33,7 @@ const (
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show master and project health",
-	Long: `Connects to the running beacon master's local HTTP server (default port 9100)
+	Long: `Connects to the running beacon start's local HTTP server (default port 9100)
 and renders a colored terminal status report.
 
 If the master is not running, prints a helpful error and exits non-zero.`,
@@ -81,7 +81,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		snap, err = fetchStatus(port)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\033[2J\033[H") // clear screen
-			fmt.Fprintf(os.Stderr, "%sbeacon master unreachable%s\n", colorRed, colorReset)
+			fmt.Fprintf(os.Stderr, "%sbeacon start unreachable%s\n", colorRed, colorReset)
 			continue
 		}
 		fmt.Print("\033[2J\033[H") // clear screen, move cursor home
@@ -100,8 +100,8 @@ func fetchStatus(port int) (*master.StatusSnapshot, error) {
 			strings.Contains(err.Error(), "connect: connection refused") ||
 			strings.Contains(err.Error(), "No connection could be made") {
 			return nil, fmt.Errorf(
-				"beacon master is not running (nothing on port %d)\n\n"+
-					"  Start it with:  beacon master\n"+
+				"beacon start is not running (nothing on port %d)\n\n"+
+					"  Start it with:  beacon start\n"+
 					"  Or as a service: systemctl --user start beacon-master.service", port)
 		}
 		return nil, fmt.Errorf("connecting to master on port %d: %w", port, err)

@@ -22,7 +22,7 @@ func createTunnelCommand() *cobra.Command {
 		Long: `Manage reverse tunnels that expose local services (e.g., Home Assistant)
 through BeaconInfra cloud without opening ports on your device.
 
-Tunnels are active when the master agent is running (beacon master).`,
+Tunnels are active when the master agent is running (beacon start).`,
 	}
 
 	addCmd := &cobra.Command{
