@@ -177,6 +177,8 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 			c.handleWSClose(msg)
 		case MsgPing:
 			c.sendMessage(&Message{Type: MsgPong})
+		case MsgPong:
+			// Keepalive response from BeaconInfra.
 		default:
 			c.log.Warnf("Unknown message type: %s", msg.Type)
 		}
@@ -184,6 +186,8 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 }
 
 func (c *Client) handleHTTPRequest(msg Message) {
+	c.log.Infof("HTTP request from cloud method=%s path=%s headers=%s body_b64_bytes=%d",
+		msg.Method, safeTunnelLogPath(msg.Path), proxyHeaderSummary(msg.Headers), len(msg.Body))
 	resp, err := ProxyHTTPRequest(c.cfg.Dial, &msg)
 	if err != nil {
 		c.log.Errorf("Proxy error for %s %s: %v", msg.Method, msg.Path, err)
@@ -194,10 +198,15 @@ func (c *Client) handleHTTPRequest(msg Message) {
 			Error:     err.Error(),
 		}
 	}
+	if resp != nil {
+		c.log.Infof("HTTP response to cloud method=%s path=%s status=%d error=%q body_b64_bytes=%d",
+			msg.Method, safeTunnelLogPath(msg.Path), resp.Status, resp.Error, len(resp.Body))
+	}
 	c.sendMessage(resp)
 }
 
 func (c *Client) handleWSOpen(ctx context.Context, msg Message) {
+	c.log.Infof("WS open requested path=%s stream=%s headers=%s", safeTunnelLogPath(msg.Path), msg.StreamID, proxyHeaderSummary(msg.Headers))
 	localConn, err := ProxyWSOpen(ctx, c.cfg.Dial, msg.Path, msg.Headers)
 	if err != nil {
 		c.log.Errorf("WS open failed for %s: %v", msg.Path, err)
@@ -210,6 +219,7 @@ func (c *Client) handleWSOpen(ctx context.Context, msg Message) {
 	}
 
 	c.streams.Store(msg.StreamID, localConn)
+	c.log.Infof("WS open succeeded path=%s stream=%s", safeTunnelLogPath(msg.Path), msg.StreamID)
 	c.sendMessage(&Message{
 		Type:     MsgWSOpenResult,
 		StreamID: msg.StreamID,
@@ -221,12 +231,15 @@ func (c *Client) handleWSOpen(ctx context.Context, msg Message) {
 			_ = localConn.Close()
 			c.streams.Delete(msg.StreamID)
 			c.sendMessage(&Message{Type: MsgWSClose, StreamID: msg.StreamID})
+			c.log.Infof("WS upstream stream closed path=%s stream=%s", safeTunnelLogPath(msg.Path), msg.StreamID)
 		}()
 		for {
 			msgType, data, err := localConn.ReadMessage()
 			if err != nil {
+				c.log.Warnf("WS upstream read ended path=%s stream=%s err=%v", safeTunnelLogPath(msg.Path), msg.StreamID, err)
 				return
 			}
+			c.log.Infof("WS upstream -> cloud path=%s stream=%s frame_type=%d bytes=%d", safeTunnelLogPath(msg.Path), msg.StreamID, msgType, len(data))
 			c.sendMessage(&Message{
 				Type:        MsgWSFrame,
 				StreamID:    msg.StreamID,
@@ -240,24 +253,31 @@ func (c *Client) handleWSOpen(ctx context.Context, msg Message) {
 func (c *Client) handleWSFrame(msg Message) {
 	val, ok := c.streams.Load(msg.StreamID)
 	if !ok {
+		c.log.Warnf("WS frame for unknown stream=%s frame_type=%d payload_b64_bytes=%d", msg.StreamID, msg.WSFrameType, len(msg.WSPayload))
 		return
 	}
 	localConn := val.(*websocket.Conn)
 
 	data, err := base64.StdEncoding.DecodeString(msg.WSPayload)
 	if err != nil {
+		c.log.Warnf("WS frame decode failed stream=%s err=%v", msg.StreamID, err)
 		return
 	}
-	_ = localConn.WriteMessage(msg.WSFrameType, data)
+	c.log.Infof("WS cloud -> upstream stream=%s frame_type=%d bytes=%d", msg.StreamID, msg.WSFrameType, len(data))
+	if err := localConn.WriteMessage(msg.WSFrameType, data); err != nil {
+		c.log.Warnf("WS upstream write failed stream=%s frame_type=%d bytes=%d err=%v", msg.StreamID, msg.WSFrameType, len(data), err)
+	}
 }
 
 func (c *Client) handleWSClose(msg Message) {
 	val, ok := c.streams.LoadAndDelete(msg.StreamID)
 	if !ok {
+		c.log.Infof("WS close for unknown stream=%s", msg.StreamID)
 		return
 	}
 	localConn := val.(*websocket.Conn)
 	_ = localConn.Close()
+	c.log.Infof("WS close from cloud stream=%s", msg.StreamID)
 }
 
 func (c *Client) sendMessage(msg *Message) {
