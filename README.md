@@ -36,7 +36,7 @@ That's `beacon status`. There's also a browser dashboard at `http://localhost:91
 
 ## ✨ What Beacon does
 
-- 🌐 **Remote access** — expose Home Assistant, Grafana, Jellyfin, or any local service to the internet through a reverse tunnel. No port-forwarding, no dynamic DNS, no Nabu Casa subscription. Check your security cameras from your phone while you're away.
+- 🌐 **Remote access** — securely access Home Assistant, Grafana, Jellyfin, or any local service from anywhere through your BeaconInfra account. The tunnel connects outbound from your device — no open ports, no dynamic DNS, no Nabu Casa subscription. Authenticated with short-lived tokens; only you can reach your services.
 - 🖥️ **Remote terminal** — open a shell on your device from the browser. No SSH port needed, no VPN. The cloud relays a PTY session between your browser and the agent.
 - 🚀 **Automated deploys** — point Beacon at a Git repo or Docker registry. It polls for new tags, pulls, and runs your deploy script. Push a tag, walk away.
 - 📊 **Monitoring** — health checks (HTTP, port, command), CPU/memory/disk/temperature, per-project status, Prometheus metrics. Alerts via webhook (Slack, Discord) or SMTP.
@@ -245,7 +245,7 @@ Everything here works without an internet connection and without signing up for 
 | **Test your alert setup without waiting for an outage** | `beacon alerts test --project myapp --severity critical` |
 | **Forward logs** from a file, a Docker container, or `journalctl` | Add a `log_sources:` block to your `monitor.yml`. Filter with include/exclude patterns so you only ship what you care about. |
 | **Keep your tokens out of config files** | `beacon keys add` — encrypted local token store for Git, Docker, webhooks. |
-| **Expose Home Assistant, Grafana, or any local service to the outside world** (with a BeaconInfra account — no port-forwarding needed) | `beacon tunnel add homeassistant --port 8123` |
+| **Access Home Assistant, Grafana, or any local service remotely** (with a BeaconInfra account — authenticated, no port-forwarding needed) | `beacon tunnel add homeassistant --port 8123` |
 | **Run several tunnels at once** | `beacon tunnel list` / `beacon tunnel enable` / `beacon tunnel disable` |
 | **Route traffic through your home network from your laptop** | `beacon vpn enable` on the exit node, `beacon vpn use <device>` on the client. Peer-to-peer WireGuard. |
 | **Query Beacon from Cursor or Claude Desktop** | `beacon mcp serve` — see [docs/MCP.md](./docs/MCP.md) |
