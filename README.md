@@ -66,7 +66,17 @@ Your Home Assistant is now accessible from the BeaconInfra dashboard — on your
 
 The same tunnel works for Grafana, Jellyfin, Pi-hole, Nextcloud, your NAS admin page, a staging server — anything that speaks HTTP on your LAN.
 
-For Home Assistant specifically, add `127.0.0.1` to `http` → `trusted_proxies` and set `use_x_forwarded_for: true` in your HA config.
+**Home Assistant setup:** HA blocks proxied requests by default. Add this to your `configuration.yaml` (the file inside your HA config volume):
+
+```yaml
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 127.0.0.1
+    - 172.16.0.0/12   # Docker bridge network — needed if HA runs in a container
+```
+
+Then restart Home Assistant. Without this, the tunnel connects but HA shows "can't connect to Home Assistant" because it rejects the proxied WebSocket.
 
 ---
 

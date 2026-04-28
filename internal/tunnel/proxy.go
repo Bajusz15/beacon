@@ -27,7 +27,7 @@ var tunnelHTTPClient = &http.Client{
 func skipLoopbackProxyHeader(lower string) bool {
 	switch lower {
 	case "connection", "upgrade", "keep-alive", "proxy-connection",
-		"transfer-encoding", "te", "trailer",
+		"transfer-encoding", "te", "trailer", "content-length",
 		"host",
 		"cookie", "authorization",
 		"x-forwarded-host", "x-forwarded-server", "forwarded",
@@ -64,9 +64,10 @@ func ProxyHTTPRequest(dt DialTarget, msg *Message) (*Message, error) {
 		}, nil
 	}
 
-	var bodyReader io.Reader
+	var bodyBytes []byte
 	if msg.Body != "" {
-		decoded, err := base64.StdEncoding.DecodeString(msg.Body)
+		var err error
+		bodyBytes, err = base64.StdEncoding.DecodeString(msg.Body)
 		if err != nil {
 			return &Message{
 				Type:      MsgHTTPResponse,
@@ -75,21 +76,23 @@ func ProxyHTTPRequest(dt DialTarget, msg *Message) (*Message, error) {
 				Error:     "failed to decode request body",
 			}, nil
 		}
-		bodyReader = strings.NewReader(string(decoded))
 	}
 
 	var reqBody io.ReadCloser
-	if bodyReader != nil {
-		reqBody = io.NopCloser(bodyReader)
+	var contentLength int64
+	if len(bodyBytes) > 0 {
+		reqBody = io.NopCloser(strings.NewReader(string(bodyBytes)))
+		contentLength = int64(len(bodyBytes))
 	}
 	req := &http.Request{
-		Method:     method,
-		URL:        target,
-		Proto:      "HTTP/1.1",
-		ProtoMajor: 1,
-		ProtoMinor: 1,
-		Header:     make(http.Header),
-		Body:       reqBody,
+		Method:        method,
+		URL:           target,
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Header:        make(http.Header),
+		Body:          reqBody,
+		ContentLength: contentLength,
 	}
 
 	for k, v := range msg.Headers {
