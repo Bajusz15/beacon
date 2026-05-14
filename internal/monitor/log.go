@@ -1140,6 +1140,9 @@ func (lm *LogManager) reportLogs(logs []LogEntry) {
 
 	req.Header.Set("Content-Type", "application/json")
 	setAgentAuthHeaders(req, secret)
+	if deviceName := strings.TrimSpace(lm.config.Device.Name); deviceName != "" {
+		req.Header.Set("X-Device-Name", deviceName)
+	}
 
 	resp, err := lm.httpClient.Do(req)
 	if err != nil {

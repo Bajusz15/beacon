@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -67,8 +68,13 @@ func runAgentControl(ctx context.Context, base, apiKey, deviceName string, dispa
 		HandshakeTimeout: controlHandshakeTimeout,
 		Proxy:            http.ProxyFromEnvironment,
 	}
-	conn, _, err := dialer.DialContext(ctx, base+"/agent/control/ws", headers)
+	conn, resp, err := dialer.DialContext(ctx, base+"/agent/control/ws", headers)
 	if err != nil {
+		if resp != nil {
+			defer func() { _ = resp.Body.Close() }()
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+			return fmt.Errorf("dial: %w (status=%d body=%q)", err, resp.StatusCode, strings.TrimSpace(string(body)))
+		}
 		return fmt.Errorf("dial: %w", err)
 	}
 	defer func() { _ = conn.Close() }()

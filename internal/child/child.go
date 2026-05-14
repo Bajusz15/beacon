@@ -1,5 +1,5 @@
-// Package child implements the child agent that runs health checks and reports to the master via IPC.
-// The child agent is spawned by the master with `beacon agent` and never communicates directly with the cloud.
+// Package child implements the child agent that runs project checks, log collection,
+// and reports health to the master via IPC.
 package child
 
 import (
@@ -44,6 +44,7 @@ type Child struct {
 	ipcWriter  *ipc.Writer
 	startedAt  time.Time
 	log        *logging.Logger
+	logManager *monitor.LogManager
 
 	results    map[string]*checkResult
 	resultsMux sync.RWMutex
@@ -159,6 +160,7 @@ func New(cfg *Config) (*Child, error) {
 		ipcWriter:  ipcWriter,
 		startedAt:  time.Now(),
 		log:        logging.New(cfg.ProjectID),
+		logManager: monitor.NewLogManager(monitorCfg, http.DefaultClient, nil),
 		results:    make(map[string]*checkResult),
 		ctx:        ctx,
 		cancel:     cancel,
@@ -182,6 +184,10 @@ func (c *Child) Run() error {
 	}
 	// Write initial health report with check results
 	c.writeHealthReport()
+
+	if len(c.monitorCfg.LogSources) > 0 && c.monitorCfg.Report.SendTo != "" && c.monitorCfg.Report.Token != "" {
+		c.logManager.StartLogCollection(c.ctx)
+	}
 
 	// Start health check loops for each configured check
 	var wg sync.WaitGroup
@@ -210,6 +216,12 @@ func (c *Child) Run() error {
 	// Wait for shutdown signal
 	<-sigChan
 	c.logger().Infof("Shutdown signal received, stopping...")
+
+	if len(c.monitorCfg.LogSources) > 0 && c.monitorCfg.Report.SendTo != "" && c.monitorCfg.Report.Token != "" {
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		c.logManager.FlushAndStop(flushCtx)
+		flushCancel()
+	}
 
 	c.cancel()
 	wg.Wait()

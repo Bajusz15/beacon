@@ -61,13 +61,20 @@ func skipLoopbackProxyHeader(lower string) bool {
 		"transfer-encoding", "te", "trailer", "content-length",
 		"host",
 		"cookie", "authorization",
-		"x-forwarded-host", "x-forwarded-server", "forwarded",
+		"x-forwarded-server", "forwarded",
 		"sec-websocket-key", "sec-websocket-version", "sec-websocket-extensions",
 		"alt-svc":
 		return true
 	default:
 		return false
 	}
+}
+
+func upstreamHostHeader(headers map[string]string, fallback string) string {
+	if host := strings.TrimSpace(headers["X-Forwarded-Host"]); host != "" {
+		return host
+	}
+	return fallback
 }
 
 // ProxyHTTPRequest forwards an HTTP request message to the configured upstream and returns the response message.
@@ -134,7 +141,7 @@ func ProxyHTTPRequest(dt DialTarget, msg *Message) (*Message, error) {
 		}
 		req.Header.Set(k, v)
 	}
-	req.Host = target.Host
+	req.Host = upstreamHostHeader(msg.Headers, target.Host)
 
 	resp, err := tunnelHTTPClient.Do(req)
 	if err != nil {
@@ -163,6 +170,10 @@ func ProxyHTTPRequest(dt DialTarget, msg *Message) (*Message, error) {
 	}
 	log.Printf("[Beacon tunnel proxy] HTTP upstream response method=%s path=%s status=%d body_bytes=%d",
 		method, safeTunnelLogPath(msg.Path), resp.StatusCode, len(body))
+	if resp.StatusCode >= 400 {
+		log.Printf("[Beacon tunnel proxy] HTTP upstream error body method=%s path=%s status=%d body=%q",
+			method, safeTunnelLogPath(msg.Path), resp.StatusCode, strings.TrimSpace(string(body)))
+	}
 
 	headers := make(map[string]string, len(resp.Header))
 	for k := range resp.Header {
@@ -198,7 +209,7 @@ func ProxyWSOpen(ctx context.Context, dt DialTarget, path string, headers map[st
 		}
 		reqHeaders.Set(k, v)
 	}
-	reqHeaders.Set("Host", target.Host)
+	reqHeaders.Set("Host", upstreamHostHeader(headers, target.Host))
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 15 * time.Second,
