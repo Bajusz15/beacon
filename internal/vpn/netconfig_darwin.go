@@ -10,7 +10,7 @@ import (
 
 // macOS support is intentionally minimal — Beacon's primary deployment target is
 // Linux (Raspberry Pi, N100 mini PCs). The macOS path exists so developers can
-// smoke-test the agent on their laptops. Full exit-node behaviour (NAT + IP
+// smoke-test the agent on their laptops. Full exit-node behavior (NAT + IP
 // forwarding via pfctl) is not implemented; client mode works for connecting
 // out to a Linux exit node.
 
