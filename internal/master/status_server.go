@@ -37,6 +37,7 @@ func NewStatusServerWithAddr(cache *StatusCache, port int, listenAddr string) *S
 func (s *StatusServer) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status", s.handleAPIStatus)
+	mux.HandleFunc("/api/backup/run", s.handleBackupRun(ctx))
 	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/", s.handleDashboard)
@@ -128,6 +129,32 @@ func (s *StatusServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = fmt.Fprint(w, b.String())
+}
+
+func (s *StatusServer) handleBackupRun(ctx context.Context) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		bm := s.cache.getBackupManager()
+		if bm == nil {
+			http.Error(w, `{"error":"backup not configured"}`, http.StatusBadRequest)
+			return
+		}
+		if err := bm.RunNow(ctx); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			if strings.Contains(err.Error(), "not configured") {
+				w.WriteHeader(http.StatusBadRequest)
+			} else {
+				w.WriteHeader(http.StatusConflict)
+			}
+			fmt.Fprintf(w, `{"error":%q}`, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"started"}`))
+	}
 }
 
 func (s *StatusServer) handleHealth(w http.ResponseWriter, r *http.Request) {

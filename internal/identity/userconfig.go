@@ -27,6 +27,7 @@ type UserConfig struct {
 	Projects              []ProjectConfig `yaml:"projects,omitempty"`
 	Tunnels               []TunnelConfig  `yaml:"tunnels,omitempty"`
 	VPN                   *VPNConfig      `yaml:"vpn,omitempty"`
+	Backup                *BackupConfig   `yaml:"backup,omitempty"`
 	AllowedRemoteCommands []string        `yaml:"allowed_remote_commands,omitempty"`
 	// SystemMetrics configures host metrics sent with cloud heartbeats (~/.beacon/config.yaml only).
 	// Per-project monitor.yml should not duplicate this; omit system_metrics there.
@@ -64,6 +65,25 @@ type VPNConfig struct {
 	PeerDevice string `yaml:"peer_device,omitempty"` // client mode: device-name to connect to
 	ListenPort int    `yaml:"listen_port,omitempty"` // default 51820
 	VPNAddress string `yaml:"vpn_address,omitempty"` // assigned by server, cached locally
+}
+
+// BackupConfig is the ~/.beacon/config.yaml block for scheduled restic backups.
+type BackupConfig struct {
+	Enabled      bool              `yaml:"enabled"`
+	Schedule     string            `yaml:"schedule,omitempty"`
+	Paths        []string          `yaml:"paths,omitempty"`
+	Exclude      []string          `yaml:"exclude,omitempty"`
+	Destination  string            `yaml:"destination,omitempty"`
+	PasswordFile string            `yaml:"password_file,omitempty"`
+	Retention    *RetentionPolicy  `yaml:"retention,omitempty"`
+	Env          map[string]string `yaml:"env,omitempty"`
+}
+
+// RetentionPolicy controls restic forget --keep-* flags.
+type RetentionPolicy struct {
+	KeepDaily   int `yaml:"keep_daily,omitempty"`
+	KeepWeekly  int `yaml:"keep_weekly,omitempty"`
+	KeepMonthly int `yaml:"keep_monthly,omitempty"`
 }
 
 // TunnelConfig defines a tunnel the master can open to the cloud on demand (tunnel_connect piggyback only).

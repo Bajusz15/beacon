@@ -172,6 +172,72 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 	return nil
 }
 
+// DeployBranch does a shallow clone of the given branch and runs the deploy command.
+// The stored status marker is the commit SHA so callers can tell exactly what was deployed.
+func DeployBranch(cfg *config.Config, branch string, status *state.Status) error {
+	gitToken, err := getGitToken(cfg)
+	if err != nil {
+		logger.Infof("Failed to get Git token: %v", err)
+	}
+	setupGitAuth(cfg, gitToken)
+
+	logger.Infof("Deploying branch %s...\n", branch)
+
+	if err := os.RemoveAll(cfg.LocalPath); err != nil {
+		return fmt.Errorf("remove local path: %w", err)
+	}
+	parentDir := filepath.Dir(cfg.LocalPath)
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		return fmt.Errorf("create parent dir: %w", err)
+	}
+
+	repoURL := authenticatedRepoURL(cfg.RepoURL, gitToken)
+
+	var stderr strings.Builder
+	cloneCmd := exec.Command("git", "clone", "--branch", branch, "--depth", "1", repoURL, cfg.LocalPath)
+	cloneCmd.Dir = parentDir
+	cloneCmd.Stderr = &stderr
+	if err := cloneCmd.Run(); err != nil {
+		logger.Infof("Git error: %s\n", stderr.String())
+		return fmt.Errorf("git clone branch %s: %w", branch, err)
+	}
+
+	shaOut, _ := exec.Command("git", "-C", cfg.LocalPath, "rev-parse", "HEAD").Output()
+	commitSHA := strings.TrimSpace(string(shaOut))
+	if commitSHA == "" {
+		commitSHA = branch
+	}
+
+	if cfg.DeployCommand != "" {
+		logger.Infof("Executing deploy command: %s\n", cfg.DeployCommand)
+		command := cfg.DeployCommand
+		if cfg.SecureEnvPath != "" {
+			if _, err := os.Stat(cfg.SecureEnvPath); err == nil {
+				logger.Infof("Sourcing secure environment file: %s\n", cfg.SecureEnvPath)
+				command = fmt.Sprintf("set -a && . %s && set +a && %s", cfg.SecureEnvPath, cfg.DeployCommand)
+			} else {
+				logger.Infof("Warning: Secure environment file not found: %s\n", cfg.SecureEnvPath)
+			}
+		}
+		cmd := exec.Command("sh", "-c", command)
+		cmd.Dir = cfg.LocalPath
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("deploy command: %w", err)
+		}
+		logger.Infof("Deploy command completed successfully\n")
+	}
+
+	short := commitSHA
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	status.Set(commitSHA, time.Now())
+	logger.Infof("Branch %s deployed at %s\n", branch, short)
+	return nil
+}
+
 func getLatestTagFromRepo(cfg *config.Config) string {
 	// Check if repository exists
 	if _, err := os.Stat(cfg.LocalPath); os.IsNotExist(err) {

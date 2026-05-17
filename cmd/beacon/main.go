@@ -314,6 +314,7 @@ func main() {
 	rootCmd.AddCommand(createCloudCommand())
 	rootCmd.AddCommand(createTunnelCommand())
 	rootCmd.AddCommand(createVPNCommand())
+	rootCmd.AddCommand(createBackupCommand())
 	rootCmd.AddCommand(createUpdateCommand())
 
 	// If no subcommand is provided, show help (matches common CLI expectations).

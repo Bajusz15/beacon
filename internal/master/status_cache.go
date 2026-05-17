@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"beacon/internal/backup"
 	"beacon/internal/cloud"
 	"beacon/internal/identity"
 	"beacon/internal/ipc"
@@ -76,6 +77,7 @@ type StatusSnapshot struct {
 	Children []ChildStatus      `json:"projects"`
 	Tunnels  []TunnelStatusInfo `json:"tunnels,omitempty"`
 	VPN      *vpn.Status        `json:"vpn,omitempty"`
+	Backup   *backup.Status     `json:"backup,omitempty"`
 	Events   []Event            `json:"events"`
 	Cloud    CloudStatus        `json:"cloud"`
 }
@@ -87,6 +89,7 @@ type StatusCache struct {
 	pm        *ProcessManager
 	tm        *tunnel.TunnelManager
 	vm        *vpn.Manager
+	bm        *backup.Manager
 	eventLog  *EventLog
 	startedAt time.Time
 	cfg       *identity.UserConfig
@@ -125,6 +128,12 @@ func (sc *StatusCache) Refresh() {
 	if sc.vm != nil {
 		s := sc.vm.Status()
 		snap.VPN = &s
+	}
+
+	// Backup status
+	if sc.bm != nil {
+		s := sc.bm.Status()
+		snap.Backup = &s
 	}
 
 	// Build tunnel statuses
@@ -184,6 +193,19 @@ func (sc *StatusCache) SetVPNManager(vm *vpn.Manager) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	sc.vm = vm
+}
+
+// SetBackupManager sets the backup manager for status reporting.
+func (sc *StatusCache) SetBackupManager(bm *backup.Manager) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.bm = bm
+}
+
+func (sc *StatusCache) getBackupManager() *backup.Manager {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.bm
 }
 
 // UpdateConfig updates the config reference on hot-reload.

@@ -20,6 +20,7 @@ const (
 	EventRestart EventType = "restart"
 	EventStart   EventType = "start"
 	EventStop    EventType = "stop"
+	EventBackup  EventType = "backup"
 )
 
 // Event is a single entry in the event ring buffer.

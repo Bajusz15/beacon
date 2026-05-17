@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"beacon/internal/backup"
 	"beacon/internal/cloud"
 	"beacon/internal/identity"
 	"beacon/internal/logging"
@@ -190,6 +191,9 @@ func Run(ctx context.Context) {
 	vm := initVPNManager(ctx, uc)
 	statusCache.SetVPNManager(vm)
 
+	bm := initBackupManager(ctx, uc, eventLog)
+	statusCache.SetBackupManager(bm)
+
 	dispatcher := NewCommandDispatcher(pm, tm)
 	startAgentControl(ctx, uc, dispatcher)
 
@@ -203,6 +207,7 @@ func Run(ctx context.Context) {
 		pm:          pm,
 		tm:          tm,
 		vm:          vm,
+		bm:          bm,
 		dispatcher:  dispatcher,
 		statusCache: statusCache,
 		eventLog:    eventLog,
@@ -216,6 +221,9 @@ func Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			logger.Infof("Stopping")
+			if bm != nil {
+				bm.Stop()
+			}
 			if vm != nil {
 				vm.Stop()
 			}
@@ -306,6 +314,18 @@ func initVPNManager(_ context.Context, uc *identity.UserConfig) *vpn.Manager {
 	return vpn.NewManager(&vpnCloudAdapter{c: client})
 }
 
+// initBackupManager creates a backup manager if backup is configured.
+func initBackupManager(ctx context.Context, uc *identity.UserConfig, eventLog *EventLog) *backup.Manager {
+	if uc == nil || uc.Backup == nil || !uc.Backup.Enabled {
+		return nil
+	}
+	bm := backup.NewManager(&backupEventAdapter{el: eventLog})
+	if err := bm.Reconcile(ctx, uc.Backup); err != nil {
+		logger.Infof("Backup init: %v", err)
+	}
+	return bm
+}
+
 // initTunnelManager creates and auto-starts enabled tunnels if cloud reporting is configured.
 func initTunnelManager(ctx context.Context, uc *identity.UserConfig) *tunnel.TunnelManager {
 	if uc == nil || len(uc.Tunnels) == 0 || !uc.CloudReportingEnabled || strings.TrimSpace(uc.APIKey) == "" {
@@ -346,6 +366,7 @@ type heartbeatLoop struct {
 	pm                      *ProcessManager
 	tm                      *tunnel.TunnelManager
 	vm                      *vpn.Manager
+	bm                      *backup.Manager
 	dispatcher              *CommandDispatcher
 	statusCache             *StatusCache
 	eventLog                *EventLog
@@ -378,6 +399,12 @@ func (h *heartbeatLoop) tryBeat() {
 	if h.vm != nil {
 		if err := h.vm.Reconcile(h.ctx, uc.VPN); err != nil {
 			logger.Infof("VPN reconcile: %v", err)
+		}
+	}
+
+	if h.bm != nil {
+		if err := h.bm.Reconcile(h.ctx, uc.Backup); err != nil {
+			logger.Infof("Backup reconcile: %v", err)
 		}
 	}
 
