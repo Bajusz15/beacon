@@ -3,12 +3,13 @@ package master
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
 	"time"
+
+	"beacon/internal/util"
 )
 
 //go:embed dashboard.html
@@ -81,13 +82,7 @@ func (s *StatusServer) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 func (s *StatusServer) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
 	snap := s.cache.Get()
-	data, err := json.Marshal(snap)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(data)
+	util.WriteJSON(w, http.StatusOK, snap)
 }
 
 func (s *StatusServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
@@ -139,25 +134,21 @@ func (s *StatusServer) handleBackupRun(ctx context.Context) http.HandlerFunc {
 		}
 		bm := s.cache.getBackupManager()
 		if bm == nil {
-			http.Error(w, `{"error":"backup not configured"}`, http.StatusBadRequest)
+			util.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "backup not configured"})
 			return
 		}
 		if err := bm.RunNow(ctx); err != nil {
-			w.Header().Set("Content-Type", "application/json")
+			status := http.StatusConflict
 			if strings.Contains(err.Error(), "not configured") {
-				w.WriteHeader(http.StatusBadRequest)
-			} else {
-				w.WriteHeader(http.StatusConflict)
+				status = http.StatusBadRequest
 			}
-			fmt.Fprintf(w, `{"error":%q}`, err.Error())
+			util.WriteJSON(w, status, map[string]string{"error": err.Error()})
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"started"}`))
+		util.WriteJSON(w, http.StatusOK, map[string]string{"status": "started"})
 	}
 }
 
 func (s *StatusServer) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"status":"ok"}`))
+	util.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
