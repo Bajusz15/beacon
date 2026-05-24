@@ -155,11 +155,25 @@ jobs:
         git config --global user.name "Beacon E2E Test"
         git config --global user.email "test@beacon.local"
 
-    - name: Run E2E Integration Test (Docker)
-      run: docker compose -f tests/e2e/docker-compose.yml up --build --abort-on-container-exit --exit-code-from beacon-e2e
+    - name: Run E2E Integration Test
+      run: docker compose -f tests/e2e/docker-compose.yml up --build --exit-code-from beacon-e2e beacon-e2e
       env:
         CI: true
         BEACON_E2E_TEST: 1
+
+    - name: Clean up E2E Integration Test
+      if: always()
+      run: docker compose -f tests/e2e/docker-compose.yml down -v --remove-orphans
+
+    - name: Run Docker E2E Integration Test
+      run: docker compose -f tests/e2e/docker-compose.yml up --build --exit-code-from beacon-e2e-docker beacon-e2e-docker
+      env:
+        CI: true
+        BEACON_E2E_TEST: 1
+
+    - name: Clean up Docker E2E Integration Test
+      if: always()
+      run: docker compose -f tests/e2e/docker-compose.yml down -v --remove-orphans
     
     - name: Upload E2E test logs
       if: failure()
