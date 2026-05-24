@@ -30,6 +30,7 @@ func startAgentControl(ctx context.Context, uc *identity.UserConfig, dispatcher 
 	if deviceName == "" {
 		deviceName = getHostname()
 	}
+	deviceID := strings.TrimSpace(uc.DeviceID)
 	base := controlWSBase(uc.EffectiveCloudAPIBase())
 
 	go func() {
@@ -41,7 +42,7 @@ func startAgentControl(ctx context.Context, uc *identity.UserConfig, dispatcher 
 			default:
 			}
 
-			err := runAgentControl(ctx, base, apiKey, deviceName, dispatcher)
+			err := runAgentControl(ctx, base, apiKey, deviceName, deviceID, dispatcher)
 			if ctx.Err() != nil {
 				return
 			}
@@ -59,10 +60,13 @@ func startAgentControl(ctx context.Context, uc *identity.UserConfig, dispatcher 
 	}()
 }
 
-func runAgentControl(ctx context.Context, base, apiKey, deviceName string, dispatcher *CommandDispatcher) error {
+func runAgentControl(ctx context.Context, base, apiKey, deviceName, deviceID string, dispatcher *CommandDispatcher) error {
 	headers := http.Header{}
 	headers.Set("X-API-Key", apiKey)
 	headers.Set("X-Device-Name", deviceName)
+	if deviceID != "" {
+		headers.Set("X-Device-ID", deviceID)
+	}
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: controlHandshakeTimeout,
