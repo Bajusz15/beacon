@@ -97,8 +97,8 @@ body{background:var(--base);color:var(--body);font-family:-apple-system,BlinkMac
   </div>
 </div>
 
-<div class="section-title" id="children-title">Children</div>
-<div id="children-list"></div>
+<div class="section-title" id="projects-title">Projects</div>
+<div id="projects-list"></div>
 
 <div class="events-section">
   <div class="section-title" style="margin-top:0">Recent events</div>
@@ -202,26 +202,26 @@ function render(d) {
     setVal('load-sub', sys.load_5m.toFixed(2)+' · '+sys.load_15m.toFixed(2)+(sys.temperature_celsius?'  🌡 '+sys.temperature_celsius.toFixed(1)+'°C':''));
   }
 
-  var children = d.children || [];
+  var projects = d.projects || d.children || [];
   var healthy=0, warn=0, down=0;
-  children.forEach(function(c){
+  projects.forEach(function(c){
     if(c.status==='healthy') healthy++;
     else if(c.status==='down') down++;
     else if(c.status!=='unknown') warn++;
   });
-  var titleParts = ['Children'];
+  var titleParts = ['Projects'];
   if(healthy) titleParts.push('<span style="color:var(--teal)">'+healthy+' healthy</span>');
   if(warn) titleParts.push('<span style="color:var(--amber)">'+warn+' warning</span>');
   if(down) titleParts.push('<span style="color:var(--red)">'+down+' down</span>');
-  var ct = document.getElementById('children-title');
+  var ct = document.getElementById('projects-title');
   if(ct) ct.innerHTML = titleParts.join(' · ');
 
-  var cl = document.getElementById('children-list');
+  var cl = document.getElementById('projects-list');
   if(cl) {
-    if(!children.length) {
-      cl.innerHTML = '<div style="color:var(--subtle);font-size:12px;padding:8px 0">No child agents running</div>';
+    if(!projects.length) {
+      cl.innerHTML = '<div style="color:var(--subtle);font-size:12px;padding:8px 0">No projects running</div>';
     } else {
-      cl.innerHTML = children.map(function(c) {
+      cl.innerHTML = projects.map(function(c) {
         var dot = '<div class="child-dot" style="background:'+statusColor(c.status)+'"></div>';
         var chk = c.checks || {};
         var chkColor = chk.failing>0 ? 'var(--amber)' : 'var(--teal)';

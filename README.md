@@ -49,7 +49,13 @@ Beacon is **local-first**. Everything above except tunnels and remote terminal w
 
 ## 🏠 Access Home Assistant from anywhere
 
-This is the tunnel flow. Three commands, no port-forwarding, no Nabu Casa.
+If you run Home Assistant OS, the primary path is the Beacon Home Assistant add-on:
+install the add-on, paste your BeaconInfra API key, enable `tunnel_home_assistant`,
+and start it. The add-on points the tunnel at Home Assistant Core on
+`http://homeassistant:8123`.
+
+If you run Beacon on a normal Linux host or in Docker next to Home Assistant, use
+the CLI tunnel flow. Three commands, no port-forwarding, no Nabu Casa.
 
 ```bash
 # 1. Log in to BeaconInfra (free account)
@@ -57,6 +63,8 @@ beacon cloud login --api-key usr_xxxxxxxx
 
 # 2. Expose Home Assistant
 beacon tunnel add homeassistant --port 8123
+# Or, for Docker Compose / HA OS style service DNS:
+# beacon tunnel add homeassistant --port 8123 --host homeassistant
 
 # 3. Start Beacon
 beacon start
@@ -72,11 +80,12 @@ The same tunnel works for Grafana, Jellyfin, Pi-hole, Nextcloud, your NAS admin 
 http:
   use_x_forwarded_for: true
   trusted_proxies:
+    - 172.30.0.0/16
+    - 172.16.0.0/12
     - 127.0.0.1
-    - 172.16.0.0/12   # Docker bridge network — needed if HA runs in a container
 ```
 
-Then restart Home Assistant. Without this, the tunnel connects but HA shows "can't connect to Home Assistant" because it rejects the proxied WebSocket.
+Then restart Home Assistant Core. Without this, the tunnel connects but HA can return `400 Bad Request` or show "can't connect to Home Assistant" because it rejects the forwarded proxy headers.
 
 ---
 
