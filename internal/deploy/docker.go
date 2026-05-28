@@ -97,8 +97,13 @@ func CheckForNewImageTag(cfg *config.Config, status *state.Status) {
 		latestTag, err := client.getLatestTag()
 		if err != nil {
 			logger.Infof("Error getting latest tag from registry for %s: %v\n", imgCfg.Image, err)
+			if ae, ok := IsAuthError(err); ok {
+				sd := stateBaseDir()
+				_ = RecordCredentialError(sd, sanitizedImageName, ae)
+			}
 			continue
 		}
+		ClearCredentialErrors(stateBaseDir(), sanitizedImageName)
 
 		if latestTag == "" {
 			logger.Infof("No tags found for image %s\n", imgCfg.Image)
@@ -190,6 +195,9 @@ func (c *DockerRegistryClient) listTagsViaDockerHubAPI() ([]string, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			return nil, &AuthError{Type: "docker", Code: resp.StatusCode, Message: fmt.Sprintf("Docker Hub API: %s", string(body))}
+		}
 		return nil, fmt.Errorf("Docker Hub API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -253,6 +261,9 @@ func (c *DockerRegistryClient) listTagsViaAPI() ([]string, error) {
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode == 401 || resp.StatusCode == 403 {
+				return nil, &AuthError{Type: "docker", Code: resp.StatusCode, Message: fmt.Sprintf("registry API (%s): %s", scheme, string(body))}
+			}
 			lastErr = fmt.Errorf("registry API returned status %d via %s: %s", resp.StatusCode, scheme, string(body))
 			continue
 		}
@@ -421,10 +432,15 @@ func pullDockerImage(imageName string, client *DockerRegistryClient) error {
 		}
 	}
 
+	var pullStderr strings.Builder
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = &pullStderr
 
 	if err := cmd.Run(); err != nil {
+		errOutput := pullStderr.String()
+		if isDockerAuthFailure(errOutput) {
+			return &AuthError{Type: "docker", Message: fmt.Sprintf("docker pull: %s", strings.TrimSpace(errOutput))}
+		}
 		return fmt.Errorf("docker pull failed: %w", err)
 	}
 

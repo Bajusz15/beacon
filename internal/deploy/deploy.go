@@ -118,10 +118,20 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 	cloneCmd.Stderr = &stderr
 
 	if err := cloneCmd.Run(); err != nil {
+		errOutput := stderr.String()
 		logger.Infof("Error cloning repository: %v\n", err)
-		logger.Infof("Git error output: %s\n", stderr.String())
+		logger.Infof("Git error output: %s\n", errOutput)
+		if isGitAuthFailure(errOutput) {
+			authErr := &AuthError{Type: "git", Message: strings.TrimSpace(errOutput)}
+			sd := stateBaseDir()
+			pid := filepath.Base(cfg.LocalPath)
+			_ = RecordCredentialError(sd, pid, authErr)
+			return authErr
+		}
 		return err
 	}
+	// Successful clone — clear credential errors
+	ClearCredentialErrors(stateBaseDir(), filepath.Base(cfg.LocalPath))
 
 	// Execute deploy command if specified
 	if cfg.DeployCommand != "" {
@@ -198,9 +208,16 @@ func DeployBranch(cfg *config.Config, branch string, status *state.Status) error
 	cloneCmd.Dir = parentDir
 	cloneCmd.Stderr = &stderr
 	if err := cloneCmd.Run(); err != nil {
-		logger.Infof("Git error: %s\n", stderr.String())
+		errOutput := stderr.String()
+		logger.Infof("Git error: %s\n", errOutput)
+		if isGitAuthFailure(errOutput) {
+			authErr := &AuthError{Type: "git", Message: strings.TrimSpace(errOutput)}
+			_ = RecordCredentialError(stateBaseDir(), filepath.Base(cfg.LocalPath), authErr)
+			return authErr
+		}
 		return fmt.Errorf("git clone branch %s: %w", branch, err)
 	}
+	ClearCredentialErrors(stateBaseDir(), filepath.Base(cfg.LocalPath))
 
 	shaOut, _ := exec.Command("git", "-C", cfg.LocalPath, "rev-parse", "HEAD").Output()
 	commitSHA := strings.TrimSpace(string(shaOut))
@@ -290,11 +307,23 @@ func LatestGitTag(cfg *config.Config) string {
 func getLatestTagFromRemote(cfg *config.Config, gitToken string) string {
 	repoURL := authenticatedRepoURL(cfg.RepoURL, gitToken)
 	cmd := exec.Command("git", "ls-remote", "--tags", "--sort=-creatordate", repoURL)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	output, err := cmd.Output()
 	if err != nil {
+		errOutput := stderr.String()
 		logger.Infof("Error listing remote tags: %v\n", err)
+		if isGitAuthFailure(errOutput) {
+			stateDir := stateBaseDir()
+			projectID := filepath.Base(cfg.LocalPath)
+			_ = RecordCredentialError(stateDir, projectID, &AuthError{Type: "git", Message: strings.TrimSpace(errOutput)})
+		}
 		return ""
 	}
+	// Successful git operation — clear any prior credential errors
+	stateDir := stateBaseDir()
+	projectID := filepath.Base(cfg.LocalPath)
+	ClearCredentialErrors(stateDir, projectID)
 
 	for _, line := range strings.Split(string(output), "\n") {
 		line = strings.TrimSpace(line)
@@ -381,4 +410,12 @@ func getConfigDir() string {
 		return ".beacon"
 	}
 	return base
+}
+
+func stateBaseDir() string {
+	base, err := config.BeaconHomeDir()
+	if err != nil {
+		return filepath.Join(os.Getenv("HOME"), ".beacon", "state")
+	}
+	return filepath.Join(base, "state")
 }

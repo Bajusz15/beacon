@@ -13,13 +13,23 @@ const (
 
 // ProjectHealth represents aggregated health data for a project in the heartbeat.
 type ProjectHealth struct {
-	ProjectID     string         `json:"project_id"`
-	Status        string         `json:"status"`
-	UptimeSeconds int64          `json:"uptime_seconds,omitempty"`
-	Version       string         `json:"version,omitempty"`
-	Metrics       map[string]any `json:"metrics,omitempty"`
-	LogsTail      []string       `json:"logs_tail,omitempty"`
-	Checks        []CheckHealth  `json:"checks,omitempty"`
+	ProjectID        string            `json:"project_id"`
+	Status           string            `json:"status"`
+	UptimeSeconds    int64             `json:"uptime_seconds,omitempty"`
+	Version          string            `json:"version,omitempty"`
+	Metrics          map[string]any    `json:"metrics,omitempty"`
+	LogsTail         []string          `json:"logs_tail,omitempty"`
+	Checks           []CheckHealth     `json:"checks,omitempty"`
+	CredentialErrors []CredentialError `json:"credential_errors,omitempty"`
+	SSHPublicKey     string            `json:"ssh_public_key,omitempty"`
+}
+
+// CredentialError mirrors ipc.CredentialError for the heartbeat payload.
+type CredentialError struct {
+	Type       string `json:"type"`
+	ErrorCode  int    `json:"error_code,omitempty"`
+	Message    string `json:"message"`
+	DetectedAt string `json:"detected_at"`
 }
 
 // CheckHealth represents a single health check result in the heartbeat.
@@ -72,13 +82,24 @@ func aggregateFromReader(projectID string, reader *ipc.Reader) ProjectHealth {
 		})
 	}
 
+	var credErrors []CredentialError
+	for _, ce := range report.CredentialErrors {
+		credErrors = append(credErrors, CredentialError{
+			Type:       ce.Type,
+			ErrorCode:  ce.ErrorCode,
+			Message:    ce.Message,
+			DetectedAt: ce.DetectedAt.Format(time.RFC3339),
+		})
+	}
+
 	return ProjectHealth{
-		ProjectID:     report.ProjectID,
-		Status:        report.Status,
-		UptimeSeconds: report.UptimeSeconds,
-		Version:       report.Version,
-		Metrics:       report.Metrics,
-		LogsTail:      report.LogsTail,
-		Checks:        checks,
+		ProjectID:        report.ProjectID,
+		Status:           report.Status,
+		UptimeSeconds:    report.UptimeSeconds,
+		Version:          report.Version,
+		Metrics:          report.Metrics,
+		LogsTail:         report.LogsTail,
+		Checks:           checks,
+		CredentialErrors: credErrors,
 	}
 }

@@ -6,15 +6,24 @@ import "time"
 // HealthReport is written by the child agent to {ipc-dir}/health.json every 10 seconds.
 // The master reads these to aggregate project health into heartbeat payloads.
 type HealthReport struct {
-	ProjectID     string         `json:"project_id"`
-	Timestamp     time.Time      `json:"timestamp"`
-	Status        string         `json:"status"` // "healthy", "degraded", "down", "unknown"
-	UptimeSeconds int64          `json:"uptime_seconds"`
-	DeployedAt    *time.Time     `json:"deployed_at,omitempty"`
-	Version       string         `json:"version,omitempty"`
-	Metrics       map[string]any `json:"metrics,omitempty"`
-	LogsTail      []string       `json:"logs_tail,omitempty"`
-	Checks        []CheckResult  `json:"checks"`
+	ProjectID        string            `json:"project_id"`
+	Timestamp        time.Time         `json:"timestamp"`
+	Status           string            `json:"status"` // "healthy", "degraded", "down", "unknown"
+	UptimeSeconds    int64             `json:"uptime_seconds"`
+	DeployedAt       *time.Time        `json:"deployed_at,omitempty"`
+	Version          string            `json:"version,omitempty"`
+	Metrics          map[string]any    `json:"metrics,omitempty"`
+	LogsTail         []string          `json:"logs_tail,omitempty"`
+	Checks           []CheckResult     `json:"checks"`
+	CredentialErrors []CredentialError `json:"credential_errors,omitempty"`
+}
+
+// CredentialError reports a detected auth failure for a project's git or docker credentials.
+type CredentialError struct {
+	Type       string    `json:"type"`
+	ErrorCode  int       `json:"error_code,omitempty"`
+	Message    string    `json:"message"`
+	DetectedAt time.Time `json:"detected_at"`
 }
 
 // CheckResult represents the result of a single health check.

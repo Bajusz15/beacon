@@ -7,18 +7,22 @@ import (
 	"sync"
 	"time"
 
+	"beacon/internal/config"
+	"beacon/internal/deploy"
 	"beacon/internal/identity"
 	"beacon/internal/ipc"
+	"beacon/internal/keys"
 	"beacon/internal/terminal"
 	"beacon/internal/tunnel"
 )
 
 const (
-	actionTunnelConnect = "tunnel_connect"
-	actionVPNEnable     = "vpn_enable"
-	actionVPNUse        = "vpn_use"
-	actionVPNDisable    = "vpn_disable"
-	actionTerminalOpen  = "terminal_open"
+	actionTunnelConnect    = "tunnel_connect"
+	actionVPNEnable        = "vpn_enable"
+	actionVPNUse           = "vpn_use"
+	actionVPNDisable       = "vpn_disable"
+	actionTerminalOpen     = "terminal_open"
+	actionUpdateCredential = "update_credential"
 
 	commandTTL = 1 * time.Hour
 )
@@ -145,6 +149,10 @@ func (d *CommandDispatcher) DispatchCommands(commands []HeartbeatCommand) {
 		}
 		if cmd.Action == actionTerminalOpen {
 			d.dispatchTerminalOpen(cmd)
+			continue
+		}
+		if cmd.Action == actionUpdateCredential {
+			d.dispatchUpdateCredential(cmd)
 			continue
 		}
 		if isVPNAction(cmd.Action) {
@@ -347,4 +355,59 @@ func (d *CommandDispatcher) dispatchTerminalOpen(cmd HeartbeatCommand) {
 		}
 		d.recordResult(cmd.ID, ipc.ResultSuccess, "remote terminal session finished")
 	}()
+}
+
+func (d *CommandDispatcher) dispatchUpdateCredential(cmd HeartbeatCommand) {
+	credType, _ := cmd.Payload["credential_type"].(string)
+	keyName, _ := cmd.Payload["key_name"].(string)
+	credValue, _ := cmd.Payload["credential_value"].(string)
+	projectID, _ := cmd.Payload["project_id"].(string)
+
+	if credType == "" || credValue == "" {
+		d.recordResult(cmd.ID, ipc.ResultFailed, "credential_type and credential_value required")
+		return
+	}
+
+	if keyName == "" {
+		keyName = credType + "_token"
+	}
+
+	configDir := credentialConfigDir()
+	km, err := keys.NewKeyManager(configDir)
+	if err != nil {
+		d.recordResult(cmd.ID, ipc.ResultFailed, "key manager init: "+err.Error())
+		return
+	}
+
+	if err := km.RotateKey(keyName, credValue); err != nil {
+		if err := km.AddKey(keyName, credValue, credType, "Remote credential update"); err != nil {
+			d.recordResult(cmd.ID, ipc.ResultFailed, "store credential: "+err.Error())
+			return
+		}
+	}
+
+	if projectID != "" {
+		stateDir := credentialStateDir()
+		deploy.ClearCredentialErrors(stateDir, projectID)
+	}
+
+	logger.Infof("Credential updated via remote command: %s/%s", credType, keyName)
+	d.recordResult(cmd.ID, ipc.ResultSuccess, fmt.Sprintf("credential updated: %s/%s", credType, keyName))
+}
+
+func credentialConfigDir() string {
+	base, err := config.BeaconHomeDir()
+	if err != nil {
+		return ".beacon"
+	}
+	return base
+}
+
+func credentialStateDir() string {
+	base, err := config.BeaconHomeDir()
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		return home + "/.beacon/state"
+	}
+	return base + "/state"
 }

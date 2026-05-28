@@ -346,7 +346,44 @@ var TestGitTokenCmd = &cobra.Command{
 	},
 }
 
+// GenerateSSHCmd generates an ed25519 SSH deploy key
+var GenerateSSHCmd = &cobra.Command{
+	Use:   "generate-ssh",
+	Short: "Generate an ed25519 SSH deploy key",
+	Long: `Generates an ed25519 keypair, stores the private key encrypted
+in the key manager, and prints the public key.
+
+Add the public key as a deploy key on GitHub/GitLab, then reference
+it in your project config with ssh_key_path or git_token_name.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		name, _ := cmd.Flags().GetString("name")
+		if name == "" {
+			name = "deploy-key"
+		}
+
+		configDir := getConfigDir()
+		km, err := NewKeyManager(configDir)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		pubKey, err := km.GenerateAndStoreSSHKey(name)
+		if err != nil {
+			fmt.Printf("Error generating SSH key: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("SSH deploy key '%s' generated.\n\n", name)
+		fmt.Printf("Public key (add to GitHub/GitLab as a deploy key):\n\n")
+		fmt.Print(pubKey)
+		fmt.Printf("\nPrivate key stored encrypted in ~/.beacon/keys/%s.json\n", name)
+	},
+}
+
 func init() {
+	GenerateSSHCmd.Flags().String("name", "deploy-key", "Name for the SSH key")
+
 	// Keys command flags
 	AddKeyCmd.Flags().String("name", "", "Name for the key")
 	AddKeyCmd.Flags().String("key", "", "The API key or token")
@@ -378,6 +415,7 @@ func init() {
 	KeysCmd.AddCommand(RotateKeyCmd)
 	KeysCmd.AddCommand(DeleteKeyCmd)
 	KeysCmd.AddCommand(ValidateKeyCmd)
+	KeysCmd.AddCommand(GenerateSSHCmd)
 	KeysCmd.AddCommand(GitCmd)
 
 	GitCmd.AddCommand(AddGitTokenCmd)
