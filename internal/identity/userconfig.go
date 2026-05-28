@@ -49,6 +49,7 @@ type UserSystemMetricsConfig struct {
 type ProjectConfig struct {
 	ID         string `yaml:"id"`          // Unique project identifier
 	ConfigPath string `yaml:"config_path"` // Path to the project's monitor.yml
+	Env        string `yaml:"env,omitempty"`
 	// Enabled is tri-state:
 	// nil => omitted in YAML (default: true)
 	// true/false => explicitly set.

@@ -3,6 +3,7 @@
 
 # Project configuration
 project_name: "my-awesome-app"
+# project_env: "default"  # Optional environment for Beacon-managed secrets
 deployment_type: "git"  # Options: "git" or "docker"
 
 # Git repository configuration (used when deployment_type is "git")

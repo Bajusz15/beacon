@@ -3,6 +3,7 @@
 
 # Project configuration
 project_name: "my-docker-app"
+# project_env: "default"  # Optional environment for Beacon-managed secrets
 deployment_type: "docker"  # Use Docker registry instead of Git
 
 # Docker images configuration (array of images to monitor individually)
@@ -66,4 +67,3 @@ use_system_service: false  # Set to true for system-wide service
 #   * Environment-specific: docker-compose.yml + docker-compose.prod.yml
 #   * Service separation: docker-compose.web.yml + docker-compose.worker.yml
 # - Use docker compose -f file1.yml -f file2.yml ... to use multiple files
-

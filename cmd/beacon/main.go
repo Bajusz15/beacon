@@ -14,6 +14,7 @@ import (
 	"beacon/internal/deploy"
 	"beacon/internal/keys"
 	"beacon/internal/projects"
+	"beacon/internal/secrets"
 	"beacon/internal/server"
 	"beacon/internal/state"
 	"beacon/internal/version"
@@ -307,6 +308,7 @@ func main() {
 	rootCmd.AddCommand(restartCmd)
 	rootCmd.AddCommand(wizardCmd)
 	rootCmd.AddCommand(keys.KeysCmd)
+	rootCmd.AddCommand(secrets.Command())
 	rootCmd.AddCommand(alerting.CreateSimpleAlertingCommand())
 	rootCmd.AddCommand(projects.CreateProjectCommand())
 	rootCmd.AddCommand(createMCPCommand())

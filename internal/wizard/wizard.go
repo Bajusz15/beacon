@@ -618,6 +618,8 @@ func (w *Wizard) writeEnvFile(pluginConfigs []plugins.PluginConfig, reportConfig
 	content.WriteString("BEACON_POLL_INTERVAL=60s\n\n")
 	content.WriteString("# HTTP server port\n")
 	content.WriteString("BEACON_PORT=8080\n\n")
+	content.WriteString("# Project environment for Beacon-managed secrets (optional)\n")
+	content.WriteString("# BEACON_PROJECT_ENV=default\n\n")
 
 	// Add plugin environment variables
 	content.WriteString("# Plugin Configuration\n")
@@ -659,6 +661,7 @@ func (w *Wizard) writeBootstrapConfig() error {
 
 	content.WriteString("# Project configuration\n")
 	content.WriteString("project_name: \"my-project\"  # Will be overridden by bootstrap command\n")
+	content.WriteString("# project_env: \"default\"  # Optional environment for Beacon-managed secrets\n")
 	content.WriteString("repo_url: \"https://github.com/username/my-repo.git\"\n")
 	content.WriteString("local_path: \"$HOME/beacon/my-project\"\n")
 	content.WriteString("deploy_command: \"./deploy.sh\"  # Or: docker compose up --build -d\n")
