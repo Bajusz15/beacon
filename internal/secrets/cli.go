@@ -15,23 +15,31 @@ import (
 )
 
 func Command() *cobra.Command {
-	var project string
-	var env string
+	opts := &commandOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "secrets",
 		Short: "Manage encrypted project secrets",
 	}
 
-	cmd.PersistentFlags().StringVar(&project, "project", "", "Project name")
-	cmd.PersistentFlags().StringVar(&env, "env", "", "Deployment environment (default: project config, env file, or default)")
+	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project name")
+	cmd.PersistentFlags().StringVar(&opts.env, "env", "", "Deployment environment (default: project config, env file, or default)")
+	cmd.AddCommand(newSetCommand(opts), newGetCommand(opts), newListCommand(opts), newExportCommand(opts), newRemoveCommand(opts))
+	return cmd
+}
 
-	setCmd := &cobra.Command{
+type commandOptions struct {
+	project string
+	env     string
+}
+
+func newSetCommand(opts *commandOptions) *cobra.Command {
+	return &cobra.Command{
 		Use:   "set KEY [VALUE]",
 		Short: "Set a secret",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resolvedEnv, err := resolveCLIEnv(project, env)
+			resolvedEnv, err := resolveCLIEnv(opts.project, opts.env)
 			if err != nil {
 				return err
 			}
@@ -39,9 +47,13 @@ func Command() *cobra.Command {
 			if len(args) == 2 {
 				value = args[1]
 			} else {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Secret value: ")
+				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "Secret value: "); err != nil {
+					return err
+				}
 				data, err := term.ReadPassword(int(os.Stdin.Fd()))
-				fmt.Fprintln(cmd.ErrOrStderr())
+				if _, printErr := fmt.Fprintln(cmd.ErrOrStderr()); printErr != nil && err == nil {
+					return printErr
+				}
 				if err != nil {
 					return fmt.Errorf("read secret value: %w", err)
 				}
@@ -51,15 +63,17 @@ func Command() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := store.Set(project, resolvedEnv, args[0], value); err != nil {
+			if err := store.Set(opts.project, resolvedEnv, args[0], value); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Secret %s set for %s/%s\n", args[0], project, resolvedEnv)
-			return nil
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Secret %s set for %s/%s\n", args[0], opts.project, resolvedEnv)
+			return err
 		},
 	}
+}
 
-	getCmd := &cobra.Command{
+func newGetCommand(opts *commandOptions) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "get KEY",
 		Short: "Get a secret value",
 		Args:  cobra.ExactArgs(1),
@@ -68,7 +82,7 @@ func Command() *cobra.Command {
 			if !reveal {
 				return fmt.Errorf("refusing to print secret without --reveal")
 			}
-			resolvedEnv, err := resolveCLIEnv(project, env)
+			resolvedEnv, err := resolveCLIEnv(opts.project, opts.env)
 			if err != nil {
 				return err
 			}
@@ -76,23 +90,26 @@ func Command() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			value, err := store.Get(project, resolvedEnv, args[0])
+			value, err := store.Get(opts.project, resolvedEnv, args[0])
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), value)
-			return nil
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), value)
+			return err
 		},
 	}
-	getCmd.Flags().Bool("reveal", false, "Print the secret value")
+	cmd.Flags().Bool("reveal", false, "Print the secret value")
+	return cmd
+}
 
-	listCmd := &cobra.Command{
+func newListCommand(opts *commandOptions) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List secret keys",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reveal, _ := cmd.Flags().GetBool("reveal")
-			resolvedEnv, err := resolveCLIEnv(project, env)
+			resolvedEnv, err := resolveCLIEnv(opts.project, opts.env)
 			if err != nil {
 				return err
 			}
@@ -101,28 +118,25 @@ func Command() *cobra.Command {
 				return err
 			}
 			if reveal {
-				values, err := store.Load(project, resolvedEnv)
+				values, err := store.Load(opts.project, resolvedEnv)
 				if err != nil {
 					return err
 				}
-				for _, key := range sortedSecretKeys(values) {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", key, shellQuote(values[key]))
-				}
-			} else {
-				keys, err := store.List(project, resolvedEnv)
-				if err != nil {
-					return err
-				}
-				for _, key := range keys {
-					fmt.Fprintln(cmd.OutOrStdout(), key)
-				}
+				return printEnvValues(cmd, values)
 			}
-			return nil
+			keys, err := store.List(opts.project, resolvedEnv)
+			if err != nil {
+				return err
+			}
+			return printLines(cmd, keys)
 		},
 	}
-	listCmd.Flags().Bool("reveal", false, "Print secret values")
+	cmd.Flags().Bool("reveal", false, "Print secret values")
+	return cmd
+}
 
-	exportCmd := &cobra.Command{
+func newExportCommand(opts *commandOptions) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "export",
 		Short: "Export secrets",
 		Args:  cobra.NoArgs,
@@ -132,7 +146,7 @@ func Command() *cobra.Command {
 				return fmt.Errorf("refusing to export secrets without --reveal")
 			}
 			format, _ := cmd.Flags().GetString("format")
-			resolvedEnv, err := resolveCLIEnv(project, env)
+			resolvedEnv, err := resolveCLIEnv(opts.project, opts.env)
 			if err != nil {
 				return err
 			}
@@ -140,36 +154,37 @@ func Command() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			values, err := store.Load(project, resolvedEnv)
+			values, err := store.Load(opts.project, resolvedEnv)
 			if err != nil {
 				return err
 			}
 			switch format {
 			case "env":
-				for _, key := range sortedSecretKeys(values) {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", key, shellQuote(values[key]))
-				}
+				return printEnvValues(cmd, values)
 			case "json":
 				encoded, err := json.MarshalIndent(values, "", "  ")
 				if err != nil {
 					return err
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), string(encoded))
+				_, err = fmt.Fprintln(cmd.OutOrStdout(), string(encoded))
+				return err
 			default:
 				return fmt.Errorf("unsupported export format %q (use env or json)", format)
 			}
-			return nil
 		},
 	}
-	exportCmd.Flags().Bool("reveal", false, "Print secret values")
-	exportCmd.Flags().String("format", "env", "Export format: env or json")
+	cmd.Flags().Bool("reveal", false, "Print secret values")
+	cmd.Flags().String("format", "env", "Export format: env or json")
+	return cmd
+}
 
-	removeCmd := &cobra.Command{
+func newRemoveCommand(opts *commandOptions) *cobra.Command {
+	return &cobra.Command{
 		Use:   "remove KEY",
 		Short: "Remove a secret",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resolvedEnv, err := resolveCLIEnv(project, env)
+			resolvedEnv, err := resolveCLIEnv(opts.project, opts.env)
 			if err != nil {
 				return err
 			}
@@ -177,16 +192,13 @@ func Command() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := store.Remove(project, resolvedEnv, args[0]); err != nil {
+			if err := store.Remove(opts.project, resolvedEnv, args[0]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Secret %s removed from %s/%s\n", args[0], project, resolvedEnv)
-			return nil
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Secret %s removed from %s/%s\n", args[0], opts.project, resolvedEnv)
+			return err
 		},
 	}
-
-	cmd.AddCommand(setCmd, getCmd, listCmd, exportCmd, removeCmd)
-	return cmd
 }
 
 func sortedSecretKeys(values map[string]string) []string {
@@ -196,6 +208,24 @@ func sortedSecretKeys(values map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func printEnvValues(cmd *cobra.Command, values map[string]string) error {
+	for _, key := range sortedSecretKeys(values) {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", key, shellQuote(values[key])); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func printLines(cmd *cobra.Command, lines []string) error {
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(cmd.OutOrStdout(), line); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func shellQuote(value string) string {

@@ -79,7 +79,9 @@ func ReadCredentialErrors(stateDir, projectID string) []CredentialErrorRecord {
 
 // ClearCredentialErrors removes the credential error file for a project.
 func ClearCredentialErrors(stateDir, projectID string) {
-	os.Remove(credentialErrorPath(stateDir, projectID))
+	if err := os.Remove(credentialErrorPath(stateDir, projectID)); err != nil && !os.IsNotExist(err) {
+		logger.Infof("Failed to clear credential errors for %s: %v", projectID, err)
+	}
 }
 
 func readRawErrors(path string) []CredentialErrorRecord {

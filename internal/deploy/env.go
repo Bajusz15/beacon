@@ -8,6 +8,7 @@ import (
 
 	"beacon/internal/config"
 	"beacon/internal/secrets"
+	"beacon/internal/util"
 )
 
 func CommandEnv(cfg *config.Config, extra ...string) ([]string, error) {
@@ -86,7 +87,7 @@ func readEnvFile(path string, base map[string]string) (map[string]string, error)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer util.DeferClose(file, "env file")()
 
 	values := make(map[string]string, len(base))
 	for key, value := range base {

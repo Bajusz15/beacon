@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"beacon/internal/util"
 )
 
 func readEnvFile(path string, baseEnv []string) (map[string]string, error) {
@@ -12,7 +14,7 @@ func readEnvFile(path string, baseEnv []string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer util.DeferClose(file, "env file")()
 
 	values := envSliceToMap(baseEnv)
 	out := map[string]string{}

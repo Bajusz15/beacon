@@ -186,6 +186,91 @@ test_cloud_login_logout() {
     log_success "beacon cloud login / cloud logout OK"
 }
 
+test_secrets_cli() {
+    log_info "Testing Beacon secrets CLI..."
+
+    local secrets_home="/tmp/beacon-e2e-secrets-home"
+    rm -rf "$secrets_home"
+    mkdir -p "$secrets_home"
+
+    if ! BEACON_HOME="$secrets_home" beacon secrets set API_TOKEN "secret-one" --project "$PROJECT_NAME" --env prod; then
+        log_error "beacon secrets set API_TOKEN failed"
+        exit 1
+    fi
+    if ! BEACON_HOME="$secrets_home" beacon secrets set DB_PASSWORD "secret-two" --project "$PROJECT_NAME" --env prod; then
+        log_error "beacon secrets set DB_PASSWORD failed"
+        exit 1
+    fi
+
+    local list_output
+    list_output=$(BEACON_HOME="$secrets_home" beacon secrets list --project "$PROJECT_NAME" --env prod)
+    if ! echo "$list_output" | grep -qx "API_TOKEN"; then
+        log_error "secrets list missing API_TOKEN"
+        echo "$list_output"
+        exit 1
+    fi
+    if ! echo "$list_output" | grep -qx "DB_PASSWORD"; then
+        log_error "secrets list missing DB_PASSWORD"
+        echo "$list_output"
+        exit 1
+    fi
+    if echo "$list_output" | grep -q "secret-one"; then
+        log_error "secrets list leaked secret value without --reveal"
+        echo "$list_output"
+        exit 1
+    fi
+    log_success "✓ secrets list prints keys only"
+
+    local reveal_output
+    reveal_output=$(BEACON_HOME="$secrets_home" beacon secrets list --reveal --project "$PROJECT_NAME" --env prod)
+    if ! echo "$reveal_output" | grep -qx "API_TOKEN='secret-one'"; then
+        log_error "secrets list --reveal missing API_TOKEN value"
+        echo "$reveal_output"
+        exit 1
+    fi
+    if ! echo "$reveal_output" | grep -qx "DB_PASSWORD='secret-two'"; then
+        log_error "secrets list --reveal missing DB_PASSWORD value"
+        echo "$reveal_output"
+        exit 1
+    fi
+    log_success "✓ secrets list --reveal prints values"
+
+    local export_env_output
+    export_env_output=$(BEACON_HOME="$secrets_home" beacon secrets export --reveal --project "$PROJECT_NAME" --env prod)
+    if ! echo "$export_env_output" | grep -qx "API_TOKEN='secret-one'"; then
+        log_error "secrets export --reveal missing API_TOKEN value"
+        echo "$export_env_output"
+        exit 1
+    fi
+
+    local export_json_output
+    export_json_output=$(BEACON_HOME="$secrets_home" beacon secrets export --reveal --format json --project "$PROJECT_NAME" --env prod)
+    if ! echo "$export_json_output" | grep -q '"API_TOKEN": "secret-one"'; then
+        log_error "secrets export --format json missing API_TOKEN value"
+        echo "$export_json_output"
+        exit 1
+    fi
+    log_success "✓ secrets export supports env and json formats"
+
+    if BEACON_HOME="$secrets_home" beacon secrets export --project "$PROJECT_NAME" --env prod >/tmp/beacon-secrets-export.log 2>&1; then
+        log_error "secrets export without --reveal unexpectedly succeeded"
+        exit 1
+    fi
+    log_success "✓ secrets export requires --reveal"
+
+    if ! BEACON_HOME="$secrets_home" beacon secrets remove API_TOKEN --project "$PROJECT_NAME" --env prod; then
+        log_error "beacon secrets remove failed"
+        exit 1
+    fi
+    list_output=$(BEACON_HOME="$secrets_home" beacon secrets list --project "$PROJECT_NAME" --env prod)
+    if echo "$list_output" | grep -qx "API_TOKEN"; then
+        log_error "secrets remove did not remove API_TOKEN"
+        echo "$list_output"
+        exit 1
+    fi
+    log_success "Beacon secrets CLI OK"
+}
+
 # Create mock Git repository (local bare repo)
 create_mock_git_repo() {
     log_info "Setting up mock Git repository..."
@@ -1134,6 +1219,7 @@ main() {
     check_prerequisites
     test_canonical_local_flow
     test_cloud_login_logout
+    test_secrets_cli
     create_mock_git_repo
     start_git_http_server
     test_wizard
