@@ -187,7 +187,7 @@ func (s *Store) save(project, env string, values map[string]string) error {
 	if err := os.MkdirAll(filepath.Dir(path), secretsDirMode); err != nil {
 		return err
 	}
-	return os.WriteFile(path, encrypted, secretFileMode)
+	return writeFileAtomic(path, encrypted, secretFileMode)
 }
 
 func (s *Store) loadOrCreateKey() ([]byte, error) {
@@ -215,18 +215,67 @@ func (s *Store) loadOrCreateKey() ([]byte, error) {
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(s.keyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, keyFileMode)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := f.Write(key); err != nil {
-		_ = f.Close()
-		return nil, err
-	}
-	if err := f.Close(); err != nil {
+	if err := writeFileExclusive(s.keyPath, key, keyFileMode); err != nil {
+		if os.IsExist(err) {
+			return s.loadOrCreateKey()
+		}
 		return nil, err
 	}
 	return key, nil
+}
+
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	keepTmp := true
+	defer func() {
+		if keepTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	keepTmp = false
+	return nil
+}
+
+func writeFileExclusive(path string, data []byte, mode os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func encrypt(key, plain []byte) ([]byte, error) {

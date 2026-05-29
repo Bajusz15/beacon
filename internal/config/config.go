@@ -155,6 +155,7 @@ func getOptionalBoolEnv(key string) *bool {
 		v := enabled
 		return &v
 	}
+	_, _ = fmt.Fprintf(os.Stderr, "[Beacon] Warning: Ignoring invalid boolean value for %s=%q (expected true/false)\n", key, value)
 	return nil
 }
 

@@ -189,9 +189,10 @@ test_cloud_login_logout() {
 test_secrets_cli() {
     log_info "Testing Beacon secrets CLI..."
 
-    local secrets_home="/tmp/beacon-e2e-secrets-home"
-    rm -rf "$secrets_home"
-    mkdir -p "$secrets_home"
+    local secrets_home
+    secrets_home=$(mktemp -d /tmp/beacon-e2e-secrets-home.XXXXXX)
+    local export_log
+    export_log=$(mktemp /tmp/beacon-secrets-export.XXXXXX.log)
 
     if ! BEACON_HOME="$secrets_home" beacon secrets set API_TOKEN "secret-one" --project "$PROJECT_NAME" --env prod; then
         log_error "beacon secrets set API_TOKEN failed"
@@ -252,7 +253,7 @@ test_secrets_cli() {
     fi
     log_success "✓ secrets export supports env and json formats"
 
-    if BEACON_HOME="$secrets_home" beacon secrets export --project "$PROJECT_NAME" --env prod >/tmp/beacon-secrets-export.log 2>&1; then
+    if BEACON_HOME="$secrets_home" beacon secrets export --project "$PROJECT_NAME" --env prod >"$export_log" 2>&1; then
         log_error "secrets export without --reveal unexpectedly succeeded"
         exit 1
     fi
@@ -269,6 +270,8 @@ test_secrets_cli() {
         exit 1
     fi
     log_success "Beacon secrets CLI OK"
+    rm -rf "$secrets_home"
+    rm -f "$export_log"
 }
 
 # Create mock Git repository (local bare repo)

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -74,6 +75,17 @@ func TestStoreSetListGetRemove(t *testing.T) {
 	if !exists {
 		t.Fatal("Exists() after set = false, want true")
 	}
+	secretPath, err := store.Path("myapp", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(secretPath)
+	if err != nil {
+		t.Fatalf("stat secret file: %v", err)
+	}
+	if got := info.Mode().Perm(); got != secretFileMode {
+		t.Fatalf("secret file mode = %o, want %o", got, secretFileMode)
+	}
 	keys, err := store.List("myapp", "prod")
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
@@ -97,6 +109,59 @@ func TestStoreSetListGetRemove(t *testing.T) {
 	if err := store.Remove("myapp", "prod", "TOKEN"); err != ErrNotFound {
 		t.Fatalf("Remove() after remove error = %v, want ErrNotFound", err)
 	}
+}
+
+func TestStoreFileWrites(t *testing.T) {
+	t.Run("atomic replace writes complete file with requested mode", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "prod.enc")
+		if err := writeFileAtomic(path, []byte("old"), secretFileMode); err != nil {
+			t.Fatalf("writeFileAtomic() first error = %v", err)
+		}
+		if err := writeFileAtomic(path, []byte("new"), secretFileMode); err != nil {
+			t.Fatalf("writeFileAtomic() second error = %v", err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != "new" {
+			t.Fatalf("file contents = %q, want new", data)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != secretFileMode {
+			t.Fatalf("file mode = %o, want %o", got, secretFileMode)
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if strings.Contains(entry.Name(), ".prod.enc.tmp-") {
+				t.Fatalf("temporary file was not cleaned up: %s", entry.Name())
+			}
+		}
+	})
+
+	t.Run("exclusive write refuses to clobber existing key", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "key")
+		if err := writeFileExclusive(path, []byte("old"), keyFileMode); err != nil {
+			t.Fatalf("writeFileExclusive() first error = %v", err)
+		}
+		if err := writeFileExclusive(path, []byte("new"), keyFileMode); !os.IsExist(err) {
+			t.Fatalf("writeFileExclusive() second error = %v, want exists", err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != "old" {
+			t.Fatalf("file contents = %q, want old", data)
+		}
+	})
 }
 
 func TestStoreProjectEnvIsolation(t *testing.T) {
