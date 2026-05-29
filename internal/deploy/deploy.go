@@ -137,25 +137,15 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 	if cfg.DeployCommand != "" {
 		logger.Infof("Executing deploy command: %s\n", cfg.DeployCommand)
 
-		// Build the command with secure environment file sourcing
-		var command string
-		if cfg.SecureEnvPath != "" {
-			// Check if secure env file exists
-			if _, err := os.Stat(cfg.SecureEnvPath); err == nil {
-				logger.Infof("Sourcing secure environment file: %s\n", cfg.SecureEnvPath)
-				command = fmt.Sprintf("set -a && . %s && set +a && %s", cfg.SecureEnvPath, cfg.DeployCommand)
-			} else {
-				logger.Infof("Warning: Secure environment file not found: %s\n", cfg.SecureEnvPath)
-				logger.Infof("Running deploy command without secure environment\n")
-				command = cfg.DeployCommand
-			}
-		} else {
-			command = cfg.DeployCommand
+		env, err := CommandEnv(cfg)
+		if err != nil {
+			return err
 		}
 
 		// Execute the command - set working directory to avoid CWD issues
-		cmd := exec.Command("sh", "-c", command)
+		cmd := exec.Command("sh", "-c", cfg.DeployCommand)
 		cmd.Dir = cfg.LocalPath // Set working directory to project directory
+		cmd.Env = env
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
@@ -227,17 +217,13 @@ func DeployBranch(cfg *config.Config, branch string, status *state.Status) error
 
 	if cfg.DeployCommand != "" {
 		logger.Infof("Executing deploy command: %s\n", cfg.DeployCommand)
-		command := cfg.DeployCommand
-		if cfg.SecureEnvPath != "" {
-			if _, err := os.Stat(cfg.SecureEnvPath); err == nil {
-				logger.Infof("Sourcing secure environment file: %s\n", cfg.SecureEnvPath)
-				command = fmt.Sprintf("set -a && . %s && set +a && %s", cfg.SecureEnvPath, cfg.DeployCommand)
-			} else {
-				logger.Infof("Warning: Secure environment file not found: %s\n", cfg.SecureEnvPath)
-			}
+		env, err := CommandEnv(cfg)
+		if err != nil {
+			return err
 		}
-		cmd := exec.Command("sh", "-c", command)
+		cmd := exec.Command("sh", "-c", cfg.DeployCommand)
 		cmd.Dir = cfg.LocalPath
+		cmd.Env = env
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {

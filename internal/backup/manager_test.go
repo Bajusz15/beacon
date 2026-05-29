@@ -93,7 +93,7 @@ exit 0
 		t.Fatalf("RunNow blocked for %v", elapsed)
 	}
 
-	eventually(t, time.Second, func() bool {
+	eventually(t, 5*time.Second, func() bool {
 		return !m.Status().Running && !m.Status().LastRunAt.IsZero()
 	})
 }

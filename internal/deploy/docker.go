@@ -337,24 +337,11 @@ func DeployDockerImage(imgCfg *config.DockerImageConfig, cfg *config.Config, tag
 	if deployCommand != "" {
 		logger.Infof("Executing deploy command: %s\n", deployCommand)
 
-		// Build the command with secure environment file sourcing
-		var command string
-		if cfg.SecureEnvPath != "" {
-			if _, err := os.Stat(cfg.SecureEnvPath); err == nil {
-				logger.Infof("Sourcing secure environment file: %s\n", cfg.SecureEnvPath)
-				command = fmt.Sprintf("set -a && . %s && set +a && %s", cfg.SecureEnvPath, deployCommand)
-			} else {
-				logger.Infof("Warning: Secure environment file not found: %s\n", cfg.SecureEnvPath)
-				command = deployCommand
-			}
-		} else {
-			command = deployCommand
-		}
-
 		// Set environment variables for use in deploy command
-		env := os.Environ()
-		env = append(env, fmt.Sprintf("BEACON_DOCKER_IMAGE=%s", fullImageName))
-		env = append(env, fmt.Sprintf("BEACON_DOCKER_TAG=%s", tag))
+		extraEnv := []string{
+			fmt.Sprintf("BEACON_DOCKER_IMAGE=%s", fullImageName),
+			fmt.Sprintf("BEACON_DOCKER_TAG=%s", tag),
+		}
 
 		// Use DockerComposeFiles array (legacy DockerComposeFile is normalized during config load)
 		composeFiles := imgCfg.DockerComposeFiles
@@ -379,7 +366,7 @@ func DeployDockerImage(imgCfg *config.DockerImageConfig, cfg *config.Config, tag
 
 			// Set environment variables for compose files
 			// BEACON_DOCKER_COMPOSE_FILES: Space-separated list of all files (for docker compose -f usage)
-			env = append(env, fmt.Sprintf("BEACON_DOCKER_COMPOSE_FILES=%s", strings.Join(resolvedPaths, " ")))
+			extraEnv = append(extraEnv, fmt.Sprintf("BEACON_DOCKER_COMPOSE_FILES=%s", strings.Join(resolvedPaths, " ")))
 		}
 
 		// Set working directory to LocalPath
@@ -393,8 +380,13 @@ func DeployDockerImage(imgCfg *config.DockerImageConfig, cfg *config.Config, tag
 			workingDir = filepath.Dir(composePath)
 		}
 
+		env, err := CommandEnv(cfg, extraEnv...)
+		if err != nil {
+			return err
+		}
+
 		// Execute the command
-		cmd := exec.Command("sh", "-c", command)
+		cmd := exec.Command("sh", "-c", deployCommand)
 		cmd.Dir = workingDir
 		cmd.Env = env
 		cmd.Stdout = os.Stdout

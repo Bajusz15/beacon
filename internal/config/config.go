@@ -41,11 +41,14 @@ type Config struct {
 	DockerImages []DockerImageConfig
 
 	// Common configuration
-	PollInterval  time.Duration
-	Port          string
-	DeployCommand string // Legacy: kept for backward compatibility
-	SecureEnvPath string // Path to secure environment file for deploy command
-	ProjectDir    string
+	PollInterval   time.Duration
+	Port           string
+	DeployCommand  string // Legacy: kept for backward compatibility
+	SecureEnvPath  string // Path to secure environment file for deploy command
+	ProjectDir     string
+	ProjectName    string
+	ProjectEnv     string
+	SecretsEnabled *bool
 }
 
 func Load() *Config {
@@ -65,12 +68,21 @@ func Load() *Config {
 		deploymentType = "git" // Default to git if invalid
 	}
 
+	projectName := os.Getenv("BEACON_PROJECT_NAME")
+	projectEnv := os.Getenv("BEACON_PROJECT_ENV")
+	if projectEnv == "" {
+		projectEnv = "default"
+	}
+
 	cfg := &Config{
 		DeploymentType: deploymentType,
 		PollInterval:   getDurationEnv("BEACON_POLL_INTERVAL", 60*time.Second),
 		Port:           getEnvOrPrompt("BEACON_PORT", "Enter the port to run on", "8080"),
 		DeployCommand:  getEnvOrPrompt("BEACON_DEPLOY_CMD", "Enter the deploy command to run after update (optional)", ""),
 		SecureEnvPath:  getEnvOrPrompt("BEACON_SECURE_ENV_PATH", "Enter secure environment file path (optional)", "$HOME/beacon/project/.env"),
+		ProjectName:    projectName,
+		ProjectEnv:     projectEnv,
+		SecretsEnabled: getOptionalBoolEnv("BEACON_SECRETS_ENABLED"),
 	}
 
 	switch deploymentType {
@@ -85,9 +97,8 @@ func Load() *Config {
 		cfg.LocalPath = os.ExpandEnv(getEnvOrPrompt("BEACON_LOCAL_PATH", "Enter the local path for the project", "$HOME/beacon/project"))
 		ensureDir(cfg.LocalPath)
 
-		projectName := os.Getenv("BEACON_PROJECT_NAME")
-		if projectName == "" {
-			projectName = filepath.Base(cfg.LocalPath)
+		if cfg.ProjectName == "" {
+			cfg.ProjectName = filepath.Base(cfg.LocalPath)
 		}
 
 		// Load Docker images from docker-images.yml if it exists
@@ -95,7 +106,7 @@ func Load() *Config {
 		if err != nil {
 			base = filepath.Join(os.Getenv("HOME"), ".beacon")
 		}
-		dockerImagesPath := filepath.Join(base, "config", "projects", projectName, "docker-images.yml")
+		dockerImagesPath := filepath.Join(base, "config", "projects", cfg.ProjectName, "docker-images.yml")
 		if images, err := loadDockerImagesConfig(dockerImagesPath); err == nil {
 			cfg.DockerImages = images
 		} else if !os.IsNotExist(err) {
@@ -103,6 +114,9 @@ func Load() *Config {
 		}
 	}
 	cfg.ProjectDir = filepath.Base(cfg.LocalPath)
+	if cfg.ProjectName == "" {
+		cfg.ProjectName = cfg.ProjectDir
+	}
 
 	return cfg
 }
@@ -128,6 +142,21 @@ func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
 		}
 	}
 	return defaultValue
+}
+
+func getOptionalBoolEnv(key string) *bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return nil
+	}
+	enabled := value == "1" || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes") || strings.EqualFold(value, "on")
+	disabled := value == "0" || strings.EqualFold(value, "false") || strings.EqualFold(value, "no") || strings.EqualFold(value, "off")
+	if enabled || disabled {
+		v := enabled
+		return &v
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "[Beacon] Warning: Ignoring invalid boolean value for %s=%q (expected true/false)\n", key, value)
+	return nil
 }
 
 func getEnvOrPrompt(key, prompt, defaultValue string) string {

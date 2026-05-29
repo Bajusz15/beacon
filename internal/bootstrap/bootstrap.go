@@ -34,6 +34,7 @@ type DockerImageBootstrapConfig struct {
 // BootstrapConfig holds configuration for bootstrapping a new Beacon project
 type BootstrapConfig struct {
 	ProjectName    string `yaml:"project_name"`
+	ProjectEnv     string `yaml:"project_env,omitempty"`
 	DeploymentType string `yaml:"deployment_type"` // "git" or "docker"
 
 	// Git repository configuration
@@ -603,6 +604,9 @@ BEACON_SECURE_ENV_PATH={{.SecureEnvPath}}
 
 # Project metadata
 BEACON_PROJECT_NAME={{.ProjectName}}
+{{if .ProjectEnv}}
+BEACON_PROJECT_ENV={{.ProjectEnv}}
+{{end}}
 BEACON_USER={{.User}}
 BEACON_WORKING_DIR={{.WorkingDir}}
 `
