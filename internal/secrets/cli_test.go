@@ -154,3 +154,22 @@ func TestResolveCLIEnv(t *testing.T) {
 		}
 	})
 }
+
+func TestShellQuote(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "empty", value: "", want: "''"},
+		{name: "plain", value: "secret", want: "'secret'"},
+		{name: "single quote", value: "it'is", want: "'it'\\''is'"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shellQuote(tt.value); got != tt.want {
+				t.Fatalf("shellQuote(%q) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
+	}
+}

@@ -57,8 +57,22 @@ func TestStoreKeyHandling(t *testing.T) {
 
 func TestStoreSetListGetRemove(t *testing.T) {
 	store := NewStoreAt(t.TempDir())
+	exists, err := store.Exists("myapp", "prod")
+	if err != nil {
+		t.Fatalf("Exists() before set error = %v", err)
+	}
+	if exists {
+		t.Fatal("Exists() before set = true, want false")
+	}
 	if err := store.Set("myapp", "prod", "TOKEN", "abc"); err != nil {
 		t.Fatalf("Set() error = %v", err)
+	}
+	exists, err = store.Exists("myapp", "prod")
+	if err != nil {
+		t.Fatalf("Exists() after set error = %v", err)
+	}
+	if !exists {
+		t.Fatal("Exists() after set = false, want true")
 	}
 	keys, err := store.List("myapp", "prod")
 	if err != nil {
@@ -79,6 +93,9 @@ func TestStoreSetListGetRemove(t *testing.T) {
 	}
 	if _, err := store.Get("myapp", "prod", "TOKEN"); err != ErrNotFound {
 		t.Fatalf("Get() after remove error = %v, want ErrNotFound", err)
+	}
+	if err := store.Remove("myapp", "prod", "TOKEN"); err != ErrNotFound {
+		t.Fatalf("Remove() after remove error = %v, want ErrNotFound", err)
 	}
 }
 
