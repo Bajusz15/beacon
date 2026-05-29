@@ -7,36 +7,52 @@ import (
 	"testing"
 )
 
-func TestStoreKeyGenerationAndMode(t *testing.T) {
-	store := NewStoreAt(t.TempDir())
-	if err := store.Set("myapp", "default", "API_KEY", "secret"); err != nil {
-		t.Fatalf("Set() error = %v", err)
-	}
-	info, err := os.Stat(store.keyPath)
-	if err != nil {
-		t.Fatalf("stat key: %v", err)
-	}
-	if got := info.Mode().Perm(); got != keyFileMode {
-		t.Fatalf("key mode = %o, want %o", got, keyFileMode)
-	}
-}
+func TestStoreKeyHandling(t *testing.T) {
+	t.Run("generation and mode", func(t *testing.T) {
+		store := NewStoreAt(t.TempDir())
+		if err := store.Set("myapp", "default", "API_KEY", "secret"); err != nil {
+			t.Fatalf("Set() error = %v", err)
+		}
+		info, err := os.Stat(store.keyPath)
+		if err != nil {
+			t.Fatalf("stat key: %v", err)
+		}
+		if got := info.Mode().Perm(); got != keyFileMode {
+			t.Fatalf("key mode = %o, want %o", got, keyFileMode)
+		}
+	})
 
-func TestStoreRejectsOpenKeyPermissions(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix file permission test")
-	}
-	dir := t.TempDir()
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	keyPath := filepath.Join(dir, "key")
-	if err := os.WriteFile(keyPath, make([]byte, keySize), 0644); err != nil {
-		t.Fatal(err)
-	}
-	store := NewStoreAt(dir)
-	if err := store.Set("myapp", "default", "API_KEY", "secret"); err == nil {
-		t.Fatal("Set() error = nil, want permission error")
-	}
+	t.Run("rejects open permissions", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("unix file permission test")
+		}
+		dir := t.TempDir()
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		keyPath := filepath.Join(dir, "key")
+		if err := os.WriteFile(keyPath, make([]byte, keySize), 0644); err != nil {
+			t.Fatal(err)
+		}
+		store := NewStoreAt(dir)
+		if err := store.Set("myapp", "default", "API_KEY", "secret"); err == nil {
+			t.Fatal("Set() error = nil, want permission error")
+		}
+	})
+
+	t.Run("rejects invalid key length", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "key"), []byte("short"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		store := NewStoreAt(dir)
+		if err := store.Set("myapp", "prod", "TOKEN", "x"); err == nil {
+			t.Fatal("Set() error = nil, want invalid key length error")
+		}
+	})
 }
 
 func TestStoreSetListGetRemove(t *testing.T) {
@@ -97,32 +113,51 @@ func TestStoreProjectEnvIsolation(t *testing.T) {
 	}
 }
 
-func TestStoreCorruptedEncryptedFileFails(t *testing.T) {
-	store := NewStoreAt(t.TempDir())
-	if err := store.Set("myapp", "prod", "TOKEN", "abc"); err != nil {
-		t.Fatal(err)
-	}
-	path, err := store.Path("myapp", "prod")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("not-json"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Load("myapp", "prod"); err == nil {
-		t.Fatal("Load() error = nil, want corrupted file error")
-	}
-}
+func TestStoreLoad(t *testing.T) {
+	t.Run("missing file loads empty", func(t *testing.T) {
+		store := NewStoreAt(t.TempDir())
+		values, err := store.Load("myapp", "missing")
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if len(values) != 0 {
+			t.Fatalf("Load() = %#v, want empty map", values)
+		}
+	})
 
-func TestStoreMissingFileLoadsEmpty(t *testing.T) {
-	store := NewStoreAt(t.TempDir())
-	values, err := store.Load("myapp", "missing")
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if len(values) != 0 {
-		t.Fatalf("Load() = %#v, want empty map", values)
-	}
+	t.Run("corrupted envelope fails", func(t *testing.T) {
+		store := NewStoreAt(t.TempDir())
+		if err := store.Set("myapp", "prod", "TOKEN", "abc"); err != nil {
+			t.Fatal(err)
+		}
+		path, err := store.Path("myapp", "prod")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("not-json"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Load("myapp", "prod"); err == nil {
+			t.Fatal("Load() error = nil, want corrupted file error")
+		}
+	})
+
+	t.Run("corrupted payload fails", func(t *testing.T) {
+		store := NewStoreAt(t.TempDir())
+		if err := store.Set("myapp", "prod", "TOKEN", "abc"); err != nil {
+			t.Fatal(err)
+		}
+		path, err := store.Path("myapp", "prod")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(`{"version":1,"nonce":"@@","ciphertext":"abc"}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Load("myapp", "prod"); err == nil {
+			t.Fatal("Load() error = nil, want invalid nonce error")
+		}
+	})
 }
 
 func TestStoreValidatesNamesAndKeys(t *testing.T) {
@@ -141,36 +176,5 @@ func TestStoreValidatesNamesAndKeys(t *testing.T) {
 		if tt.err == nil {
 			t.Fatalf("%s error = nil, want validation error", tt.name)
 		}
-	}
-}
-
-func TestStoreRejectsInvalidKeyLength(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "key"), []byte("short"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	store := NewStoreAt(dir)
-	if err := store.Set("myapp", "prod", "TOKEN", "x"); err == nil {
-		t.Fatal("Set() error = nil, want invalid key length error")
-	}
-}
-
-func TestStoreCorruptedPayloadFails(t *testing.T) {
-	store := NewStoreAt(t.TempDir())
-	if err := store.Set("myapp", "prod", "TOKEN", "abc"); err != nil {
-		t.Fatal(err)
-	}
-	path, err := store.Path("myapp", "prod")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(`{"version":1,"nonce":"@@","ciphertext":"abc"}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Load("myapp", "prod"); err == nil {
-		t.Fatal("Load() error = nil, want invalid nonce error")
 	}
 }
