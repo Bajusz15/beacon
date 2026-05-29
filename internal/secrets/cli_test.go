@@ -2,6 +2,8 @@ package secrets
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -74,4 +76,81 @@ func TestCommandSetListGetRemove(t *testing.T) {
 	if strings.TrimSpace(out) != "" {
 		t.Fatalf("list after remove output = %q, want empty", out)
 	}
+
+	if _, err := run("--project", "myapp", "--env", "prod", "set", "API_KEY", "secret"); err != nil {
+		t.Fatalf("set for unsupported format error = %v", err)
+	}
+	if _, err := run("--project", "myapp", "--env", "prod", "export", "--reveal", "--format", "yaml"); err == nil {
+		t.Fatal("export unsupported format error = nil, want error")
+	}
+}
+
+func TestResolveCLIEnv(t *testing.T) {
+	t.Run("flag beats env file", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("BEACON_HOME", home)
+		configDir := filepath.Join(home, "config", "projects", "myapp")
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(configDir, "env"), []byte("BEACON_PROJECT_ENV=from_file\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+
+		env, err := resolveCLIEnv("myapp", "from_flag")
+		if err != nil {
+			t.Fatalf("resolve flag env error = %v", err)
+		}
+		if env != "from_flag" {
+			t.Fatalf("env = %q, want from_flag", env)
+		}
+
+		env, err = resolveCLIEnv("myapp", "")
+		if err != nil {
+			t.Fatalf("resolve file env error = %v", err)
+		}
+		if env != "from_file" {
+			t.Fatalf("env = %q, want from_file", env)
+		}
+	})
+
+	t.Run("user config beats env file", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("BEACON_HOME", home)
+		if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("projects:\n  - id: myapp\n    config_path: /tmp/monitor.yml\n    env: from_config\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		configDir := filepath.Join(home, "config", "projects", "myapp")
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(configDir, "env"), []byte("BEACON_PROJECT_ENV=from_file\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+
+		env, err := resolveCLIEnv("myapp", "")
+		if err != nil {
+			t.Fatalf("resolve env error = %v", err)
+		}
+		if env != "from_config" {
+			t.Fatalf("env = %q, want from_config", env)
+		}
+	})
+
+	t.Run("default and invalid inputs", func(t *testing.T) {
+		t.Setenv("BEACON_HOME", t.TempDir())
+		env, err := resolveCLIEnv("myapp", "")
+		if err != nil {
+			t.Fatalf("resolve default env error = %v", err)
+		}
+		if env != "default" {
+			t.Fatalf("env = %q, want default", env)
+		}
+		if _, err := resolveCLIEnv("bad/project", ""); err == nil {
+			t.Fatal("resolve invalid project error = nil, want error")
+		}
+		if _, err := resolveCLIEnv("myapp", "bad/env"); err == nil {
+			t.Fatal("resolve invalid env error = nil, want error")
+		}
+	})
 }
