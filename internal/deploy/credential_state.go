@@ -2,8 +2,10 @@ package deploy
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 )
 
@@ -18,13 +20,34 @@ type CredentialErrorRecord struct {
 const credentialErrorsFile = "credential_errors.json"
 const credentialErrorMaxAge = 24 * time.Hour
 
-func credentialErrorPath(stateDir, projectID string) string {
-	return filepath.Join(stateDir, projectID, credentialErrorsFile)
+var credentialProjectIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+func credentialErrorPath(stateDir, projectID string) (string, error) {
+	if err := validateCredentialProjectID(projectID); err != nil {
+		return "", err
+	}
+	return filepath.Join(stateDir, projectID, credentialErrorsFile), nil
+}
+
+func validateCredentialProjectID(projectID string) error {
+	if projectID == "" {
+		return fmt.Errorf("project id cannot be empty")
+	}
+	if projectID == "." || projectID == ".." || filepath.IsAbs(projectID) || filepath.Base(projectID) != projectID {
+		return fmt.Errorf("invalid project id %q", projectID)
+	}
+	if !credentialProjectIDPattern.MatchString(projectID) {
+		return fmt.Errorf("invalid project id %q", projectID)
+	}
+	return nil
 }
 
 // RecordCredentialError persists a credential error for the given project.
 func RecordCredentialError(stateDir, projectID string, authErr *AuthError) error {
-	p := credentialErrorPath(stateDir, projectID)
+	p, err := credentialErrorPath(stateDir, projectID)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 		return err
 	}
@@ -65,7 +88,10 @@ func RecordCredentialError(stateDir, projectID string, authErr *AuthError) error
 
 // ReadCredentialErrors returns unexpired credential errors for a project.
 func ReadCredentialErrors(stateDir, projectID string) []CredentialErrorRecord {
-	p := credentialErrorPath(stateDir, projectID)
+	p, err := credentialErrorPath(stateDir, projectID)
+	if err != nil {
+		return nil
+	}
 	all := readRawErrors(p)
 	cutoff := time.Now().Add(-credentialErrorMaxAge)
 	fresh := make([]CredentialErrorRecord, 0, len(all))
@@ -79,7 +105,12 @@ func ReadCredentialErrors(stateDir, projectID string) []CredentialErrorRecord {
 
 // ClearCredentialErrors removes the credential error file for a project.
 func ClearCredentialErrors(stateDir, projectID string) {
-	if err := os.Remove(credentialErrorPath(stateDir, projectID)); err != nil && !os.IsNotExist(err) {
+	p, err := credentialErrorPath(stateDir, projectID)
+	if err != nil {
+		logger.Infof("Refusing to clear credential errors for invalid project id %q: %v", projectID, err)
+		return
+	}
+	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 		logger.Infof("Failed to clear credential errors for %s: %v", projectID, err)
 	}
 }
