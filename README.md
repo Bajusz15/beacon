@@ -171,6 +171,25 @@ docker_images:
 
 Beacon talks to the registry API, detects the newest tag, pulls it, and runs your command. Supports Docker Hub, GHCR, and any Registry v2-compatible registry. Multiple images in one project are tracked independently — only the changed image redeploys.
 
+### Project secrets
+
+Beacon can store encrypted deploy-time secrets per project and environment:
+
+```bash
+beacon secrets set API_TOKEN --project myapp --env prod
+beacon secrets list --project myapp --env prod
+beacon secrets list --reveal --project myapp --env prod
+beacon secrets export --reveal --project myapp --env prod
+```
+
+Secrets live under `~/.beacon/secrets/<project>/<env>.enc` and are encrypted with a local AES-256-GCM machine key at `~/.beacon/secrets/key`. The key is created automatically with `0600` permissions.
+
+During deploys, Beacon starts from the process environment, loads the existing `BEACON_SECURE_ENV_PATH` `.env` file when configured, then overlays Beacon secrets. That means Beacon secrets override matching `.env` values. Set `BEACON_PROJECT_ENV=prod` in the project env file to select an environment; if it is not set, Beacon uses `default`.
+
+Values are not printed unless you pass `--reveal`. Use `list` for key names only, `list --reveal` to inspect all values, and `export --reveal --format env|json` for scripts.
+
+Security note: the machine key is stored locally next to the encrypted secret files. This protects against accidental commits, backup leakage, and casual inspection; it is not meant to protect against someone who can already read your Beacon home directory.
+
 ### Health checks
 
 ```yaml
@@ -264,6 +283,7 @@ Everything here works without an internet connection and without signing up for 
 | **Test your alert setup without waiting for an outage** | `beacon alerts test --project myapp --severity critical` |
 | **Forward logs** from a file, a Docker container, or `journalctl` | Add a `log_sources:` block to your `monitor.yml`. Filter with include/exclude patterns so you only ship what you care about. |
 | **Keep your tokens out of config files** | `beacon keys add` — encrypted local token store for Git, Docker, webhooks. |
+| **Keep deploy secrets out of `.env` files** | `beacon secrets set API_TOKEN --project myapp --env prod`. Beacon injects them after `.env` values during deploy. |
 | **Access Home Assistant, Grafana, or any local service remotely** (with a BeaconInfra account — authenticated, no port-forwarding needed) | `beacon tunnel add homeassistant --port 8123` |
 | **Run several tunnels at once** | `beacon tunnel list` / `beacon tunnel enable` / `beacon tunnel disable` |
 | **Route traffic through your home network from your laptop** | `beacon vpn enable` on the exit node, `beacon vpn use <device>` on the client. Peer-to-peer WireGuard. |
@@ -296,7 +316,7 @@ Even with BeaconInfra enabled, some things stay on your device and never touch t
 
 - Your **source code** and **deploy scripts** — the cloud only sends a "deploy now" signal; your device runs the script.
 - Your **tokens** (Git, Docker, webhooks) — encrypted locally by `beacon keys`.
-- Your **application secrets** (database passwords, API keys loaded via `secure_env_path`) — Beacon hands them to your app at deploy time and nothing else.
+- Your **application secrets** (database passwords, API keys loaded via `BEACON_SECURE_ENV_PATH` or `beacon secrets`) — Beacon hands them to your app at deploy time and nothing else.
 - **Raw log files** — only the lines you explicitly configured as `log_sources` are forwarded. Everything else stays on disk.
 - The **local dashboard** at port 9100 — it keeps working offline, BeaconInfra account or not.
 
@@ -343,6 +363,7 @@ Projects are isolated: one crash doesn't affect others. The master auto-restarts
 | `beacon cloud login` / `logout` | Enable/disable cloud |
 | `beacon bootstrap <name>` | Set up a project (interactive or `-f config.yml`) |
 | `beacon deploy` | Git/Docker tag polling loop |
+| `beacon secrets set\|get\|list\|export\|remove` | Local encrypted deploy secrets |
 | `beacon tunnel add\|list\|enable\|disable` | Reverse tunnels for remote access |
 | `beacon vpn enable\|use\|disable\|status` | WireGuard VPN |
 | `beacon projects list\|add\|remove\|status` | Project management |
