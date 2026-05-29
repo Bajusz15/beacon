@@ -256,7 +256,26 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	keepTmp = false
+	syncDir(dir)
 	return nil
+}
+
+// syncDir best-effort fsyncs a directory so that a preceding rename/create is
+// durable across a crash. The data was already written and renamed
+// successfully, so a sync failure is non-fatal: it is only logged as a warning.
+// Some filesystems and platforms do not support syncing a directory handle.
+func syncDir(dir string) {
+	d, err := os.Open(dir)
+	if err != nil {
+		logger.Warnf("could not open directory %s to fsync: %v", dir, err)
+		return
+	}
+	if err := d.Sync(); err != nil {
+		logger.Warnf("could not fsync directory %s: %v", dir, err)
+	}
+	if err := d.Close(); err != nil {
+		logger.Warnf("could not close directory %s after fsync: %v", dir, err)
+	}
 }
 
 func writeFileExclusive(path string, data []byte, mode os.FileMode) error {
@@ -275,6 +294,7 @@ func writeFileExclusive(path string, data []byte, mode os.FileMode) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
+	syncDir(filepath.Dir(path))
 	return nil
 }
 

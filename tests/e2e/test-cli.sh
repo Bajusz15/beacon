@@ -190,9 +190,9 @@ test_secrets_cli() {
     log_info "Testing Beacon secrets CLI..."
 
     local secrets_home
-    secrets_home=$(mktemp -d /tmp/beacon-e2e-secrets-home.XXXXXX)
+    secrets_home=$(mktemp -d)
     local export_log
-    export_log=$(mktemp /tmp/beacon-secrets-export.XXXXXX.log)
+    export_log=$(mktemp)
 
     if ! BEACON_HOME="$secrets_home" beacon secrets set API_TOKEN "secret-one" --project "$PROJECT_NAME" --env prod; then
         log_error "beacon secrets set API_TOKEN failed"
