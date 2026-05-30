@@ -38,6 +38,10 @@ func NewStatusServerWithAddr(cache *StatusCache, port int, listenAddr string) *S
 func (s *StatusServer) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status", s.handleAPIStatus)
+	mux.HandleFunc("/api/projects", s.handleAPIProjects)
+	mux.HandleFunc("/api/projects/", s.handleAPIProject)
+	mux.HandleFunc("/api/audit", s.handleAPIAudit)
+	mux.HandleFunc("/api/audit/verify", s.handleAPIAuditVerify)
 	mux.HandleFunc("/api/backup/run", s.handleBackupRun(ctx))
 	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/health", s.handleHealth)

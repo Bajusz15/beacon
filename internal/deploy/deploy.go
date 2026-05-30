@@ -146,8 +146,10 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 		cmd := exec.Command("sh", "-c", cfg.DeployCommand)
 		cmd.Dir = cfg.LocalPath // Set working directory to project directory
 		cmd.Env = env
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		stdout, stderr, closeLog := deployCommandOutput(cfg, cfg.DeployCommand)
+		defer closeLog()
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
 
 		if err := cmd.Run(); err != nil {
 			logger.Infof("Deploy command failed: %v\n", err)
@@ -224,8 +226,10 @@ func DeployBranch(cfg *config.Config, branch string, status *state.Status) error
 		cmd := exec.Command("sh", "-c", cfg.DeployCommand)
 		cmd.Dir = cfg.LocalPath
 		cmd.Env = env
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		stdout, stderr, closeLog := deployCommandOutput(cfg, cfg.DeployCommand)
+		defer closeLog()
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("deploy command: %w", err)
 		}

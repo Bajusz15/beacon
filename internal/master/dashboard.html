@@ -3,307 +3,83 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>beacon · status</title>
+<title>beacon</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-:root{
---base:#0A1628;--surface:#0F1F3A;--elevated:#162D50;
---amber:#F59E0B;--amber-hover:#D97706;--teal:#06B6D4;--teal-muted:#0D9488;--red:#EF4444;
---bright:#FFFFFF;--body:#CBD5E1;--muted:#94A3B8;--subtle:#64748B;
---border:rgba(255,255,255,0.06)
-}
-body{background:var(--base);color:var(--body);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;max-width:760px;margin:0 auto;padding:20px;font-size:14px;line-height:1.5}
-.hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid var(--border)}
-.brand{display:flex;align-items:center;gap:10px}
-.brand-icon{width:28px;height:28px;background:rgba(245,158,11,.15);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.brand-name{font-size:15px;font-weight:600;color:var(--amber)}
-.brand-ver{font-size:11px;color:var(--subtle);margin-left:6px}
-.brand-host{font-size:12px;color:var(--muted);margin-top:2px}
-.uptime-box{text-align:right;font-size:11px;color:var(--subtle)}
-.uptime-box span{color:var(--teal);font-weight:500}
-.offline{display:none;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:var(--red);padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:14px}
-.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}
-.metric-card{background:var(--surface);border-radius:8px;padding:12px 14px}
-.metric-label{font-size:11px;color:var(--subtle);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
-.metric-val{font-size:22px;font-weight:600}
-.metric-sub{font-size:11px;color:var(--subtle);margin-top:6px}
-.metric-bar{height:4px;border-radius:2px;background:var(--elevated);margin-top:8px;overflow:hidden}
-.metric-fill{height:100%;border-radius:2px;transition:width .4s}
-.section-title{font-size:12px;color:var(--subtle);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;margin-top:4px}
-.child-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border-radius:8px;margin-bottom:6px;border-left:3px solid transparent}
-.child-row.warn{border-left-color:var(--amber);border-radius:0 8px 8px 0}
-.child-row.down{border-left-color:var(--red);border-radius:0 8px 8px 0}
-.child-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-.child-name{font-size:13px;font-weight:500;color:var(--bright);min-width:130px}
-.child-ver{font-size:11px;color:var(--subtle);min-width:60px}
-.child-deployed{font-size:11px;color:var(--subtle);min-width:80px}
-.child-checks{font-size:11px;margin-left:auto}
-.child-warn-detail{font-size:11px;color:var(--amber);padding:4px 14px 8px 32px;margin-top:-2px;margin-bottom:4px}
-.events-section{background:var(--surface);border-radius:8px;padding:12px 14px;margin-top:16px}
-.event-row{display:flex;align-items:baseline;gap:10px;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border)}
-.event-row:last-child{border-bottom:none}
-.event-time{color:var(--subtle);min-width:40px;font-family:'SF Mono',monospace;font-size:11px;flex-shrink:0}
-.event-badge{font-size:11px;padding:2px 8px;border-radius:4px;font-weight:500;flex-shrink:0}
-.event-msg{color:var(--muted)}
-.footer{display:flex;gap:16px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;flex-wrap:wrap}
-.footer a{color:var(--teal-muted);text-decoration:none}
-.footer a:hover{color:var(--teal)}
-.footer-sep{color:var(--subtle)}
+*{box-sizing:border-box}body{margin:0;background:#07111f;color:#d6deea;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}button{font:inherit}
+.app{min-height:100vh;display:grid;grid-template-columns:220px 1fr}.side{background:#0b1729;border-right:1px solid #1c2b40;padding:18px 14px;position:sticky;top:0;height:100vh}.brand{display:flex;align-items:center;gap:10px;margin-bottom:22px;color:#f59e0b;font-weight:700}.mark{width:28px;height:28px;border-radius:7px;background:#251b07;display:grid;place-items:center}.mark:before{content:"";width:10px;height:10px;border-radius:50%;background:#f59e0b;box-shadow:0 0 0 5px rgba(245,158,11,.18)}
+.nav{display:grid;gap:6px}.nav button{border:0;background:transparent;color:#90a0b8;text-align:left;padding:10px 12px;border-radius:7px;cursor:pointer}.nav button:hover{background:#101f35;color:#e7eef8}.nav button.active{background:#14263f;color:#fff}.main{padding:22px;max-width:1180px;width:100%}.top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}.title h1{font-size:22px;line-height:1.1;margin:0;color:#fff}.title p{margin:5px 0 0;color:#91a0b5}.pill{font-size:12px;color:#0d9488;background:rgba(6,182,212,.12);border:1px solid rgba(6,182,212,.25);padding:6px 9px;border-radius:999px}.offline{display:none;margin-bottom:14px;color:#fca5a5;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);padding:10px;border-radius:7px}
+.grid{display:grid;gap:12px}.metrics{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:16px}.card{background:#0f1c31;border:1px solid #1b2b43;border-radius:8px;padding:14px}.label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#74849c}.value{font-size:24px;font-weight:700;color:#fff;margin-top:4px}.sub{color:#8392aa;font-size:12px;margin-top:4px}.bar{height:5px;background:#182a45;border-radius:99px;overflow:hidden;margin-top:9px}.fill{height:100%;background:#06b6d4}.section{margin-top:22px}.section h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:#8898ae;margin:0 0 10px}.row{display:grid;grid-template-columns:18px 1.4fr .8fr .8fr auto;gap:10px;align-items:center;padding:11px 12px;border-bottom:1px solid #1b2b43}.row:first-child{border-top:1px solid #1b2b43}.dot{width:9px;height:9px;border-radius:50%;background:#64748b}.ok{background:#06b6d4}.warn{background:#f59e0b}.bad{background:#ef4444}.name{font-weight:650;color:#fff}.muted{color:#8392aa}.small{font-size:12px}.table{background:#0f1c31;border:1px solid #1b2b43;border-radius:8px;overflow:hidden}.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}.kv{display:grid;grid-template-columns:140px 1fr;gap:8px 12px}.kv div:nth-child(odd){color:#74849c}.code{font-family:"SF Mono",ui-monospace,monospace;background:#091426;border:1px solid #1a2a42;border-radius:7px;padding:10px;white-space:pre-wrap;overflow:auto;color:#dbe7f4}.checks{display:grid;gap:8px}.check{display:grid;grid-template-columns:18px 1fr auto;gap:8px;align-items:start;background:#0b1729;border:1px solid #1a2a42;border-radius:7px;padding:10px}.actions{display:flex;gap:8px;flex-wrap:wrap}.linkbtn{border:1px solid #27435f;background:#0b1729;color:#9ddbe6;border-radius:7px;padding:7px 9px;cursor:pointer}.linkbtn:hover{border-color:#0d9488;color:#fff}.hidden{display:none}.log{max-height:420px;overflow:auto}.empty{color:#74849c;padding:18px}.badge{display:inline-block;border:1px solid #27435f;background:#0b1729;color:#a7b6cc;border-radius:999px;padding:2px 8px;font-size:12px}.danger{color:#fca5a5}.success{color:#67e8f9}@media(max-width:800px){.app{display:block}.side{position:static;height:auto}.metrics,.split{grid-template-columns:1fr}.row{grid-template-columns:18px 1fr;align-items:start}.row>*:nth-child(n+3){grid-column:2}.main{padding:16px}}
 </style>
 </head>
 <body>
-<div id="offline" class="offline">Connection lost — retrying…</div>
-<div class="hdr">
-  <div class="brand">
-    <div class="brand-icon">
-      <svg viewBox="0 0 16 16" fill="none" width="16" height="16">
-        <circle cx="8" cy="8" r="3" fill="#F59E0B"/>
-        <circle cx="8" cy="8" r="6" stroke="#F59E0B" stroke-width="1" stroke-opacity="0.35"/>
-      </svg>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="mark"></span><span>beacon</span></div>
+    <nav class="nav">
+      <button class="active" data-view="monitoring">Monitoring</button>
+      <button data-view="projects">Projects</button>
+      <button data-view="deployments">Deployments</button>
+      <button data-view="audit">Audit</button>
+    </nav>
+  </aside>
+  <main class="main">
+    <div id="offline" class="offline">Local agent unavailable. Retrying...</div>
+    <div class="top">
+      <div class="title"><h1 id="page-title">Monitoring</h1><p id="subtitle">Loading local Beacon status...</p></div>
+      <div class="pill" id="updated">not synced</div>
     </div>
-    <div>
-      <div style="display:flex;align-items:baseline">
-        <span class="brand-name">beacon</span>
-        <span class="brand-ver" id="version">—</span>
-      </div>
-      <div class="brand-host" id="device-host">loading…</div>
-    </div>
-  </div>
-  <div class="uptime-box">master uptime<br><span id="master-uptime">—</span></div>
+
+    <section id="view-monitoring"></section>
+    <section id="view-projects" class="hidden"></section>
+    <section id="view-deployments" class="hidden"></section>
+    <section id="view-audit" class="hidden"></section>
+  </main>
 </div>
-
-<div class="metric-grid">
-  <div class="metric-card">
-    <div class="metric-label">CPU</div>
-    <div class="metric-val" id="cpu-val" style="color:var(--teal)">—</div>
-    <div class="metric-bar"><div class="metric-fill" id="cpu-bar" style="width:0;background:var(--teal)"></div></div>
-  </div>
-  <div class="metric-card">
-    <div class="metric-label">Memory</div>
-    <div class="metric-val" id="mem-val" style="color:var(--teal)">—</div>
-    <div class="metric-bar"><div class="metric-fill" id="mem-bar" style="width:0;background:var(--teal)"></div></div>
-    <div class="metric-sub" id="mem-sub"></div>
-  </div>
-  <div class="metric-card">
-    <div class="metric-label">Disk</div>
-    <div class="metric-val" id="disk-val" style="color:var(--teal)">—</div>
-    <div class="metric-bar"><div class="metric-fill" id="disk-bar" style="width:0;background:var(--teal)"></div></div>
-    <div class="metric-sub" id="disk-sub"></div>
-  </div>
-  <div class="metric-card">
-    <div class="metric-label">Load avg</div>
-    <div class="metric-val" id="load-val">—</div>
-    <div class="metric-sub" id="load-sub"></div>
-  </div>
-</div>
-
-<div class="section-title" id="projects-title">Projects</div>
-<div id="projects-list"></div>
-
-<div class="events-section">
-  <div class="section-title" style="margin-top:0">Recent events</div>
-  <div id="events-list"><div style="color:var(--subtle);font-size:12px">No events yet</div></div>
-</div>
-
-<div class="footer">
-  <a href="metrics">/metrics</a>
-  <a href="health">/health</a>
-  <a href="api/status">/api/status</a>
-  <span class="footer-sep" id="last-sync"></span>
-</div>
-
 <script>
-var lastData = null;
-
-function tColor(pct) {
-  if (pct >= 85) return 'var(--red)';
-  if (pct >= 60) return 'var(--amber)';
-  return 'var(--teal)';
+var state={status:null,projects:[],audit:null,verify:null,logs:{},view:"monitoring"};
+var titles={monitoring:"Monitoring",projects:"Projects",deployments:"Deployments",audit:"Audit"};
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function pct(n){return (n||0).toFixed(1)+"%"}
+function rel(iso){if(!iso)return "";var d=(Date.now()-new Date(iso).getTime())/1000;if(d<60)return"just now";if(d<3600)return Math.floor(d/60)+"m ago";if(d<86400)return Math.floor(d/3600)+"h ago";return Math.floor(d/86400)+"d ago"}
+function uptime(s){s=s||0;var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);if(d)return d+"d "+h+"h";if(h)return h+"h "+m+"m";if(m)return m+"m";return s+"s"}
+function colorStatus(s){if(s==="healthy"||s==="passing"||s==="up"||s==="executed")return"ok";if(s==="degraded"||s==="warning"||s==="received"||s==="started")return"warn";if(s==="down"||s==="failing"||s==="failed"||s==="denied")return"bad";return""}
+function metric(label,value,sub,bar){return '<div class="card"><div class="label">'+label+'</div><div class="value">'+value+'</div>'+(sub?'<div class="sub">'+sub+'</div>':'')+(bar!=null?'<div class="bar"><div class="fill" style="width:'+Math.min(bar,100)+'%"></div></div>':'')+'</div>'}
+async function api(path){var r=await fetch(path);if(!r.ok)throw new Error(path+" HTTP "+r.status);return r.json()}
+async function refresh(){
+  try{
+    var all=await Promise.all([api("api/status"),api("api/projects"),api("api/audit?limit=100"),api("api/audit/verify")]);
+    state.status=all[0];state.projects=all[1].projects||[];state.audit=all[2].entries||[];state.verify=all[3];$("offline").style.display="none";$("updated").textContent="updated just now";render();
+  }catch(e){$("offline").style.display="block"}
 }
-
-function statusColor(s) {
-  if (s === 'healthy') return 'var(--teal)';
-  if (s === 'degraded' || s === 'warning') return 'var(--amber)';
-  if (s === 'down') return 'var(--red)';
-  return 'var(--subtle)';
+function show(view){state.view=view;document.querySelectorAll(".nav button").forEach(function(b){b.classList.toggle("active",b.dataset.view===view)});["monitoring","projects","deployments","audit"].forEach(function(v){$("view-"+v).classList.toggle("hidden",v!==view)});$("page-title").textContent=titles[view];render()}
+document.querySelectorAll(".nav button").forEach(function(b){b.addEventListener("click",function(){show(b.dataset.view)})});
+function render(){if(!state.status)return;var dev=state.status.device||{};$("subtitle").textContent=[dev.hostname,dev.ip,dev.arch,dev.os].filter(Boolean).join(" · ");renderMonitoring();renderProjects();renderDeployments();renderAudit()}
+function renderMonitoring(){
+ var sys=state.status.system||{}, master=state.status.master||{}, projects=state.status.projects||[];
+ var html='<div class="grid metrics">'+metric("CPU",pct(sys.cpu_percent),"",sys.cpu_percent)+metric("Memory",pct(sys.memory_percent),((sys.memory_used_mb||0)/1024).toFixed(1)+"GB / "+((sys.memory_total_mb||0)/1024).toFixed(1)+"GB",sys.memory_percent)+metric("Disk",pct(sys.disk_percent),(sys.disk_used_gb||0).toFixed(1)+"GB / "+(sys.disk_total_gb||0).toFixed(1)+"GB",sys.disk_percent)+metric("Master uptime",uptime(master.uptime_seconds),"load "+(sys.load_1m||0).toFixed(2),null)+'</div>';
+ html+='<div class="section"><h2>Projects under system metrics</h2><div class="table">';
+ if(!projects.length)html+='<div class="empty">No projects running</div>';else projects.forEach(function(p){var chk=p.checks||{};html+='<div class="row"><span class="dot '+colorStatus(p.status)+'"></span><div><div class="name">'+esc(p.name)+'</div><div class="small muted">'+esc(p.version||"")+'</div></div><div class="muted">'+esc(p.status||"unknown")+'</div><div class="muted">'+(p.deployed_at?rel(p.deployed_at):"not deployed")+'</div><div class="small">'+(chk.passing||0)+'/'+(chk.total||0)+' checks passing</div></div>';if(chk.details&&chk.details.length){html+='<div class="checks" style="padding:8px 12px 12px 40px">'+chk.details.map(function(c){return '<div class="check"><span class="dot '+colorStatus(c.status)+'"></span><div><b>'+esc(c.name)+'</b><div class="small muted">'+esc(c.type||"check")+(c.error?" - "+esc(c.error):"")+'</div></div><span class="badge">'+esc(c.status)+'</span></div>'}).join("")+'</div>'}});
+ html+='</div></div>';$("view-monitoring").innerHTML=html;
 }
-
-function relTime(iso) {
-  if (!iso) return '';
-  var diff = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
-  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
-  return Math.floor(diff/86400) + 'd ago';
+function renderProjects(){
+ var html='<div class="grid">';
+ if(!state.projects.length)html+='<div class="empty">No projects configured</div>';else state.projects.forEach(function(p){var files=p.files||{}, cfg=p.config||{}, a=p.alerts||{};html+='<div class="card"><div class="top" style="margin:0 0 10px"><div><div class="name">'+esc(p.name)+'</div><div class="small muted">'+esc(p.location||"")+'</div></div><span class="badge">'+esc(p.status||"unknown")+'</span></div><div class="split"><div class="kv"><div>Deployment</div><div>'+esc(cfg.deployment_type||"git")+'</div><div>Config</div><div>'+esc(p.config_dir||"")+'</div><div>Env file</div><div>'+(files.env&&files.env.exists?"present":"missing")+'</div><div>Monitor</div><div>'+(files.monitor&&files.monitor.exists?"present":"missing")+'</div><div>Alerts</div><div>'+(files.alerts&&files.alerts.exists?"present":"missing")+'</div></div><div><div class="label">Configured checks</div>'+(p.checks&&p.checks.details&&p.checks.details.length?p.checks.details.map(function(c){return '<div class="small">'+esc(c.name)+' <span class="muted">'+esc(c.status)+'</span></div>'}).join(""):'<div class="muted">No live check data</div>')+'<div class="label" style="margin-top:10px">Alerts</div><div class="small">'+(a.rules||0)+' alert rules · '+(a.monitor_rules||0)+' monitor rules</div></div></div></div>'});
+ html+='</div>';$("view-projects").innerHTML=html;
 }
-
-function fmtUptime(s) {
-  if (!s) return '—';
-  var d = Math.floor(s/86400), h = Math.floor((s%86400)/3600), m = Math.floor((s%3600)/60);
-  if (d > 0) return d+'d '+h+'h';
-  if (h > 0) return h+'h '+m+'m';
-  if (m > 0) return m+'m';
-  return s+'s';
+async function loadLog(name){state.logs[name]=["Loading..."];renderDeployments();try{var d=await api("api/projects/"+encodeURIComponent(name)+"/logs?limit=200");state.logs[name]=d.lines||[]}catch(e){state.logs[name]=["Failed to load logs: "+e.message]}renderDeployments()}
+function renderDeployments(){
+ var html='<div class="grid">';
+ if(!state.projects.length)html+='<div class="empty">No projects configured</div>';else state.projects.forEach(function(p){var cfg=p.config||{}, d=p.last_deploy||{}, imgs=cfg.docker_images||[], lines=state.logs[p.name];html+='<div class="card"><div class="top" style="margin:0 0 10px"><div><div class="name">'+esc(p.name)+'</div><div class="small muted">'+esc(cfg.deployment_type||"git")+(d.last_deployed?" · deployed "+rel(d.last_deployed):"")+'</div></div><button class="linkbtn" onclick="loadLog(\''+esc(p.name)+'\')">View log</button></div><div class="kv"><div>Repo</div><div>'+esc(cfg.repo_url||"")+'</div><div>Local path</div><div>'+esc(cfg.local_path||p.location||"")+'</div><div>Last tag</div><div>'+esc(d.last_tag||"")+'</div><div>Log path</div><div>'+esc(d.log_path||"")+'</div></div><div class="label" style="margin-top:12px">Deploy command</div><div class="code">'+esc(cfg.deploy_command||"No deploy command configured")+'</div>';if(imgs.length){html+='<div class="label" style="margin-top:12px">Docker images</div>'+imgs.map(function(i){return '<div class="small">'+esc(i.image)+' <span class="muted">'+esc(i.registry||"")+'</span></div>'}).join("")}if(lines){html+='<div class="label" style="margin-top:12px">Deploy log</div><div class="code log">'+(lines.length?esc(lines.join("\n")):"No deploy log lines yet")+'</div>'}html+='</div>'});
+ html+='</div>';$("view-deployments").innerHTML=html;
 }
-
-function fmtGB(gb) { return gb < 1 ? (gb*1024).toFixed(0)+'MB' : gb.toFixed(1)+'GB'; }
-
-function badgeStyle(type) {
-  if (type==='deploy'||type==='sync'||type==='start') return 'background:rgba(6,182,212,.15);color:var(--teal)';
-  if (type==='alert') return 'background:rgba(245,158,11,.15);color:var(--amber)';
-  if (type==='restart') return 'background:rgba(245,158,11,.15);color:var(--amber)';
-  return 'background:rgba(100,116,139,.15);color:var(--subtle)';
+function renderAudit(){
+ var v=state.verify||{}, entries=state.audit||[];
+ var html='<div class="card"><span class="badge '+(v.ok?"success":"danger")+'">'+(v.ok?"chain intact":"chain broken")+'</span><span class="small muted" style="margin-left:8px">'+(v.count||0)+' entries verified'+(v.reason?" - "+esc(v.reason):"")+'</span></div><div class="section"><h2>Recent audit entries</h2><div class="table">';
+ if(!entries.length)html+='<div class="empty">No audit entries yet</div>';else entries.slice().reverse().forEach(function(e){html+='<div class="row"><span class="dot '+colorStatus(e.status)+'"></span><div><div class="name">'+esc(e.action||"-")+'</div><div class="small muted">'+esc(e.ts||"")+'</div></div><div>'+esc(e.status||"-")+'</div><div class="muted">'+esc(e.source||"-")+'</div><div class="small">'+esc(e.project||e.device||"")+' '+esc(e.detail||"")+'</div></div>'});
+ html+='</div></div>';$("view-audit").innerHTML=html;
 }
-
-function setVal(id, text) { var el=document.getElementById(id); if(el) el.textContent=text; }
-function setStyle(id, prop, val) { var el=document.getElementById(id); if(el) el.style[prop]=val; }
-
-function render(d) {
-  lastData = d;
-  document.getElementById('offline').style.display='none';
-
-  setVal('version', d.version ? ' '+d.version : '');
-  var dev = d.device || {};
-  var hostParts = [dev.hostname, dev.ip, dev.arch, dev.os].filter(Boolean);
-  setVal('device-host', hostParts.join(' · '));
-
-  var m = d.master || {};
-  setVal('master-uptime', fmtUptime(m.uptime_seconds));
-
-  var sys = d.system || {};
-
-  var cpu = sys.cpu_percent || 0;
-  setVal('cpu-val', cpu.toFixed(1)+'%');
-  setStyle('cpu-val','color',tColor(cpu));
-  setStyle('cpu-bar','width',Math.min(cpu,100)+'%');
-  setStyle('cpu-bar','background',tColor(cpu));
-
-  var mem = sys.memory_percent || 0;
-  setVal('mem-val', mem.toFixed(1)+'%');
-  setStyle('mem-val','color',tColor(mem));
-  setStyle('mem-bar','width',Math.min(mem,100)+'%');
-  setStyle('mem-bar','background',tColor(mem));
-  if (sys.memory_used_mb && sys.memory_total_mb) {
-    setVal('mem-sub', (sys.memory_used_mb/1024).toFixed(1)+'GB / '+(sys.memory_total_mb/1024).toFixed(1)+'GB');
-  }
-
-  var disk = sys.disk_percent || 0;
-  setVal('disk-val', disk.toFixed(1)+'%');
-  setStyle('disk-val','color',tColor(disk));
-  setStyle('disk-bar','width',Math.min(disk,100)+'%');
-  setStyle('disk-bar','background',tColor(disk));
-  if (sys.disk_used_gb && sys.disk_total_gb) {
-    setVal('disk-sub', fmtGB(sys.disk_used_gb)+' / '+fmtGB(sys.disk_total_gb));
-  }
-
-  var load = (sys.load_1m||0).toFixed(2);
-  setVal('load-val', load);
-  if (sys.load_5m != null && sys.load_15m != null) {
-    setVal('load-sub', sys.load_5m.toFixed(2)+' · '+sys.load_15m.toFixed(2)+(sys.temperature_celsius?'  🌡 '+sys.temperature_celsius.toFixed(1)+'°C':''));
-  }
-
-  var projects = d.projects || d.children || [];
-  var healthy=0, warn=0, down=0;
-  projects.forEach(function(c){
-    if(c.status==='healthy') healthy++;
-    else if(c.status==='down') down++;
-    else if(c.status!=='unknown') warn++;
-  });
-  var titleParts = ['Projects'];
-  if(healthy) titleParts.push('<span style="color:var(--teal)">'+healthy+' healthy</span>');
-  if(warn) titleParts.push('<span style="color:var(--amber)">'+warn+' warning</span>');
-  if(down) titleParts.push('<span style="color:var(--red)">'+down+' down</span>');
-  var ct = document.getElementById('projects-title');
-  if(ct) ct.innerHTML = titleParts.join(' · ');
-
-  var cl = document.getElementById('projects-list');
-  if(cl) {
-    if(!projects.length) {
-      cl.innerHTML = '<div style="color:var(--subtle);font-size:12px;padding:8px 0">No projects running</div>';
-    } else {
-      cl.innerHTML = projects.map(function(c) {
-        var dot = '<div class="child-dot" style="background:'+statusColor(c.status)+'"></div>';
-        var chk = c.checks || {};
-        var chkColor = chk.failing>0 ? 'var(--amber)' : 'var(--teal)';
-        var chkText = (chk.passing||0)+'/'+(chk.total||0)+' passing';
-        var rowClass = c.status==='down' ? 'child-row down' : c.status==='degraded'||c.status==='warning' ? 'child-row warn' : 'child-row';
-        var row = '<div class="'+rowClass+'">'+dot+
-          '<div class="child-name">'+esc(c.name)+'</div>'+
-          '<div class="child-ver">'+esc(c.version||'')+'</div>'+
-          (c.deployed_at ? '<div class="child-deployed">'+relTime(c.deployed_at)+'</div>' : '<div class="child-deployed"></div>')+
-          '<div class="child-checks" style="color:'+chkColor+'">'+chkText+'</div>'+
-          '</div>';
-        var detail = '';
-        if(chk.failing>0 && chk.details) {
-          chk.details.filter(function(d){return d.status==='failing';}).forEach(function(fd){
-            detail += '<div class="child-warn-detail">⚠ '+esc(fd.name)+(fd.error?' — '+esc(fd.error):'')+'</div>';
-          });
-        }
-        return row+detail;
-      }).join('');
-    }
-  }
-
-  var events = d.events || [];
-  var el = document.getElementById('events-list');
-  if(el) {
-    if(!events.length) {
-      el.innerHTML = '<div style="color:var(--subtle);font-size:12px">No events yet</div>';
-    } else {
-      var evHTML = events.slice().reverse().map(function(e){
-        var t = new Date(e.timestamp);
-        var timeStr = t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0');
-        var dur = e.duration_ms ? ' <span style="color:var(--subtle)">('+Math.round(e.duration_ms/1000)+'s)</span>' : '';
-        return '<div class="event-row">'+
-          '<span class="event-time">'+timeStr+'</span>'+
-          '<span class="event-badge" style="'+badgeStyle(e.type)+'">'+esc(e.type)+'</span>'+
-          '<span class="event-msg">'+(e.child?'<strong style="color:var(--body)">'+esc(e.child)+'</strong> ':'')+esc(e.message)+dur+'</span>'+
-          '</div>';
-      }).join('');
-      el.innerHTML = evHTML;
-    }
-  }
-
-  var cloud = d.cloud || {};
-  var ls = document.getElementById('last-sync');
-  if(ls && cloud.last_sync) {
-    ls.textContent = 'cloud sync '+relTime(cloud.last_sync);
-    ls.style.color = cloud.connected ? 'var(--teal)' : 'var(--subtle)';
-  }
-}
-
-function showOffline() {
-  document.getElementById('offline').style.display='block';
-  if(lastData) {
-    var els = document.querySelectorAll('.metric-card,.child-row,.events-section');
-    els.forEach(function(e){ e.style.opacity='0.5'; });
-  }
-}
-
-function clearOffline() {
-  var els = document.querySelectorAll('.metric-card,.child-row,.events-section');
-  els.forEach(function(e){ e.style.opacity=''; });
-}
-
-function esc(s) {
-  if(!s) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-async function refresh() {
-  try {
-    var res = await fetch('api/status');
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    var data = await res.json();
-    clearOffline();
-    render(data);
-  } catch(e) {
-    showOffline();
-  }
-}
-
-document.addEventListener('DOMContentLoaded', function(){ refresh(); });
-setInterval(refresh, 10000);
+refresh();setInterval(refresh,10000);
 </script>
 </body>
 </html>

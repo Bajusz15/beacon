@@ -389,8 +389,10 @@ func DeployDockerImage(imgCfg *config.DockerImageConfig, cfg *config.Config, tag
 		cmd := exec.Command("sh", "-c", deployCommand)
 		cmd.Dir = workingDir
 		cmd.Env = env
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		stdout, stderr, closeLog := deployCommandOutput(cfg, deployCommand)
+		defer closeLog()
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
 
 		if err := cmd.Run(); err != nil {
 			logger.Infof("Deploy command failed: %v\n", err)
