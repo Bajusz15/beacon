@@ -154,9 +154,13 @@ Restart `beacon` after setting it so a running agent picks up the gate.
   a session**.
 - A successful unlock is **in-memory, session-bound, and TTL-limited**, and is
   cleared on restart (fail-closed).
+- **Tunnels do not auto-start** while a passphrase is set — each one comes up only
+  on a passphrase-unlocked connect, so a restart (which clears grants) requires
+  unlocking again before any local service is reachable.
 - Repeated wrong attempts trigger **rate-limiting / backoff** to slow brute force.
 
-With no passphrase set, behavior is unchanged (the gate is simply off).
+With no passphrase set, behavior is unchanged (the gate is simply off, and tunnels
+auto-start as before).
 
 ---
 

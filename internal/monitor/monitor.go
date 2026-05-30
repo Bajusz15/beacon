@@ -876,6 +876,21 @@ func (m *Monitor) executeCommandCheck(check CheckConfig) CheckResult {
 
 	cmd := exec.CommandContext(m.ctx, "sh", "-c", check.Cmd)
 
+	// Run the check with the same project environment a deploy command gets —
+	// the secure env file and Beacon secrets — and in the project directory.
+	// Without this, checks like `docker compose ps` can't interpolate required
+	// variables (e.g. ${DATABASE_URL:?...}) and fail even though the deploy,
+	// which does get the env, succeeds. Falls back to the inherited environment
+	// when there is no project context.
+	if env, dir := m.commandCheckEnv(); env != nil {
+		cmd.Env = env
+		if dir != "" {
+			if fi, statErr := os.Stat(dir); statErr == nil && fi.IsDir() {
+				cmd.Dir = dir
+			}
+		}
+	}
+
 	// Capture stdout and stderr
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -907,6 +922,57 @@ func (m *Monitor) executeCommandCheck(check CheckConfig) CheckResult {
 
 	result.Status = "up"
 	return result
+}
+
+// commandCheckEnv builds the environment and working directory for a command
+// check from the project's deploy config, mirroring what a deploy command gets
+// (deploy.CommandEnv: secure env file + Beacon secrets). It reads the project's
+// env file directly into a transient config so it does NOT mutate the long-lived
+// process environment — secrets stay out of the agent's own env and are only
+// handed to the check subprocess. Returns (nil, "") when there is no project
+// context, so checks fall back to the inherited environment.
+func (m *Monitor) commandCheckEnv() ([]string, string) {
+	projectName := m.getProjectNameFromConfigPath()
+	if projectName == "" {
+		return nil, ""
+	}
+	envPath := filepath.Join(getConfigDir(), "config", "projects", projectName, "env")
+	vals, err := util.ReadEnvFileMap(envPath, util.EnvSliceToMap(os.Environ()))
+	if err != nil {
+		// No project env file (or unreadable): nothing project-specific to inject.
+		return nil, ""
+	}
+	cfg := &config.Config{
+		SecureEnvPath:  vals["BEACON_SECURE_ENV_PATH"],
+		ProjectName:    projectName,
+		ProjectEnv:     vals["BEACON_PROJECT_ENV"],
+		LocalPath:      os.ExpandEnv(vals["BEACON_LOCAL_PATH"]),
+		SecretsEnabled: optionalBoolValue(vals["BEACON_SECRETS_ENABLED"]),
+	}
+	env, err := deploy.CommandEnv(cfg)
+	if err != nil {
+		logger.Infof("Command check %q: failed to build project environment: %v", projectName, err)
+		return nil, cfg.LocalPath
+	}
+	return env, cfg.LocalPath
+}
+
+// optionalBoolValue parses a tri-state bool from an env-file value: nil when
+// unset/unrecognized, else the parsed boolean. Mirrors config.getOptionalBoolEnv.
+func optionalBoolValue(value string) *bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if value == "1" || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes") || strings.EqualFold(value, "on") {
+		v := true
+		return &v
+	}
+	if value == "0" || strings.EqualFold(value, "false") || strings.EqualFold(value, "no") || strings.EqualFold(value, "off") {
+		v := false
+		return &v
+	}
+	return nil
 }
 
 func (m *Monitor) executeAlertCommand(command string, result CheckResult) {
