@@ -53,6 +53,7 @@ This is the part that matters before any feature:
 
 - **Reach any service, no open ports** — securely reach Home Assistant, Grafana, Jellyfin, a NAS admin page, Pi-hole, or any local HTTP service from anywhere. No dynamic DNS, no Nabu Casa, no Cloudflare account or managed domain. Authenticated with short-lived tokens; only you can reach your services.
 - **Remote terminal** — open a shell on your device from the browser. No SSH port, no VPN. The cloud relays a PTY session between your browser and the agent.
+- **Passphrase-gated (recommended)** — set a device-local passphrase so a second factor is required before *any* remote terminal or tunnel session can open. It's verified **on the device** — BeaconInfra only relays the challenge and never sees the passphrase or a reusable proof, so even a fully compromised cloud can't open a session without it. See [Securing remote access](#-securing-remote-access).
 
 ### 📊 Monitoring & alerts
 
@@ -117,6 +118,45 @@ http:
 ```
 
 Then restart Home Assistant Core. Without this, the tunnel connects but HA can return `400 Bad Request` or show "can't connect to Home Assistant" because it rejects the forwarded proxy headers.
+
+---
+
+## 🔑 Securing remote access
+
+Remote terminal and tunnel sessions are reached through the BeaconInfra relay. By
+default the relay is gated by short-lived, authenticated tokens — but if you want
+a second factor that does **not** trust the cloud at all, set a remote-access
+passphrase. Once set, no remote terminal or tunnel session can open until the
+passphrase is supplied and verified locally on the device.
+
+```bash
+# Set (or change) the passphrase — prompted twice, no echo
+beacon remote-access set-passphrase
+
+# Check whether the gate is on
+beacon remote-access status
+
+# Remove it (local recovery; disables the gate)
+beacon remote-access clear
+```
+
+Restart `beacon` after setting it so a running agent picks up the gate.
+
+**How it stays secure — the cloud never sees your passphrase:**
+
+- The passphrase is **never stored**. Setup writes only an Argon2id-derived key,
+  its salt, and the cost parameters to `~/.beacon/remote-access.json` (mode `0600`).
+- At session time the agent issues a single-use, short-lived **nonce**. The browser
+  derives the key from your passphrase and returns a proof =
+  `HMAC-SHA256(key, nonce ‖ action ‖ session_id)`. The agent recomputes and compares
+  it in constant time. BeaconInfra only relays this challenge — it never sees the
+  passphrase or any reusable proof, so a **fully compromised cloud still cannot open
+  a session**.
+- A successful unlock is **in-memory, session-bound, and TTL-limited**, and is
+  cleared on restart (fail-closed).
+- Repeated wrong attempts trigger **rate-limiting / backoff** to slow brute force.
+
+With no passphrase set, behavior is unchanged (the gate is simply off).
 
 ---
 
@@ -338,7 +378,7 @@ Turn it on with `beacon cloud login --api-key usr_…`. Turn it off any time wit
 | **See all your project health in one list** | Every project, every check, across every device. Sorted so the problems come first. |
 | **Trigger a deploy from the browser** | Click "deploy" in the dashboard and Beacon runs your existing deploy script on the device. Your secrets never leave home — the cloud just sends the signal. |
 | **Know when a device goes offline** | If a device stops sending heartbeats, you get notified — even if its last check said everything was fine. |
-| **Open a remote terminal session** | Click "Open terminal" on a device in the dashboard. The cloud relays a shell session (PTY) between your browser and the Beacon agent — no SSH port, no VPN needed. Sessions auto-expire after 15 minutes. |
+| **Open a remote terminal session** | Click "Open terminal" on a device in the dashboard. The cloud relays a shell session (PTY) between your browser and the Beacon agent — no SSH port, no VPN needed. Sessions auto-expire after 15 minutes. Set a [remote-access passphrase](#-securing-remote-access) to require a device-verified second factor before any session opens. |
 | **Route traffic through your home network** | `beacon vpn enable` on your home device + `beacon vpn use my-pi` on your laptop. WireGuard peer exchange happens via BeaconInfra; the actual traffic is peer-to-peer. For client-only machines, use the lightweight `beacon-vpn` binary. |
 
 ### 🔐 What we don't see
@@ -396,6 +436,7 @@ Projects are isolated: one crash doesn't affect others. The master auto-restarts
 | `beacon deploy` | Git/Docker tag polling loop |
 | `beacon secrets set\|get\|list\|export\|remove` | Local encrypted deploy secrets |
 | `beacon tunnel add\|list\|enable\|disable` | Reverse tunnels for remote access |
+| `beacon remote-access set-passphrase\|status\|clear` | Device-verified passphrase gating remote terminal/tunnel sessions |
 | `beacon vpn enable\|use\|disable\|status` | WireGuard VPN |
 | `beacon projects list\|add\|remove\|status` | Project management |
 | `beacon alerts init\|test\|status` | Alert routing |
