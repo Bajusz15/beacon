@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"beacon/internal/audit"
+	"beacon/internal/util"
 
 	"github.com/spf13/cobra"
 )
@@ -208,22 +209,30 @@ func filterEntries(entries []audit.Entry, action, status string) []audit.Entry {
 
 func printTable(entries []audit.Entry) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "TIME\tACTION\tSTATUS\tSOURCE\tDEVICE\tDETAIL")
+	if _, err := fmt.Fprintln(w, "TIME\tACTION\tSTATUS\tSOURCE\tDEVICE\tDETAIL"); err != nil {
+		util.LogError(err, "write audit table header")
+		return
+	}
 	printRows(w, entries)
-	_ = w.Flush()
+	if err := w.Flush(); err != nil {
+		util.LogError(err, "flush audit table")
+	}
 }
 
 // printRows writes entries as tab-separated rows.
 func printRows(w io.Writer, entries []audit.Entry) {
 	for _, e := range entries {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			formatAuditTime(e.TS),
 			dash(e.Action),
 			dash(e.Status),
 			dash(e.Source),
 			dash(e.Device),
 			truncate(detailOrProject(e), 60),
-		)
+		); err != nil {
+			util.LogError(err, "write audit row")
+			return
+		}
 	}
 }
 

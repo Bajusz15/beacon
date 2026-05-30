@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"beacon/internal/config"
+	"beacon/internal/util"
 )
 
 // FileName is the audit log filename within the Beacon logs directory.
@@ -109,7 +110,7 @@ func Record(ev Event) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer util.Close(f, "audit log file")
 
 	if lockErr := lockFD(int(f.Fd())); lockErr != nil {
 		return lockErr
@@ -162,7 +163,7 @@ func ReadAll() ([]Entry, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer util.Close(f, "audit log file")
 
 	var entries []Entry
 	sc := bufio.NewScanner(f)

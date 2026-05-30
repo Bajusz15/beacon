@@ -78,6 +78,30 @@ func TestProofIsSessionBound(t *testing.T) {
 	}
 }
 
+func TestProofIsActionBound(t *testing.T) {
+	const pp = "action binding test"
+	setupConfigured(t, pp)
+	g := NewGrants()
+
+	// A challenge issued for tunnel_connect must not be satisfiable by a proof
+	// computed for terminal_open on the same session.
+	ch, _ := g.Challenge("tunnel_connect", "sess-1")
+	proof := browserProof(t, pp, ch, "terminal_open", "sess-1")
+	if err := g.Verify("tunnel_connect", "sess-1", ch.Nonce, proof); err != ErrBadProof {
+		t.Fatalf("expected ErrBadProof for action-mismatched proof, got %v", err)
+	}
+
+	// The correctly-bound proof unlocks.
+	ch2, _ := g.Challenge("tunnel_connect", "sess-2")
+	good := browserProof(t, pp, ch2, "tunnel_connect", "sess-2")
+	if err := g.Verify("tunnel_connect", "sess-2", ch2.Nonce, good); err != nil {
+		t.Fatalf("Verify (tunnel_connect): %v", err)
+	}
+	if !g.Consume("tunnel_connect", "sess-2") {
+		t.Fatal("expected tunnel_connect grant to be consumable")
+	}
+}
+
 func TestBackoffAfterRepeatedFailures(t *testing.T) {
 	const pp = "backoff test"
 	setupConfigured(t, pp)
