@@ -55,22 +55,11 @@ func runSetPassphrase(cmd *cobra.Command, args []string) {
 		if !term.IsTerminal(int(os.Stdin.Fd())) {
 			logger.Fatalf("beacon remote-access set-passphrase: non-interactive terminal; use --passphrase")
 		}
-		fmt.Fprint(os.Stderr, "New remote-access passphrase: ")
-		b1, err := term.ReadPassword(syscall.Stdin)
-		fmt.Fprintln(os.Stderr)
+		entered, err := promptPassphraseTwice()
 		if err != nil {
-			logger.Fatalf("read passphrase: %v", err)
+			logger.Fatalf("%v", err)
 		}
-		fmt.Fprint(os.Stderr, "Confirm passphrase: ")
-		b2, err := term.ReadPassword(syscall.Stdin)
-		fmt.Fprintln(os.Stderr)
-		if err != nil {
-			logger.Fatalf("read passphrase: %v", err)
-		}
-		if string(b1) != string(b2) {
-			logger.Fatalf("passphrases do not match")
-		}
-		pp = string(b1)
+		pp = entered
 	}
 	pp = strings.TrimSpace(pp)
 
@@ -85,6 +74,27 @@ func runSetPassphrase(cmd *cobra.Command, args []string) {
 	fmt.Println("  verified locally on this device. Restart beacon for it to take effect")
 	fmt.Println("  on a running agent (the gate is read at session time).")
 	fmt.Println()
+}
+
+// promptPassphraseTwice reads a passphrase (no echo) twice and verifies they
+// match. The caller must ensure stdin is an interactive terminal.
+func promptPassphraseTwice() (string, error) {
+	fmt.Fprint(os.Stderr, "New remote-access passphrase: ")
+	b1, err := term.ReadPassword(syscall.Stdin)
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return "", fmt.Errorf("read passphrase: %w", err)
+	}
+	fmt.Fprint(os.Stderr, "Confirm passphrase: ")
+	b2, err := term.ReadPassword(syscall.Stdin)
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return "", fmt.Errorf("read passphrase: %w", err)
+	}
+	if string(b1) != string(b2) {
+		return "", fmt.Errorf("passphrases do not match")
+	}
+	return string(b1), nil
 }
 
 func runRemoteAccessStatus(cmd *cobra.Command, args []string) {

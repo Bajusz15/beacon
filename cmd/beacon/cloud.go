@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strings"
 	"syscall"
 
 	"beacon/internal/identity"
+	"beacon/internal/remoteaccess"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -102,6 +104,8 @@ func runCloudLogin(cmd *cobra.Command, args []string) {
 	if deviceName != "" {
 		fmt.Printf("  ✓ Device name: %s\n", deviceName)
 	}
+	maybePromptRemoteAccessPassphrase()
+
 	fmt.Println()
 	fmt.Println("  Next step — start Beacon:")
 	fmt.Println()
@@ -110,4 +114,36 @@ func runCloudLogin(cmd *cobra.Command, args []string) {
 	fmt.Println("  Your device will appear automatically in BeaconInfra")
 	fmt.Println("  after the first heartbeat (~30 seconds).")
 	fmt.Println()
+}
+
+// maybePromptRemoteAccessPassphrase offers to set a remote-access passphrase
+// during login. It is a best-effort convenience: it is skipped on a
+// non-interactive terminal or when one is already configured, and any failure
+// is non-fatal (the user can always run `beacon remote-access set-passphrase`).
+func maybePromptRemoteAccessPassphrase() {
+	if !term.IsTerminal(int(os.Stdin.Fd())) || remoteaccess.IsConfigured() {
+		return
+	}
+	fmt.Println()
+	fmt.Println("  Optional: require a passphrase before anyone can open a remote terminal")
+	fmt.Println("  or tunnel on this device. It is verified on the device — BeaconInfra")
+	fmt.Println("  never sees it, so a compromised cloud still cannot open a session.")
+	fmt.Fprint(os.Stderr, "  Set a remote-access passphrase now? [y/N]: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	answer, _ := reader.ReadString('\n')
+	if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
+		return
+	}
+
+	pp, err := promptPassphraseTwice()
+	if err != nil {
+		fmt.Printf("  ✗ %v — skipped. Run `beacon remote-access set-passphrase` later.\n", err)
+		return
+	}
+	if err := remoteaccess.SetPassphrase(strings.TrimSpace(pp)); err != nil {
+		fmt.Printf("  ✗ %v — skipped. Run `beacon remote-access set-passphrase` later.\n", err)
+		return
+	}
+	fmt.Println("  ✓ Remote-access passphrase set.")
 }
