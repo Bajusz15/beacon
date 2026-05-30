@@ -28,6 +28,9 @@ func ReadEnvFileMap(path string, baseEnv map[string]string) (map[string]string, 
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		// Allow "export KEY=value" lines, common in env files meant to be
+		// sourced by a shell. Without this the key would parse as "export KEY".
+		line = strings.TrimPrefix(line, "export ")
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
 			continue
@@ -37,15 +40,24 @@ func ReadEnvFileMap(path string, baseEnv map[string]string) (map[string]string, 
 		if key == "" {
 			continue
 		}
+		// Quoting controls expansion, matching common .env tooling:
+		//   - single-quoted values are literal (no variable expansion), the
+		//     escape hatch for secrets containing a literal '$';
+		//   - double-quoted and unquoted values expand ${VAR}/$VAR references.
+		expand := true
 		if len(value) >= 2 {
-			if (value[0] == '"' && value[len(value)-1] == '"') ||
-				(value[0] == '\'' && value[len(value)-1] == '\'') {
+			if value[0] == '\'' && value[len(value)-1] == '\'' {
+				value = value[1 : len(value)-1]
+				expand = false
+			} else if value[0] == '"' && value[len(value)-1] == '"' {
 				value = value[1 : len(value)-1]
 			}
 		}
-		value = os.Expand(value, func(key string) string {
-			return values[key]
-		})
+		if expand {
+			value = os.Expand(value, func(key string) string {
+				return values[key]
+			})
+		}
 		values[key] = value
 		out[key] = value
 	}

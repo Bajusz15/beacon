@@ -335,7 +335,17 @@ func initBackupManager(ctx context.Context, uc *identity.UserConfig, eventLog *E
 	return bm
 }
 
-// initTunnelManager creates and auto-starts enabled tunnels if cloud reporting is configured.
+// initTunnelManager creates the tunnel manager and auto-starts enabled tunnels
+// if cloud reporting is configured.
+//
+// When a remote-access passphrase is set, tunnels are gated exactly like remote
+// terminals: they do NOT auto-start. Each must be brought up by a gated
+// tunnel_connect that carries a valid single-use unlock (see passRemoteAccessGate
+// / dispatchTunnelConnect). This keeps the device the enforcement point — a
+// compromised cloud cannot reach a local service without the locally-held
+// passphrase — and is fail-closed across restarts, since in-memory grants are
+// cleared on restart and nothing auto-starts. The manager is still created so
+// on-demand tunnel_connect can start tunnels after an unlock.
 func initTunnelManager(ctx context.Context, uc *identity.UserConfig) *tunnel.TunnelManager {
 	if uc == nil || len(uc.Tunnels) == 0 || !uc.CloudReportingEnabled || strings.TrimSpace(uc.APIKey) == "" {
 		return nil
@@ -344,6 +354,10 @@ func initTunnelManager(ctx context.Context, uc *identity.UserConfig) *tunnel.Tun
 	if err != nil {
 		logger.Infof("Failed to create tunnel manager: %v", err)
 		return nil
+	}
+	if remoteaccess.IsConfigured() {
+		logger.Infof("Remote-access passphrase set: %d tunnel(s) gated; each starts only on a passphrase-unlocked connect", len(uc.Tunnels))
+		return tm
 	}
 	apiKey := strings.TrimSpace(uc.APIKey)
 	deviceName := strings.TrimSpace(uc.DeviceName)
