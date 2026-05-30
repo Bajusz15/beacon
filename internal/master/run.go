@@ -17,6 +17,7 @@ import (
 	"beacon/internal/cloud"
 	"beacon/internal/identity"
 	"beacon/internal/logging"
+	"beacon/internal/remoteaccess"
 	"beacon/internal/tunnel"
 	"beacon/internal/version"
 	"beacon/internal/vpn"
@@ -56,6 +57,14 @@ type heartbeatRequest struct {
 	VPN            *vpnHeartbeatReport     `json:"vpn,omitempty"`
 	CommandResults []CommandResultReport   `json:"command_results,omitempty"`
 	SystemMetrics  *heartbeatSystemMetrics `json:"system_metrics,omitempty"`
+	RemoteAccess   *remoteAccessReport     `json:"remote_access,omitempty"`
+}
+
+// remoteAccessReport advertises whether a remote-access passphrase is configured
+// on this device, so the cloud can set an advisory flag and prompt in the UI.
+// It carries NO secret material (no salt, params, or hash).
+type remoteAccessReport struct {
+	Configured bool `json:"configured"`
 }
 
 // heartbeatResponse represents the server response to /agent/heartbeat.
@@ -463,6 +472,7 @@ func sendCloudHeartbeat(ctx context.Context, h *heartbeatLoop, cfg *identity.Use
 		Projects:       AggregateProjectHealth(pm),
 		Tunnels:        buildTunnelHeartbeatReports(cfg, tm),
 		CommandResults: commandResults,
+		RemoteAccess:   &remoteAccessReport{Configured: remoteaccess.IsConfigured()},
 	}
 	if h != nil {
 		payload.VPN = buildVPNHeartbeatReport(h.vm)

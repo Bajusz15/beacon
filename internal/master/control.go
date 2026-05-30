@@ -7,12 +7,29 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"beacon/internal/audit"
 	"beacon/internal/identity"
 
 	"github.com/gorilla/websocket"
 )
+
+const (
+	actionRemoteAccessChallenge = "remote_access_challenge"
+	actionRemoteAccessUnlock    = "remote_access_unlock"
+)
+
+// controlReply is an agent→cloud reply frame sent on the control socket,
+// correlated to a request via ReplyTo. The cloud relays Data to the browser.
+type controlReply struct {
+	ReplyTo string         `json:"reply_to"`
+	Type    string         `json:"type"`
+	OK      bool           `json:"ok"`
+	Error   string         `json:"error,omitempty"`
+	Data    map[string]any `json:"data,omitempty"`
+}
 
 const (
 	controlPingInterval     = 30 * time.Second
@@ -90,6 +107,9 @@ func runAgentControl(ctx context.Context, base, apiKey, deviceName, deviceID str
 	})
 	_ = conn.SetReadDeadline(time.Now().Add(controlReadTimeout))
 
+	// writeMu serializes all writes to conn (ping frames and reply frames).
+	var writeMu sync.Mutex
+
 	pingCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
@@ -100,8 +120,11 @@ func runAgentControl(ctx context.Context, base, apiKey, deviceName, deviceID str
 			case <-pingCtx.Done():
 				return
 			case <-tk.C:
+				writeMu.Lock()
 				_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				err := conn.WriteMessage(websocket.PingMessage, nil)
+				writeMu.Unlock()
+				if err != nil {
 					_ = conn.Close()
 					return
 				}
@@ -126,10 +149,91 @@ func runAgentControl(ctx context.Context, base, apiKey, deviceName, deviceID str
 			logger.Infof("Agent control: invalid command: %v", err)
 			continue
 		}
-		if strings.TrimSpace(cmd.Action) == "" {
+		action := strings.TrimSpace(cmd.Action)
+		if action == "" {
 			continue
 		}
-		dispatcher.DispatchCommands([]HeartbeatCommand{cmd})
+		// Remote-access challenge/unlock are handled inline and answered on this
+		// same socket — they are NOT remote commands and must not be dispatched.
+		if action == actionRemoteAccessChallenge || action == actionRemoteAccessUnlock {
+			handleRemoteAccessControl(conn, &writeMu, dispatcher, cmd)
+			continue
+		}
+		dispatcher.DispatchCommandsWithSource("control_ws", []HeartbeatCommand{cmd})
+	}
+}
+
+// handleRemoteAccessControl answers a challenge or unlock request from the
+// cloud relay against the dispatcher's in-memory grant state, writing a
+// correlated reply frame back on the control socket.
+func handleRemoteAccessControl(conn *websocket.Conn, writeMu *sync.Mutex, dispatcher *CommandDispatcher, cmd HeartbeatCommand) {
+	grants := dispatcher.Grants()
+	sid, _ := cmd.Payload["session_id"].(string)
+	sid = strings.TrimSpace(sid)
+
+	reply := controlReply{ReplyTo: cmd.ID, Type: cmd.Action}
+
+	switch cmd.Action {
+	case actionRemoteAccessChallenge:
+		if sid == "" {
+			reply.Error = "session_id required"
+			break
+		}
+		// The action being unlocked (terminal_open / tunnel_connect) is what the
+		// proof will be bound to; default to terminal_open for back-compat.
+		boundAction, _ := cmd.Payload["bind_action"].(string)
+		boundAction = strings.TrimSpace(boundAction)
+		if boundAction == "" {
+			boundAction = actionTerminalOpen
+		}
+		ch, err := grants.Challenge(boundAction, sid)
+		if err != nil {
+			reply.Error = err.Error()
+			break
+		}
+		reply.OK = true
+		reply.Data = map[string]any{
+			"nonce":      ch.Nonce,
+			"salt":       ch.Salt,
+			"params":     ch.Params,
+			"action":     boundAction,
+			"expires_at": ch.ExpiresAt,
+		}
+		dispatcher.auditCmd(audit.Event{
+			Action: actionRemoteAccessChallenge, Source: "control_ws", Status: "received",
+			CommandID: cmd.ID, Detail: "challenge issued",
+		})
+
+	case actionRemoteAccessUnlock:
+		boundAction, _ := cmd.Payload["action"].(string)
+		boundAction = strings.TrimSpace(boundAction)
+		if boundAction == "" {
+			boundAction = actionTerminalOpen
+		}
+		nonce, _ := cmd.Payload["nonce"].(string)
+		proof, _ := cmd.Payload["proof"].(string)
+		err := grants.Verify(boundAction, sid, strings.TrimSpace(nonce), strings.TrimSpace(proof))
+		if err != nil {
+			reply.Error = err.Error()
+			dispatcher.auditCmd(audit.Event{
+				Action: actionRemoteAccessUnlock, Source: "control_ws", Status: "failed",
+				CommandID: cmd.ID, Detail: err.Error(),
+			})
+			break
+		}
+		reply.OK = true
+		dispatcher.auditCmd(audit.Event{
+			Action: actionRemoteAccessUnlock, Source: "control_ws", Status: "executed",
+			CommandID: cmd.ID, Detail: "remote-access unlocked for session",
+		})
+	}
+
+	writeMu.Lock()
+	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	err := conn.WriteJSON(reply)
+	writeMu.Unlock()
+	if err != nil {
+		logger.Infof("Agent control: failed to write remote-access reply: %v", err)
 	}
 }
 

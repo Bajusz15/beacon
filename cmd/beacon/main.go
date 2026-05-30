@@ -317,6 +317,8 @@ func main() {
 	rootCmd.AddCommand(createTunnelCommand())
 	rootCmd.AddCommand(createVPNCommand())
 	rootCmd.AddCommand(createBackupCommand())
+	rootCmd.AddCommand(createAuditCommand())
+	rootCmd.AddCommand(createRemoteAccessCommand())
 	rootCmd.AddCommand(createUpdateCommand())
 
 	// If no subcommand is provided, show help (matches common CLI expectations).

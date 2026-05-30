@@ -7,11 +7,13 @@ import (
 	"sync"
 	"time"
 
+	"beacon/internal/audit"
 	"beacon/internal/config"
 	"beacon/internal/deploy"
 	"beacon/internal/identity"
 	"beacon/internal/ipc"
 	"beacon/internal/keys"
+	"beacon/internal/remoteaccess"
 	"beacon/internal/terminal"
 	"beacon/internal/tunnel"
 )
@@ -47,6 +49,7 @@ type CommandResultReport struct {
 type CommandDispatcher struct {
 	pm             *ProcessManager
 	tm             *tunnel.TunnelManager
+	grants         *remoteaccess.Grants
 	pendingResults []CommandResultReport
 	mu             sync.Mutex
 
@@ -55,6 +58,19 @@ type CommandDispatcher struct {
 
 	allowedMu       sync.RWMutex
 	allowedOverride map[string]bool // nil = use defaultAllowedActions
+
+	// metaMu guards cmdMeta, which remembers the action/source of in-flight
+	// commands so recordResult can enrich the audit trail with the outcome.
+	metaMu  sync.Mutex
+	cmdMeta map[string]cmdMeta
+}
+
+// cmdMeta carries enough context about a dispatched command to audit its
+// outcome when the result comes back (possibly from another goroutine).
+type cmdMeta struct {
+	action string
+	source string
+	at     time.Time
 }
 
 // NewCommandDispatcher creates a new command dispatcher.
@@ -62,10 +78,17 @@ func NewCommandDispatcher(pm *ProcessManager, tm *tunnel.TunnelManager) *Command
 	return &CommandDispatcher{
 		pm:             pm,
 		tm:             tm,
+		grants:         remoteaccess.NewGrants(),
 		pendingResults: make([]CommandResultReport, 0),
 		seenCommands:   make(map[string]time.Time),
+		cmdMeta:        make(map[string]cmdMeta),
 	}
 }
+
+// Grants exposes the remote-access grant manager so the control socket can
+// issue challenges and verify unlocks against the same in-memory state the
+// dispatcher gates on.
+func (d *CommandDispatcher) Grants() *remoteaccess.Grants { return d.grants }
 
 // SetAllowedActions updates the action allowlist from user config. Pass nil to
 // revert to the default built-in list.
@@ -121,8 +144,15 @@ func (d *CommandDispatcher) pruneSeenLocked() {
 	}
 }
 
-// DispatchCommands dispatches commands to the appropriate children via IPC.
+// DispatchCommands dispatches commands received via the heartbeat response.
 func (d *CommandDispatcher) DispatchCommands(commands []HeartbeatCommand) {
+	d.DispatchCommandsWithSource("heartbeat", commands)
+}
+
+// DispatchCommandsWithSource dispatches commands to the appropriate children
+// via IPC, recording each consequential action to the local audit trail. The
+// source identifies how the command arrived (e.g. "heartbeat", "control_ws").
+func (d *CommandDispatcher) DispatchCommandsWithSource(source string, commands []HeartbeatCommand) {
 	if len(commands) == 0 {
 		return
 	}
@@ -135,6 +165,15 @@ func (d *CommandDispatcher) DispatchCommands(commands []HeartbeatCommand) {
 	for _, cmd := range commands {
 		if !d.isAllowed(cmd.Action) {
 			logger.Infof("Command %s: action %q rejected (not in allowlist)", cmd.ID, cmd.Action)
+			d.auditCmd(audit.Event{
+				Action:    cmd.Action,
+				Source:    source,
+				Status:    "denied",
+				CommandID: cmd.ID,
+				Project:   cmd.TargetProject,
+				Detail:    "action not in allowed_remote_commands",
+				Payload:   cmd.Payload,
+			})
 			d.recordResult(cmd.ID, ipc.ResultFailed, fmt.Sprintf("action %q not allowed", cmd.Action))
 			continue
 		}
@@ -142,6 +181,19 @@ func (d *CommandDispatcher) DispatchCommands(commands []HeartbeatCommand) {
 			logger.Infof("Command %s: duplicate (already executed), skipping", cmd.ID)
 			continue
 		}
+
+		// Remember the command so its outcome (reported later, possibly from
+		// another goroutine via recordResult) can be audited, and record that
+		// the command was accepted for execution.
+		d.rememberCmd(cmd.ID, cmd.Action, source)
+		d.auditCmd(audit.Event{
+			Action:    cmd.Action,
+			Source:    source,
+			Status:    "received",
+			CommandID: cmd.ID,
+			Project:   cmd.TargetProject,
+			Payload:   cmd.Payload,
+		})
 
 		if cmd.Action == actionTunnelConnect {
 			d.dispatchTunnelConnect(cmd)
@@ -230,7 +282,40 @@ func (d *CommandDispatcher) dispatchVPNCommand(cmd HeartbeatCommand) {
 	}
 }
 
+// passRemoteAccessGate enforces the device-verified passphrase for a gated
+// action. When a passphrase is configured, the command must carry a session_id
+// that has a valid, single-use, in-memory unlock (established via the
+// challenge/unlock round trip on the control socket). With no passphrase
+// configured the gate is a no-op and behavior is unchanged.
+//
+// It returns true when the command may proceed. On denial it records a failed
+// result and a "denied" audit entry, then returns false.
+func (d *CommandDispatcher) passRemoteAccessGate(cmd HeartbeatCommand) bool {
+	if d.grants == nil || !d.grants.IsConfigured() {
+		return true
+	}
+	sid, _ := cmd.Payload["session_id"].(string)
+	sid = strings.TrimSpace(sid)
+	if sid == "" || !d.grants.Consume(cmd.Action, sid) {
+		d.auditCmd(audit.Event{
+			Action:    cmd.Action,
+			Source:    "local",
+			Status:    "denied",
+			CommandID: cmd.ID,
+			Project:   cmd.TargetProject,
+			Detail:    "remote-access passphrase required",
+			Payload:   cmd.Payload,
+		})
+		d.recordResult(cmd.ID, ipc.ResultFailed, "remote-access passphrase required")
+		return false
+	}
+	return true
+}
+
 func (d *CommandDispatcher) dispatchTunnelConnect(cmd HeartbeatCommand) {
+	if !d.passRemoteAccessGate(cmd) {
+		return
+	}
 	if d.tm == nil {
 		d.recordResult(cmd.ID, ipc.ResultFailed, "Tunnel manager not available")
 		return
@@ -312,20 +397,103 @@ func (d *CommandDispatcher) GetPendingResults() []CommandResultReport {
 	return results
 }
 
-// recordResult adds a command result to the pending results list.
+// recordResult adds a command result to the pending results list and records
+// the outcome to the audit trail.
 func (d *CommandDispatcher) recordResult(commandID, status, message string) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	d.pendingResults = append(d.pendingResults, CommandResultReport{
 		CommandID: commandID,
 		Status:    status,
 		Message:   message,
 		Timestamp: time.Now(),
 	})
+	d.mu.Unlock()
+
+	d.auditOutcome(commandID, status, message)
+}
+
+// rememberCmd stores context for an in-flight command so its later outcome can
+// be attributed to the right action/source in the audit trail.
+func (d *CommandDispatcher) rememberCmd(id, action, source string) {
+	if id == "" {
+		return
+	}
+	d.metaMu.Lock()
+	defer d.metaMu.Unlock()
+	d.cmdMeta[id] = cmdMeta{action: action, source: source, at: time.Now()}
+	if len(d.cmdMeta) > 500 {
+		for k, v := range d.cmdMeta {
+			if time.Since(v.at) > commandTTL {
+				delete(d.cmdMeta, k)
+			}
+		}
+	}
+}
+
+// auditOutcome writes the result of a previously-seen command to the audit
+// trail. Commands with no remembered context (e.g. denied before execution,
+// already audited inline) are skipped to avoid duplicate records.
+func (d *CommandDispatcher) auditOutcome(commandID, status, message string) {
+	d.metaMu.Lock()
+	meta, ok := d.cmdMeta[commandID]
+	if ok {
+		delete(d.cmdMeta, commandID)
+	}
+	d.metaMu.Unlock()
+	if !ok {
+		return
+	}
+
+	auditStatus := status
+	switch status {
+	case ipc.ResultSuccess:
+		auditStatus = "executed"
+	case ipc.ResultFailed:
+		auditStatus = "failed"
+	}
+	d.auditCmd(audit.Event{
+		Action:    meta.action,
+		Source:    meta.source,
+		Status:    auditStatus,
+		CommandID: commandID,
+		Detail:    message,
+	})
+}
+
+// auditCmd enriches an event with this device's identity and appends it to the
+// tamper-evident local audit log. Failures are non-fatal.
+func (d *CommandDispatcher) auditCmd(ev audit.Event) {
+	if ev.DeviceID == "" || ev.Device == "" {
+		id, name := deviceIdentity()
+		if ev.DeviceID == "" {
+			ev.DeviceID = id
+		}
+		if ev.Device == "" {
+			ev.Device = name
+		}
+	}
+	audit.Log(ev)
+}
+
+// deviceIdentity returns the BeaconInfra device id and device name from local
+// config, falling back to the hostname for the name.
+func deviceIdentity() (id, name string) {
+	if uc, err := identity.LoadUserConfig(); err == nil && uc != nil {
+		id = strings.TrimSpace(uc.DeviceID)
+		name = strings.TrimSpace(uc.DeviceName)
+	}
+	if name == "" {
+		if h, err := os.Hostname(); err == nil {
+			name = strings.TrimSpace(h)
+		}
+	}
+	return id, name
 }
 
 func (d *CommandDispatcher) dispatchTerminalOpen(cmd HeartbeatCommand) {
+	if !d.passRemoteAccessGate(cmd) {
+		return
+	}
 	ws, _ := cmd.Payload["ws_url"].(string)
 	if strings.TrimSpace(ws) == "" {
 		d.recordResult(cmd.ID, ipc.ResultFailed, "ws_url required in payload")

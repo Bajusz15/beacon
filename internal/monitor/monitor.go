@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"beacon/internal/audit"
 	"beacon/internal/cloud"
 	"beacon/internal/config"
 	"beacon/internal/deploy"
@@ -1134,8 +1135,30 @@ func (m *Monitor) sendHeartbeat() {
 	if body != nil && m.config.Report.DeployOnRequest {
 		var resp heartbeatResponse
 		if jsonErr := json.Unmarshal(body, &resp); jsonErr == nil && resp.DeployRequested {
+			proj := m.getProjectNameFromConfigPath()
+			audit.Log(audit.Event{
+				Action:  "deploy_requested",
+				Source:  "monitor",
+				Status:  "received",
+				Device:  m.config.Device.Name,
+				Project: proj,
+			})
 			logger.Infof("Deploy requested by BeaconWatch, running deploy...")
 			result := m.runDeployRequested()
+			outcome := "executed"
+			detail := ""
+			if !result.Success {
+				outcome = "failed"
+				detail = result.Error
+			}
+			audit.Log(audit.Event{
+				Action:  "deploy_requested",
+				Source:  "monitor",
+				Status:  outcome,
+				Device:  m.config.Device.Name,
+				Project: proj,
+				Detail:  detail,
+			})
 			m.postDeployResult(result)
 		}
 	}

@@ -2,7 +2,7 @@
 
 <img src="./docs/logo.png" alt="Beacon Logo" width="120" height="120">
 
-**Deploy, monitor, and remotely access your self-hosted apps — from one binary on your device.**
+**Securely reach and monitor every machine you run — from one binary. No open ports, and nothing sensitive ever leaves your box.**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
@@ -12,7 +12,9 @@
 
 ---
 
-You self-host Home Assistant, Nextcloud, Grafana, or your own apps on a Pi, N100, or any homelab server. You SSH in to deploy, check if things are healthy, restart something, then forget about it until it breaks. Beacon sits on the machine and handles that loop — and gives you remote access without Nabu Casa or opening ports.
+You run things on machines you don't always sit in front of — Home Assistant on a Pi, a NAS, Pi-hole, Grafana, your own apps on an N100 or a VPS, a client's server. Beacon does two things first: it gives you **secure remote access** to those machines and the services on them — with no open ports — and it **monitors** their health and alerts you when something breaks. It's workload-agnostic: it reaches and watches whatever is on the box, not just things it deployed. (It can run your deploys too, but access and monitoring are the core.)
+
+And it's built on a strict **local-first, zero-trust model** — your code, secrets, and data never leave the box, and no cloud ever holds root on your machines.
 
 ```
 ⬡ beacon v0.3.2  ● running  pid 1847  uptime 14d 3h
@@ -36,14 +38,43 @@ That's `beacon status`. There's also a browser dashboard at `http://localhost:91
 
 ## ✨ What Beacon does
 
-- 🌐 **Remote access** — securely access Home Assistant, Grafana, Jellyfin, or any local service from anywhere through your BeaconInfra account. The tunnel connects outbound from your device — no open ports, no dynamic DNS, no Nabu Casa subscription. Authenticated with short-lived tokens; only you can reach your services.
-- 🖥️ **Remote terminal** — open a shell on your device from the browser. No SSH port needed, no VPN. The cloud relays a PTY session between your browser and the agent.
-- 🚀 **Automated deploys** — point Beacon at a Git repo or Docker registry. It polls for new tags, pulls, and runs your deploy script. Push a tag, walk away.
-- 📊 **Monitoring** — health checks (HTTP, port, command), CPU/memory/disk/temperature, per-project status, Prometheus metrics. Alerts via webhook (Slack, Discord) or SMTP.
-- 📋 **Log forwarding** — tail log files, Docker container logs, or `journalctl` and forward them to the BeaconInfra dashboard. Filter with include/exclude patterns so you only ship what matters.
-- 🔒 **WireGuard VPN** — turn any Beacon device into a WireGuard exit node. Route traffic through your home network from a laptop with a beacon-vpn client.
+Two things first — **secure remote access** and **monitoring** — on a zero-trust foundation. Everything else is a bonus.
 
-Beacon is **local-first**. Everything above except tunnels and remote terminal works without a beaconinfra.dev account. [BeaconInfra](https://beaconinfra.dev) is the optional cloud that adds the multi-device dashboard, tunnels, and remote terminal access. When an API key is configured, `beacon start` sends periodic heartbeats to the cloud with device metrics and project health — the cloud uses these to power the dashboard, detect offline devices, and deliver commands back to the agent.
+### 🔐 Built zero-trust, local-first
+
+This is the part that matters before any feature:
+
+- **No open ports.** Tunnels connect *outbound* from your device — nothing is exposed to the internet, and it works behind CGNAT.
+- **No control plane with root.** The optional cloud can never log in to your machine on its own; it only relays commands you authorized, and the agent runs them.
+- **Nothing sensitive leaves the box.** Your source code, deploy scripts, tokens, and secrets stay local. The cloud only ever sees the metrics and log lines you explicitly choose to send.
+- **Works offline.** The agent and its dashboard run fully local, with no account.
+
+### 🌐 Remote access
+
+- **Reach any service, no open ports** — securely reach Home Assistant, Grafana, Jellyfin, a NAS admin page, Pi-hole, or any local HTTP service from anywhere. No dynamic DNS, no Nabu Casa, no Cloudflare account or managed domain. Authenticated with short-lived tokens; only you can reach your services.
+- **Remote terminal** — open a shell on your device from the browser. No SSH port, no VPN. The cloud relays a PTY session between your browser and the agent.
+
+### 📊 Monitoring & alerts
+
+- **Health & metrics** — health checks (HTTP, port, command), CPU/memory/disk/temperature, per-project status, Prometheus metrics.
+- **Alerts** — via webhook (Slack, Discord) or SMTP, with quiet hours and offline-device detection.
+- **Log forwarding** — tail log files, Docker container logs, or `journalctl` and forward them to the dashboard, filtered so you only ship what matters.
+
+### 🧰 Also
+
+- **Deploy automation (bring your own script)** — Beacon doesn't replace your stack or turn your box into a PaaS. Point it at a Git repo or Docker registry; it watches for new tags, injects your secrets, and runs *your* deploy script. Push a tag, walk away.
+- **WireGuard VPN** — turn any Beacon device into a peer-to-peer WireGuard exit node and route traffic through your home network from a laptop.
+
+[BeaconInfra](https://beaconinfra.dev) is the optional cloud that adds the multi-device dashboard, tunnels, and remote terminal. When an API key is configured, `beacon start` sends periodic heartbeats with device metrics and project health; the cloud uses these to power the dashboard, detect offline devices, and relay commands back to the agent. Everything except tunnels and remote terminal works without an account.
+
+---
+
+## 🧩 One layer across every machine
+
+Beacon isn't a PaaS and doesn't replace how you deploy. It's the operations layer **across all your
+machines** — the box running your apps *and* the Home Assistant box, the NAS, the Pis, the client
+server, the VPS you never containerized — so you reach, watch, and fix every one of them from a
+single place, without handing any cloud root over your hardware.
 
 ---
 
