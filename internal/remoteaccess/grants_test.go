@@ -36,7 +36,7 @@ func TestHappyPathUnlockConsumeOnce(t *testing.T) {
 		t.Fatalf("Challenge: %v", err)
 	}
 	proof := browserProof(t, pp, ch, "terminal_open", "sess-1")
-	if err := g.Verify("terminal_open", "sess-1", ch.Nonce, proof); err != nil {
+	if err := g.Verify("terminal_open", "sess-1", ch.Nonce, proof, ""); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	if !g.Consume("terminal_open", "sess-1") {
@@ -57,7 +57,7 @@ func TestWrongProofRejected(t *testing.T) {
 		t.Fatalf("Challenge: %v", err)
 	}
 	bad := browserProof(t, "wrong passphrase", ch, "terminal_open", "sess-1")
-	if err := g.Verify("terminal_open", "sess-1", ch.Nonce, bad); err != ErrBadProof {
+	if err := g.Verify("terminal_open", "sess-1", ch.Nonce, bad, ""); err != ErrBadProof {
 		t.Fatalf("expected ErrBadProof, got %v", err)
 	}
 	if g.Consume("terminal_open", "sess-1") {
@@ -73,7 +73,7 @@ func TestProofIsSessionBound(t *testing.T) {
 	ch, _ := g.Challenge("terminal_open", "sess-A")
 	proof := browserProof(t, pp, ch, "terminal_open", "sess-A")
 	// A compromised cloud cannot reuse the captured proof for a different session.
-	if err := g.Verify("terminal_open", "sess-B", ch.Nonce, proof); err == nil {
+	if err := g.Verify("terminal_open", "sess-B", ch.Nonce, proof, ""); err == nil {
 		t.Fatal("expected verification to fail for a different session id")
 	}
 }
@@ -87,14 +87,14 @@ func TestProofIsActionBound(t *testing.T) {
 	// computed for terminal_open on the same session.
 	ch, _ := g.Challenge("tunnel_connect", "sess-1")
 	proof := browserProof(t, pp, ch, "terminal_open", "sess-1")
-	if err := g.Verify("tunnel_connect", "sess-1", ch.Nonce, proof); err != ErrBadProof {
+	if err := g.Verify("tunnel_connect", "sess-1", ch.Nonce, proof, ""); err != ErrBadProof {
 		t.Fatalf("expected ErrBadProof for action-mismatched proof, got %v", err)
 	}
 
 	// The correctly-bound proof unlocks.
 	ch2, _ := g.Challenge("tunnel_connect", "sess-2")
 	good := browserProof(t, pp, ch2, "tunnel_connect", "sess-2")
-	if err := g.Verify("tunnel_connect", "sess-2", ch2.Nonce, good); err != nil {
+	if err := g.Verify("tunnel_connect", "sess-2", ch2.Nonce, good, ""); err != nil {
 		t.Fatalf("Verify (tunnel_connect): %v", err)
 	}
 	if !g.Consume("tunnel_connect", "sess-2") {
@@ -109,10 +109,10 @@ func TestBackoffAfterRepeatedFailures(t *testing.T) {
 
 	for i := 0; i < maxFreeFailures; i++ {
 		ch, _ := g.Challenge("terminal_open", "sess-1")
-		_ = g.Verify("terminal_open", "sess-1", ch.Nonce, "AAAA")
+		_ = g.Verify("terminal_open", "sess-1", ch.Nonce, "AAAA", "")
 	}
 	ch, _ := g.Challenge("terminal_open", "sess-1")
-	if err := g.Verify("terminal_open", "sess-1", ch.Nonce, "AAAA"); err != ErrLockedOut {
+	if err := g.Verify("terminal_open", "sess-1", ch.Nonce, "AAAA", ""); err != ErrLockedOut {
 		t.Fatalf("expected ErrLockedOut after %d failures, got %v", maxFreeFailures, err)
 	}
 }
@@ -131,7 +131,7 @@ func TestExpiredNonceRejected(t *testing.T) {
 	g.mu.Unlock()
 
 	proof := browserProof(t, pp, ch, "terminal_open", "sess-1")
-	if err := g.Verify("terminal_open", "sess-1", ch.Nonce, proof); err != ErrNoChallenge {
+	if err := g.Verify("terminal_open", "sess-1", ch.Nonce, proof, ""); err != ErrNoChallenge {
 		t.Fatalf("expected ErrNoChallenge for expired nonce, got %v", err)
 	}
 }

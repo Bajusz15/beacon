@@ -53,7 +53,7 @@ This is the part that matters before any feature:
 
 - **Reach any service, no open ports** — securely reach Home Assistant, Grafana, Jellyfin, a NAS admin page, Pi-hole, or any local HTTP service from anywhere. No dynamic DNS, no Nabu Casa, no Cloudflare account or managed domain. Authenticated with short-lived tokens; only you can reach your services.
 - **Remote terminal** — open a shell on your device from the browser. No SSH port, no VPN. The cloud relays a PTY session between your browser and the agent.
-- **Passphrase-gated (recommended)** — set a device-local passphrase so a second factor is required before *any* remote terminal or tunnel session can open. It's verified **on the device** — BeaconInfra only relays the challenge and never sees the passphrase or a reusable proof, so even a fully compromised cloud can't open a session without it. See [Securing remote access](#-securing-remote-access).
+- **Device-verified gate (recommended)** — enroll a **passkey** (preferred) or set a passphrase (fallback) so a second factor is required before *any* remote terminal or tunnel session can open. It's verified **on the device** — BeaconInfra only relays. The passkey's private key never enters the page, and every unlock also needs an out-of-band code the device sends to your own alert channel, so the cloud can't silently open a session. See [Securing remote access](#-securing-remote-access).
 
 ### 📊 Monitoring & alerts
 
@@ -124,42 +124,99 @@ Then restart Home Assistant Core. Without this, the tunnel connects but HA can r
 ## 🔑 Securing remote access
 
 Remote terminal and tunnel sessions are reached through the BeaconInfra relay. By
-default the relay is gated by short-lived, authenticated tokens — but if you want
-a second factor that does **not** trust the cloud at all, set a remote-access
-passphrase. Once set, no remote terminal or tunnel session can open until the
-passphrase is supplied and verified locally on the device.
+default the relay is gated by short-lived, authenticated tokens. If you want a
+second factor that the cloud **cannot** forge or replay, turn on the remote-access
+gate. Once configured, no remote terminal or tunnel session can open until you
+unlock it, and the unlock is **verified on the device** — the cloud only relays.
+
+There are two factors. A **passkey (WebAuthn)** is the preferred one; a
+**passphrase** is the fallback. You can enroll either or both.
 
 ```bash
-# Set (or change) the passphrase — prompted twice, no echo
+# Preferred: enroll a passkey (Touch ID / Windows Hello / security key / phone).
+# Prints a one-time enrollment code to paste into the dashboard.
+beacon remote-access add-passkey
+beacon remote-access list-passkeys
+beacon remote-access remove-passkey <id-or-label>
+
+# Fallback: set (or change) a passphrase — prompted twice, no echo
 beacon remote-access set-passphrase
 
-# Check whether the gate is on
+# Check what's configured
 beacon remote-access status
 
-# Remove it (local recovery; disables the gate)
+# Remove everything (local recovery; disables the gate)
 beacon remote-access clear
 ```
 
-Restart `beacon` after setting it so a running agent picks up the gate.
+Restart `beacon` after changing factors so a running agent picks up the gate.
 
-**How it stays secure — the cloud never sees your passphrase:**
+### Why a passkey, not just a passphrase
 
-- The passphrase is **never stored**. Setup writes only an Argon2id-derived key,
-  its salt, and the cost parameters to `~/.beacon/remote-access.json` (mode `0600`).
-- At session time the agent issues a single-use, short-lived **nonce**. The browser
-  derives the key from your passphrase and returns a proof =
-  `HMAC-SHA256(key, nonce ‖ action ‖ session_id)`. The agent recomputes and compares
-  it in constant time. BeaconInfra only relays this challenge — it never sees the
-  passphrase or any reusable proof, so a **fully compromised cloud still cannot open
-  a session**.
-- A successful unlock is **in-memory, session-bound, and TTL-limited**, and is
-  cleared on restart (fail-closed).
-- **Tunnels do not auto-start** while a passphrase is set — each one comes up only
-  on a passphrase-unlocked connect, so a restart (which clears grants) requires
-  unlocking again before any local service is reachable.
-- Repeated wrong attempts trigger **rate-limiting / backoff** to slow brute force.
+**In both factors, your passphrase never travels over the network.** The browser
+keeps it local, derives a key from it, and sends only a one-time computed proof —
+the agent verifies that proof on the device. The cloud never sees the passphrase
+or anything reusable.
 
-With no passphrase set, behavior is unchanged (the gate is simply off, and tunnels
+A passkey is simply **safer still**: there's no typed secret at all. Its private
+key lives in your authenticator hardware (Touch ID, Windows Hello, a security key,
+your phone) and is used to sign a one-time challenge; the agent stores only the
+**public key** and verifies the signature. Nothing the browser handles could be
+captured and replayed later, which is why passkeys are the preferred factor.
+
+### How enrollment works
+
+1. Run `beacon remote-access add-passkey` on the device. It prints a **one-time
+   enrollment code** (also visible in the Home Assistant add-on log), valid for a
+   few minutes and usable once.
+2. In the dashboard, choose **Add passkey**, enter the code, and complete your
+   browser's passkey prompt (biometric / PIN).
+3. The browser creates the passkey bound to the dashboard's domain (`rpId`) and
+   sends the **public key** to the device. The agent verifies the registration and
+   stores only the public key, credential id, `rpId`/origin, and a signature
+   counter in `~/.beacon/remote-access.json` (mode `0600`).
+
+Rooting enrollment in a device-local code (or a valid passphrase unlock) means a
+compromised cloud **cannot enroll its own passkey** — it never has the code.
+
+### How an unlock works
+
+Opening a terminal or tunnel requires **two** things, both checked on the device:
+
+1. **A WebAuthn assertion.** The agent issues a single-use, short-lived **nonce**
+   as the challenge. Your authenticator signs it (user verification — biometric or
+   PIN — is **required**). The agent verifies the signature against the stored
+   public key, checks the `rpId`/origin it pinned at enrollment, the nonce, the
+   user-present/user-verified flags, and a **monotonic signature counter** (replay
+   defense). With the passphrase fallback, the browser instead returns a proof =
+   `HMAC-SHA256(Argon2id-key, nonce ‖ action ‖ session_id)`, compared in constant
+   time. Either way the cloud sees no reusable secret.
+2. **An out-of-band (OOB) approval code.** When a challenge is issued, the agent
+   sends a 6-digit code **straight to your own alert channel** (e.g. webhook /
+   email) — a path the cloud does not mediate. You enter that code to complete the
+   unlock. If the gate is configured with an OOB notifier and delivery fails, the
+   unlock is **refused** (fail-closed).
+
+A successful unlock is **in-memory, single-use, session-bound, and TTL-limited**,
+and is cleared on restart (fail-closed). Repeated wrong attempts (assertion or OOB
+code) trigger **rate-limiting / backoff**. **Tunnels do not auto-start** while the
+gate is configured — each comes up only on an unlocked connect, so a restart
+(which clears grants) requires unlocking again before any local service is
+reachable.
+
+### What this does and does not protect against
+
+- ✅ **No reusable secret crosses the network.** Only a one-time computed proof
+  (or a passkey signature) is sent, and the device verifies it — there's nothing to
+  capture and replay later.
+- ✅ **The cloud cannot silently or unilaterally open a session.** It lacks the OOB
+  code, which the device sends only to your own channel — so it can't approve on
+  your behalf, and unexpected sessions surface as an OOB prompt you can ignore.
+- ⚠️ **Honest residual:** at the exact moment you intentionally unlock, a session of
+  the *same type* could be substituted. The OOB message names the action, device,
+  and time so you can decline an unlock you didn't initiate.
+
+With no factor configured, behavior is unchanged (the gate is off, and tunnels
 auto-start as before).
 
 ---
@@ -440,7 +497,8 @@ Projects are isolated: one crash doesn't affect others. The master auto-restarts
 | `beacon deploy` | Git/Docker tag polling loop |
 | `beacon secrets set\|get\|list\|export\|remove` | Local encrypted deploy secrets |
 | `beacon tunnel add\|list\|enable\|disable` | Reverse tunnels for remote access |
-| `beacon remote-access set-passphrase\|status\|clear` | Device-verified passphrase gating remote terminal/tunnel sessions |
+| `beacon remote-access add-passkey\|list-passkeys\|remove-passkey` | Enroll/manage passkeys (preferred) that gate remote terminal/tunnel sessions |
+| `beacon remote-access set-passphrase\|status\|clear` | Device-verified passphrase (fallback) and gate status/reset |
 | `beacon vpn enable\|use\|disable\|status` | WireGuard VPN |
 | `beacon projects list\|add\|remove\|status` | Project management |
 | `beacon alerts init\|test\|status` | Alert routing |
