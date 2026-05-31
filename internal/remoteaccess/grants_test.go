@@ -146,3 +146,112 @@ func TestNotConfigured(t *testing.T) {
 		t.Fatalf("expected ErrNotConfigured, got %v", err)
 	}
 }
+
+func TestGrantTTLClampActiveGrantAndExpiry(t *testing.T) {
+	g := NewGrants()
+	g.SetTTL(time.Second)
+	if g.grantTTL != time.Minute {
+		t.Fatalf("short TTL should clamp to one minute, got %s", g.grantTTL)
+	}
+	g.SetTTL(2 * time.Hour)
+	if g.grantTTL != time.Hour {
+		t.Fatalf("long TTL should clamp to one hour, got %s", g.grantTTL)
+	}
+
+	g.mu.Lock()
+	g.grants["soon"] = grant{action: "terminal_open", exp: time.Now().Add(2 * time.Minute)}
+	g.grants["later"] = grant{action: "terminal_open", exp: time.Now().Add(5 * time.Minute)}
+	g.grants["expired"] = grant{action: "terminal_open", exp: time.Now().Add(-time.Minute)}
+	g.mu.Unlock()
+
+	exp, ok := g.ActiveGrant()
+	if !ok {
+		t.Fatal("expected active grant")
+	}
+	if time.Until(exp) > 3*time.Minute {
+		t.Fatalf("expected soonest active grant, got %s", exp)
+	}
+	if g.Consume("other_action", "soon") {
+		t.Fatal("wrong action should not consume successfully")
+	}
+	if g.Consume("terminal_open", "expired") {
+		t.Fatal("expired grant should not consume")
+	}
+}
+
+func TestChallengePasskeyStoresAllowListAndOOB(t *testing.T) {
+	t.Setenv("BEACON_HOME", t.TempDir())
+	if err := AddCredential(PasskeyCredential{ID: "cred-1", PublicKey: "cHVibGljLWtleQ==", RPID: "beaconinfra.dev", Origin: "https://beaconinfra.dev"}); err != nil {
+		t.Fatalf("AddCredential: %v", err)
+	}
+	g := NewGrants()
+	note := &recordingNotifier{}
+	g.SetNotifier(note)
+
+	ch, err := g.ChallengePasskey("terminal_open", "sess-1")
+	if err != nil {
+		t.Fatalf("ChallengePasskey: %v", err)
+	}
+	if ch.RPID != "beaconinfra.dev" || len(ch.AllowCredentials) != 1 || ch.AllowCredentials[0].ID != "cred-1" {
+		t.Fatalf("unexpected challenge: %+v", ch)
+	}
+	if note.code == "" {
+		t.Fatal("expected OOB code")
+	}
+	if err := g.VerifyPasskey("terminal_open", "sess-1", "not-json", "000000"); err != ErrBadOOBCode {
+		t.Fatalf("expected OOB failure before assertion verification, got %v", err)
+	}
+}
+
+func TestBeginEnrollValidationAndFinishErrors(t *testing.T) {
+	t.Setenv("BEACON_HOME", t.TempDir())
+	g := NewGrants()
+
+	if _, err := g.BeginEnroll("", "beaconinfra.dev", "https://beaconinfra.dev"); err == nil {
+		t.Fatal("expected missing session to fail")
+	}
+	if err := g.FinishEnroll("missing", "{}", "label"); err != ErrNoChallenge {
+		t.Fatalf("expected missing enrollment challenge, got %v", err)
+	}
+
+	ch, err := g.BeginEnroll("sess-1", "beaconinfra.dev", "https://beaconinfra.dev")
+	if err != nil {
+		t.Fatalf("BeginEnroll: %v", err)
+	}
+	if ch == "" {
+		t.Fatal("expected challenge")
+	}
+	if err := g.FinishEnroll("sess-1", "not-json", "label"); err == nil {
+		t.Fatal("expected invalid registration response to fail")
+	}
+	if err := g.FinishEnroll("sess-1", "not-json", "label"); err != ErrNoChallenge {
+		t.Fatalf("enrollment should be single-use after finish attempt, got %v", err)
+	}
+}
+
+func TestPruneRemovesExpiredPendingEnrollsAndGrants(t *testing.T) {
+	g := NewGrants()
+	g.mu.Lock()
+	g.pending["old"] = pending{exp: time.Now().Add(-time.Second)}
+	g.pending["fresh"] = pending{exp: time.Now().Add(time.Minute)}
+	g.grants["old"] = grant{exp: time.Now().Add(-time.Second)}
+	g.grants["fresh"] = grant{exp: time.Now().Add(time.Minute)}
+	g.enrolls["old"] = pendingEnroll{exp: time.Now().Add(-time.Second)}
+	g.enrolls["fresh"] = pendingEnroll{exp: time.Now().Add(time.Minute)}
+	g.pruneLocked()
+	g.pruneEnrollLocked()
+	_, oldPending := g.pending["old"]
+	_, freshPending := g.pending["fresh"]
+	_, oldGrant := g.grants["old"]
+	_, freshGrant := g.grants["fresh"]
+	_, oldEnroll := g.enrolls["old"]
+	_, freshEnroll := g.enrolls["fresh"]
+	g.mu.Unlock()
+
+	if oldPending || oldGrant || oldEnroll {
+		t.Fatal("expected expired state to be pruned")
+	}
+	if !freshPending || !freshGrant || !freshEnroll {
+		t.Fatal("expected fresh state to be retained")
+	}
+}

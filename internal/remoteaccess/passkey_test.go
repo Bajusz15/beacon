@@ -1,6 +1,9 @@
 package remoteaccess
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -138,5 +141,140 @@ func TestEnrollTokenExpiry(t *testing.T) {
 	}
 	if ConsumeEnrollToken(code) {
 		t.Fatal("expired code must be rejected")
+	}
+}
+
+func TestStoreCredentialUpdateAndRemovalEdges(t *testing.T) {
+	t.Setenv("BEACON_HOME", t.TempDir())
+
+	if err := AddCredential(PasskeyCredential{}); err == nil {
+		t.Fatal("expected empty credential to be rejected")
+	}
+
+	cred := PasskeyCredential{ID: "cred-1", PublicKey: "cHVibGljLWtleQ==", RPID: "beaconinfra.dev", Origin: "https://beaconinfra.dev", Label: "first"}
+	if err := AddCredential(cred); err != nil {
+		t.Fatalf("AddCredential: %v", err)
+	}
+	cred.Label = "replacement"
+	if err := AddCredential(cred); err != nil {
+		t.Fatalf("replace credential: %v", err)
+	}
+	creds, err := ListCredentials()
+	if err != nil {
+		t.Fatalf("ListCredentials: %v", err)
+	}
+	if len(creds) != 1 || creds[0].Label != "replacement" {
+		t.Fatalf("expected replacement credential, got %+v", creds)
+	}
+
+	if err := UpdateSignCount("cred-1", 42); err != nil {
+		t.Fatalf("UpdateSignCount: %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Credentials[0].SignCount != 42 {
+		t.Fatalf("expected sign count update, got %+v", cfg.Credentials[0])
+	}
+
+	if err := UpdateSignCount("missing", 99); err != nil {
+		t.Fatalf("missing credential update should be ignored: %v", err)
+	}
+	if err := RemoveCredential("missing"); err == nil {
+		t.Fatal("expected missing credential removal to fail")
+	}
+	if err := RemoveCredential("replacement"); err != nil {
+		t.Fatalf("remove by label: %v", err)
+	}
+	if IsConfigured() {
+		t.Fatal("expected last credential removal to delete store")
+	}
+}
+
+func TestLoadOrNewTreatsEmptyConfigAsEmpty(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("BEACON_HOME", home)
+	path := filepath.Join(home, storeFileName)
+	if err := os.WriteFile(path, []byte(`{"updated_at":"2026-01-01T00:00:00Z"}`), 0600); err != nil {
+		t.Fatalf("write empty config: %v", err)
+	}
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected empty config to fail Load")
+	}
+	if err := AddCredential(PasskeyCredential{ID: "cred-1", PublicKey: "cHVibGljLWtleQ=="}); err != nil {
+		t.Fatalf("AddCredential should repopulate empty config: %v", err)
+	}
+}
+
+func TestEnrollTokenInvalidAndClear(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("BEACON_HOME", home)
+
+	if ConsumeEnrollToken("123456") {
+		t.Fatal("missing token should be rejected")
+	}
+
+	path, err := enrollPath()
+	if err != nil {
+		t.Fatalf("enrollPath: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(`not-json`), 0600); err != nil {
+		t.Fatalf("write invalid token: %v", err)
+	}
+	if ConsumeEnrollToken("123456") {
+		t.Fatal("invalid token should be rejected")
+	}
+
+	tok := enrollToken{Hash: hashCode("123456"), ExpiresAt: "not-a-time"}
+	data, err := json.Marshal(tok)
+	if err != nil {
+		t.Fatalf("marshal token: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("write bad expiry token: %v", err)
+	}
+	if ConsumeEnrollToken("123456") {
+		t.Fatal("bad expiry token should be rejected")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expired malformed token should be removed, stat err=%v", err)
+	}
+
+	code, err := SetEnrollToken(DefaultEnrollTTL)
+	if err != nil {
+		t.Fatalf("SetEnrollToken: %v", err)
+	}
+	if code == "" {
+		t.Fatal("expected non-empty code")
+	}
+	if err := ClearEnrollToken(); err != nil {
+		t.Fatalf("ClearEnrollToken: %v", err)
+	}
+	if ConsumeEnrollToken(code) {
+		t.Fatal("cleared token should not be accepted")
+	}
+	if err := ClearEnrollToken(); err != nil {
+		t.Fatalf("ClearEnrollToken should ignore missing token: %v", err)
+	}
+}
+
+func TestClearRemovesStore(t *testing.T) {
+	t.Setenv("BEACON_HOME", t.TempDir())
+	if err := SetPassphrase("correct horse battery"); err != nil {
+		t.Fatalf("SetPassphrase: %v", err)
+	}
+	if !IsConfigured() {
+		t.Fatal("expected configured store")
+	}
+	if err := Clear(); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	if IsConfigured() {
+		t.Fatal("expected Clear to remove store")
+	}
+	if err := Clear(); err != nil {
+		t.Fatalf("Clear should ignore missing store: %v", err)
 	}
 }
