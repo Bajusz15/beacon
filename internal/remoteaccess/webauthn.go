@@ -87,9 +87,10 @@ func VerifyAssertion(responseJSON []byte, challengeB64URL, rpID string, origins 
 		return 0, fmt.Errorf("verify assertion: %w", err)
 	}
 	newCount := par.Response.AuthenticatorData.Counter
-	// Counter of 0 on both sides means the authenticator does not implement a
+	// A counter of 0 on both sides means the authenticator does not implement a
 	// signature counter; otherwise it must strictly increase (clone detection).
-	if !(newCount == 0 && storedSignCount == 0) && newCount <= storedSignCount {
+	counterImplemented := newCount != 0 || storedSignCount != 0
+	if counterImplemented && newCount <= storedSignCount {
 		return 0, fmt.Errorf("assertion sign count did not increase (possible cloned authenticator)")
 	}
 	return newCount, nil

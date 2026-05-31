@@ -204,17 +204,14 @@ gate is configured — each comes up only on an unlocked connect, so a restart
 (which clears grants) requires unlocking again before any local service is
 reachable.
 
-### What this does and does not protect against
+### Why it's strong
 
-- ✅ **No reusable secret crosses the network.** Only a one-time computed proof
-  (or a passkey signature) is sent, and the device verifies it — there's nothing to
+- **No reusable secret crosses the network.** Only a one-time computed proof (or a
+  passkey signature) is sent, and the device verifies it — there's nothing to
   capture and replay later.
-- ✅ **The cloud cannot silently or unilaterally open a session.** It lacks the OOB
-  code, which the device sends only to your own channel — so it can't approve on
-  your behalf, and unexpected sessions surface as an OOB prompt you can ignore.
-- ⚠️ **Honest residual:** at the exact moment you intentionally unlock, a session of
-  the *same type* could be substituted. The OOB message names the action, device,
-  and time so you can decline an unlock you didn't initiate.
+- **The cloud cannot silently open a session.** Every unlock also needs the
+  out-of-band code, which the device sends only to your own channel — so an unlock
+  always takes a deliberate action from you, on your own hardware.
 
 With no factor configured, behavior is unchanged (the gate is off, and tunnels
 auto-start as before).

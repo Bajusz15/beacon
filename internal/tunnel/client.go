@@ -95,7 +95,7 @@ func (c *Client) Run(ctx context.Context) error {
 		attempt++
 		if attempt > maxReconnects {
 			c.log.Warnf("Max reconnects (%d) exceeded, giving up", maxReconnects)
-			c.connected = false
+			c.setConnected(false)
 			c.writeHealthOnce()
 			return fmt.Errorf("max reconnects exceeded after error: %v", err)
 		}
@@ -106,7 +106,7 @@ func (c *Client) Run(ctx context.Context) error {
 		}
 		c.log.Infof("Disconnected (%v), reconnecting in %v (attempt %d/%d)",
 			err, backoff, attempt, maxReconnects)
-		c.connected = false
+		c.setConnected(false)
 		c.writeHealthOnce()
 
 		select {
@@ -305,6 +305,21 @@ func (c *Client) pingLoop(ctx context.Context) {
 	}
 }
 
+// setConnected records connection state under the same mutex that guards conn,
+// so the health-writer goroutine never reads it concurrently with a write.
+func (c *Client) setConnected(v bool) {
+	c.mu.Lock()
+	c.connected = v
+	c.mu.Unlock()
+}
+
+// isConnected reads connection state under the mutex.
+func (c *Client) isConnected() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.connected
+}
+
 func (c *Client) closeConn() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -339,8 +354,9 @@ func (c *Client) healthLoop(ctx context.Context) {
 }
 
 func (c *Client) writeHealthOnce() {
+	connected := c.isConnected()
 	status := ipc.StatusDown
-	if c.connected {
+	if connected {
 		status = ipc.StatusHealthy
 	}
 
@@ -355,7 +371,7 @@ func (c *Client) writeHealthOnce() {
 			"local_port":      c.cfg.Dial.Port,
 			"upstream_host":   c.cfg.Dial.Host,
 			"upstream_scheme": c.cfg.Dial.Protocol,
-			"connected":       c.connected,
+			"connected":       connected,
 		},
 	}
 
