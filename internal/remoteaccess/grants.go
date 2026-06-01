@@ -26,9 +26,6 @@ const (
 	// with the matching factor.
 	methodPassphrase = "passphrase"
 	methodPasskey    = "passkey"
-
-	// oobCodeDigits is the length of the out-of-band approval code.
-	oobCodeDigits = 6
 )
 
 var (
@@ -44,26 +41,16 @@ var (
 	ErrBadProof = errors.New("invalid passphrase proof")
 	// ErrBadAssertion is returned when no enrolled passkey verifies the assertion.
 	ErrBadAssertion = errors.New("invalid passkey assertion")
-	// ErrBadOOBCode is returned when the out-of-band approval code is wrong.
+	// ErrBadOOBCode is returned when the out-of-band TOTP code is wrong, missing,
+	// or replayed.
 	ErrBadOOBCode = errors.New("invalid or missing out-of-band approval code")
-	// ErrOOBDelivery is returned when the out-of-band code cannot be delivered.
-	ErrOOBDelivery = errors.New("could not deliver out-of-band approval code")
 )
 
-// Notifier delivers the per-session out-of-band approval code through a channel
-// the cloud does not mediate (the device's own alert channel). It is what closes
-// the challenge-swap gap: the cloud can relay a ceremony but cannot obtain this
-// code, so it cannot unilaterally complete an unlock.
-type Notifier interface {
-	SendOOBCode(action, code string) error
-}
-
 type pending struct {
-	nonce   string
-	action  string
-	method  string
-	oobCode string // "" when OOB delivery is not configured
-	exp     time.Time
+	nonce  string
+	action string
+	method string
+	exp    time.Time
 }
 
 type grant struct {
@@ -116,19 +103,14 @@ type Grants struct {
 	grants   map[string]grant         // keyed by session_id
 	enrolls  map[string]pendingEnroll // keyed by session_id
 	grantTTL time.Duration
-	notifier Notifier
+
+	// lastOOBCounter is the highest TOTP period index already accepted. A code is
+	// single-use: a later unlock must present a strictly newer counter, so a code
+	// cannot be replayed within its 30-second window.
+	lastOOBCounter uint64
 
 	failures    int
 	lockedUntil time.Time
-}
-
-// SetNotifier wires the out-of-band code delivery channel. When set, every
-// challenge mints a code that must be supplied at unlock; when nil, OOB
-// confirmation is disabled (the gate still works with the in-band factor).
-func (g *Grants) SetNotifier(n Notifier) {
-	g.mu.Lock()
-	g.notifier = n
-	g.mu.Unlock()
 }
 
 // NewGrants creates a grant manager with the default unlock TTL.
@@ -158,8 +140,7 @@ func (g *Grants) SetTTL(d time.Duration) {
 func (g *Grants) IsConfigured() bool { return IsConfigured() }
 
 // Challenge issues a fresh single-use passphrase nonce bound to (action,
-// sessionID), delivers the out-of-band code (when configured), and returns the
-// public derivation material for the browser.
+// sessionID) and returns the public derivation material for the browser.
 func (g *Grants) Challenge(action, sessionID string) (*ChallengeResult, error) {
 	cfg, err := Load()
 	if err != nil || !cfg.HasPassphrase() {
@@ -170,15 +151,11 @@ func (g *Grants) Challenge(action, sessionID string) (*ChallengeResult, error) {
 		return nil, err
 	}
 	nonce := base64.StdEncoding.EncodeToString(nonceBytes)
-	code, err := g.deliverOOB(action)
-	if err != nil {
-		return nil, err
-	}
 	exp := time.Now().Add(nonceTTL)
 
 	g.mu.Lock()
 	g.pruneLocked()
-	g.pending[sessionID] = pending{nonce: nonce, action: action, method: methodPassphrase, oobCode: code, exp: exp}
+	g.pending[sessionID] = pending{nonce: nonce, action: action, method: methodPassphrase, exp: exp}
 	g.mu.Unlock()
 
 	return &ChallengeResult{
@@ -190,8 +167,8 @@ func (g *Grants) Challenge(action, sessionID string) (*ChallengeResult, error) {
 }
 
 // ChallengePasskey issues a fresh single-use WebAuthn challenge bound to (action,
-// sessionID), delivers the out-of-band code (when configured), and returns the
-// allowCredentials + rpId for the browser's navigator.credentials.get().
+// sessionID) and returns the allowCredentials + rpId for the browser's
+// navigator.credentials.get().
 func (g *Grants) ChallengePasskey(action, sessionID string) (*PasskeyChallengeResult, error) {
 	cfg, err := Load()
 	if err != nil || !cfg.HasCredentials() {
@@ -209,15 +186,11 @@ func (g *Grants) ChallengePasskey(action, sessionID string) (*PasskeyChallengeRe
 		allow = append(allow, PasskeyAllowCredential{ID: c.ID, Type: "public-key"})
 	}
 	rpID := cfg.Credentials[0].RPID
-	code, err := g.deliverOOB(action)
-	if err != nil {
-		return nil, err
-	}
 	exp := time.Now().Add(nonceTTL)
 
 	g.mu.Lock()
 	g.pruneLocked()
-	g.pending[sessionID] = pending{nonce: challenge, action: action, method: methodPasskey, oobCode: code, exp: exp}
+	g.pending[sessionID] = pending{nonce: challenge, action: action, method: methodPasskey, exp: exp}
 	g.mu.Unlock()
 
 	return &PasskeyChallengeResult{
@@ -229,33 +202,23 @@ func (g *Grants) ChallengePasskey(action, sessionID string) (*PasskeyChallengeRe
 	}, nil
 }
 
-// deliverOOB mints and delivers the out-of-band approval code. It returns "" when
-// no notifier is configured (OOB disabled), the code on success, or an error when
-// a configured channel fails to deliver (the gate then stays closed).
-func (g *Grants) deliverOOB(action string) (string, error) {
-	g.mu.Lock()
-	n := g.notifier
-	g.mu.Unlock()
-	if n == nil {
-		return "", nil
-	}
-	code, err := genOOBCode(oobCodeDigits)
-	if err != nil {
-		return "", err
-	}
-	if err := n.SendOOBCode(action, code); err != nil {
-		return "", ErrOOBDelivery
-	}
-	return code, nil
-}
-
-// checkOOBLocked verifies the supplied OOB code against the pending challenge.
-// When the challenge has no code (OOB disabled), it always passes.
-func checkOOBLocked(p pending, supplied string) bool {
-	if p.oobCode == "" {
+// verifyOOBLocked checks the supplied out-of-band code against the enrolled TOTP
+// secret. When no OOB secret is enrolled it always passes (OOB is auxiliary). On
+// success it advances the single-use counter so the same code cannot be replayed
+// within its window. Caller must hold g.mu.
+func (g *Grants) verifyOOBLocked(cfg *Config, supplied string) bool {
+	if !cfg.HasOOB() {
 		return true
 	}
-	return constantTimeEqual([]byte(p.oobCode), []byte(supplied))
+	counter, ok := verifyTOTP(cfg.OOB.Secret, supplied, time.Now())
+	if !ok {
+		return false
+	}
+	if g.lastOOBCounter != 0 && counter <= g.lastOOBCounter {
+		return false // replayed code (already used this period or an older one)
+	}
+	g.lastOOBCounter = counter
+	return true
 }
 
 // Verify checks a browser-supplied passphrase proof and the out-of-band code
@@ -284,7 +247,7 @@ func (g *Grants) Verify(action, sessionID, nonce, proof, oobCode string) error {
 		g.recordFailureLocked()
 		return ErrNoChallenge
 	}
-	if !checkOOBLocked(p, oobCode) {
+	if !g.verifyOOBLocked(cfg, oobCode) {
 		g.recordFailureLocked()
 		return ErrBadOOBCode
 	}
@@ -323,7 +286,7 @@ func (g *Grants) VerifyPasskey(action, sessionID, assertionJSON, oobCode string)
 		g.recordFailureLocked()
 		return ErrNoChallenge
 	}
-	if !checkOOBLocked(p, oobCode) {
+	if !g.verifyOOBLocked(cfg, oobCode) {
 		g.recordFailureLocked()
 		return ErrBadOOBCode
 	}
@@ -469,19 +432,6 @@ func (g *Grants) pruneLocked() {
 			delete(g.grants, k)
 		}
 	}
-}
-
-// genOOBCode returns a zero-padded numeric code of n digits using crypto/rand.
-func genOOBCode(n int) (string, error) {
-	buf := make([]byte, n)
-	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
-		return "", err
-	}
-	out := make([]byte, n)
-	for i := 0; i < n; i++ {
-		out[i] = '0' + (buf[i] % 10)
-	}
-	return string(out), nil
 }
 
 // computeProof builds proof = HMAC-SHA256(key, nonce \0 action \0 session_id).

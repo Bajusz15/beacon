@@ -179,14 +179,13 @@ func TestGrantTTLClampActiveGrantAndExpiry(t *testing.T) {
 	}
 }
 
-func TestChallengePasskeyStoresAllowListAndOOB(t *testing.T) {
+func TestChallengePasskeyAllowListAndOOBGate(t *testing.T) {
 	t.Setenv("BEACON_HOME", t.TempDir())
 	if err := AddCredential(PasskeyCredential{ID: "cred-1", PublicKey: "cHVibGljLWtleQ==", RPID: "beaconinfra.dev", Origin: "https://beaconinfra.dev"}); err != nil {
 		t.Fatalf("AddCredential: %v", err)
 	}
+	enrollTestOOB(t)
 	g := NewGrants()
-	note := &recordingNotifier{}
-	g.SetNotifier(note)
 
 	ch, err := g.ChallengePasskey("terminal_open", "sess-1")
 	if err != nil {
@@ -195,9 +194,7 @@ func TestChallengePasskeyStoresAllowListAndOOB(t *testing.T) {
 	if ch.RPID != "beaconinfra.dev" || len(ch.AllowCredentials) != 1 || ch.AllowCredentials[0].ID != "cred-1" {
 		t.Fatalf("unexpected challenge: %+v", ch)
 	}
-	if note.code == "" {
-		t.Fatal("expected OOB code")
-	}
+	// A wrong OOB code is rejected before the assertion is even parsed.
 	if err := g.VerifyPasskey("terminal_open", "sess-1", "not-json", "000000"); err != ErrBadOOBCode {
 		t.Fatalf("expected OOB failure before assertion verification, got %v", err)
 	}

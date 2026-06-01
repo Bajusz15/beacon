@@ -10,6 +10,7 @@ import (
 
 	"beacon/internal/remoteaccess"
 
+	"github.com/mdp/qrterminal/v3"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -72,8 +73,68 @@ cannot enroll a passkey on its own.`,
 		Run:   runRemoteAccessRemovePasskey,
 	}
 
-	root.AddCommand(setCmd, statusCmd, clearCmd, addPasskeyCmd, listPasskeysCmd, removePasskeyCmd)
+	setupOOBCmd := &cobra.Command{
+		Use:   "setup-oob",
+		Short: "Enroll an authenticator app as a second, out-of-band factor (shows a QR)",
+		Long: `Generate a TOTP secret and print a QR code to scan into any authenticator
+app (Google Authenticator, 1Password, Authy, …). Once enrolled, every remote
+unlock also requires the current 6-digit code from that app — a second factor
+generated on your phone and verified on this device, which the cloud never sees.
+
+A passphrase or passkey must already be configured first.`,
+		Run: runRemoteAccessSetupOOB,
+	}
+
+	removeOOBCmd := &cobra.Command{
+		Use:   "remove-oob",
+		Short: "Remove the out-of-band authenticator-app factor",
+		Run:   runRemoteAccessRemoveOOB,
+	}
+
+	root.AddCommand(setCmd, statusCmd, clearCmd, addPasskeyCmd, listPasskeysCmd, removePasskeyCmd, setupOOBCmd, removeOOBCmd)
 	return root
+}
+
+func runRemoteAccessSetupOOB(cmd *cobra.Command, args []string) {
+	secret, err := remoteaccess.GenerateTOTPSecret()
+	if err != nil {
+		logger.Fatalf("generate TOTP secret: %v", err)
+	}
+	if err := remoteaccess.SetOOB(secret); err != nil {
+		logger.Fatalf("enable out-of-band verification: %v", err)
+	}
+	account, err := os.Hostname()
+	if err != nil || strings.TrimSpace(account) == "" {
+		account = "beacon-device"
+	}
+	otpURL := remoteaccess.OTPAuthURL(secret, account, "Beacon")
+
+	fmt.Println()
+	fmt.Println("  Scan this QR code with your authenticator app:")
+	fmt.Println()
+	qrterminal.GenerateWithConfig(otpURL, qrterminal.Config{
+		Level:     qrterminal.M,
+		Writer:    os.Stdout,
+		BlackChar: qrterminal.BLACK,
+		WhiteChar: qrterminal.WHITE,
+		QuietZone: 1,
+	})
+	fmt.Println()
+	fmt.Printf("  Or enter this secret manually:  %s\n", secret)
+	fmt.Println()
+	fmt.Println("  ✓ Out-of-band verification enabled.")
+	fmt.Println("  Remote unlocks now also require the 6-digit code from your app.")
+	fmt.Println("  Restart beacon for it to take effect on a running agent.")
+	fmt.Println()
+}
+
+func runRemoteAccessRemoveOOB(cmd *cobra.Command, args []string) {
+	if err := remoteaccess.ClearOOB(); err != nil {
+		logger.Fatalf("remove out-of-band verification: %v", err)
+	}
+	fmt.Println()
+	fmt.Println("  ✓ Out-of-band authenticator factor removed.")
+	fmt.Println()
 }
 
 func runRemoteAccessAddPasskey(cmd *cobra.Command, args []string) {
@@ -200,6 +261,11 @@ func runRemoteAccessStatus(cmd *cobra.Command, args []string) {
 		fmt.Println("  Passphrase: configured (fallback)")
 	} else {
 		fmt.Println("  Passphrase: not set")
+	}
+	if cfg.HasOOB() {
+		fmt.Println("  Out-of-band: authenticator app enrolled (required at unlock)")
+	} else {
+		fmt.Println("  Out-of-band: not set")
 	}
 	if cfg.UpdatedAt != "" {
 		if t, err := time.Parse(time.RFC3339, cfg.UpdatedAt); err == nil {

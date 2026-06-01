@@ -8,25 +8,26 @@ import (
 	"time"
 )
 
-// recordingNotifier captures the last OOB code it was asked to deliver.
-type recordingNotifier struct {
-	code string
-	fail bool
-}
-
-func (r *recordingNotifier) SendOOBCode(action, code string) error {
-	if r.fail {
-		return errInjected
+// enrollTestOOB sets a fresh TOTP secret on the configured store and returns a
+// function that yields the code currently valid for that secret, so tests can
+// drive the out-of-band factor exactly as an authenticator app would.
+func enrollTestOOB(t *testing.T) func() string {
+	t.Helper()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
 	}
-	r.code = code
-	return nil
+	if err := SetOOB(secret); err != nil {
+		t.Fatalf("SetOOB: %v", err)
+	}
+	return func() string {
+		key, err := decodeTOTPSecret(secret)
+		if err != nil {
+			t.Fatalf("decode secret: %v", err)
+		}
+		return hotp(key, uint64(time.Now().Unix())/uint64(totpPeriod.Seconds()))
+	}
 }
-
-var errInjected = &injErr{}
-
-type injErr struct{}
-
-func (*injErr) Error() string { return "inject" }
 
 // Legacy passphrase-only configs must still load, and adding a passkey must not
 // destroy the passphrase (and vice versa).
@@ -71,21 +72,18 @@ func TestStoreBackCompatAndMerge(t *testing.T) {
 	}
 }
 
-// When an OOB notifier is configured, the delivered code is required at unlock.
+// When an out-of-band TOTP secret is enrolled, the current code is required at
+// unlock alongside the passphrase proof.
 func TestOOBGatingPassphrase(t *testing.T) {
 	const pp = "correct horse battery"
 	setupConfigured(t, pp)
+	code := enrollTestOOB(t)
 
 	g := NewGrants()
-	note := &recordingNotifier{}
-	g.SetNotifier(note)
 
 	ch, err := g.Challenge("terminal_open", "sess-1")
 	if err != nil {
 		t.Fatalf("Challenge: %v", err)
-	}
-	if note.code == "" {
-		t.Fatal("expected an OOB code to be delivered")
 	}
 	proof := browserProof(t, pp, ch, "terminal_open", "sess-1")
 
@@ -97,7 +95,7 @@ func TestOOBGatingPassphrase(t *testing.T) {
 	// Correct OOB code unlocks (fresh challenge, since the failure consumed a try).
 	ch2, _ := g.Challenge("terminal_open", "sess-2")
 	proof2 := browserProof(t, pp, ch2, "terminal_open", "sess-2")
-	if err := g.Verify("terminal_open", "sess-2", ch2.Nonce, proof2, note.code); err != nil {
+	if err := g.Verify("terminal_open", "sess-2", ch2.Nonce, proof2, code()); err != nil {
 		t.Fatalf("expected unlock with correct OOB code, got %v", err)
 	}
 	if !g.Consume("terminal_open", "sess-2") {
@@ -105,13 +103,25 @@ func TestOOBGatingPassphrase(t *testing.T) {
 	}
 }
 
-// A failed OOB delivery keeps the gate closed (challenge errors).
-func TestOOBDeliveryFailureClosesGate(t *testing.T) {
-	setupConfigured(t, "correct horse battery")
+// A TOTP code is single-use: replaying the same code within its 30s window for a
+// second unlock must be rejected.
+func TestOOBCodeSingleUse(t *testing.T) {
+	const pp = "correct horse battery"
+	setupConfigured(t, pp)
+	code := enrollTestOOB(t)
+	c := code() // capture one code and reuse it
+
 	g := NewGrants()
-	g.SetNotifier(&recordingNotifier{fail: true})
-	if _, err := g.Challenge("terminal_open", "sess-1"); err != ErrOOBDelivery {
-		t.Fatalf("expected ErrOOBDelivery, got %v", err)
+	ch, _ := g.Challenge("terminal_open", "s1")
+	proof := browserProof(t, pp, ch, "terminal_open", "s1")
+	if err := g.Verify("terminal_open", "s1", ch.Nonce, proof, c); err != nil {
+		t.Fatalf("first unlock with OOB code: %v", err)
+	}
+
+	ch2, _ := g.Challenge("terminal_open", "s2")
+	proof2 := browserProof(t, pp, ch2, "terminal_open", "s2")
+	if err := g.Verify("terminal_open", "s2", ch2.Nonce, proof2, c); err != ErrBadOOBCode {
+		t.Fatalf("expected replayed OOB code to be rejected, got %v", err)
 	}
 }
 

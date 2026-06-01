@@ -182,8 +182,6 @@ func TestPasskeyE2E(t *testing.T) {
 	auth := newSoftAuthenticator(t)
 
 	g := NewGrants()
-	note := &recordingNotifier{}
-	g.SetNotifier(note)
 
 	// --- Enrollment (registration ceremony) ---------------------------------
 	const enrollSess = "enroll-1"
@@ -203,14 +201,21 @@ func TestPasskeyE2E(t *testing.T) {
 		t.Fatalf("expected one enrolled credential pinned to rpID, got %+v", creds)
 	}
 
+	// Enroll the out-of-band TOTP factor now that a passkey exists. code() yields
+	// the code an authenticator app would currently show.
+	code := enrollTestOOB(t)
+
+	// freshWindow resets the single-use TOTP guard so a code captured in this same
+	// real-time 30s window can pass the OOB gate again — simulating a later period.
+	// It lets the assertion-failure negatives exercise the verifier rather than
+	// being short-circuited by the replay guard.
+	freshWindow := func() { g.lastOOBCounter = 0 }
+
 	// --- Unlock (assertion ceremony) ---------------------------------------
 	const sess = "sess-A"
 	ch, err := g.ChallengePasskey("terminal_open", sess)
 	if err != nil {
 		t.Fatalf("ChallengePasskey: %v", err)
-	}
-	if note.code == "" {
-		t.Fatal("expected an OOB code delivered on challenge")
 	}
 	if len(ch.AllowCredentials) != 1 || ch.UserVerification != "required" {
 		t.Fatalf("unexpected challenge material: %+v", ch)
@@ -223,10 +228,10 @@ func TestPasskeyE2E(t *testing.T) {
 		t.Fatalf("expected ErrBadOOBCode, got %v", err)
 	}
 
-	// Correct ceremony with the delivered OOB code unlocks (fresh challenge).
+	// Correct ceremony with the current OOB code unlocks (fresh challenge).
 	ch2, _ := g.ChallengePasskey("terminal_open", sess)
 	asn2 := auth.assert(t, ch2.Challenge, e2eOrigin)
-	if err := g.VerifyPasskey("terminal_open", sess, string(asn2), note.code); err != nil {
+	if err := g.VerifyPasskey("terminal_open", sess, string(asn2), code()); err != nil {
 		t.Fatalf("expected unlock, got %v", err)
 	}
 	if !g.Consume("terminal_open", sess) {
@@ -237,20 +242,22 @@ func TestPasskeyE2E(t *testing.T) {
 	}
 
 	// --- Negative: wrong origin is rejected --------------------------------
+	freshWindow()
 	const sessBad = "sess-B"
 	chB, _ := g.ChallengePasskey("terminal_open", sessBad)
 	evil := auth.assert(t, chB.Challenge, "https://evil.example")
-	if err := g.VerifyPasskey("terminal_open", sessBad, string(evil), note.code); err != ErrBadAssertion {
+	if err := g.VerifyPasskey("terminal_open", sessBad, string(evil), code()); err != ErrBadAssertion {
 		t.Fatalf("expected ErrBadAssertion for wrong origin, got %v", err)
 	}
 
 	// --- Negative: replayed (stale) assertion is rejected by sign counter ---
 	// Persisted counter is now ahead; re-presenting an assertion at an equal or
 	// lower counter must fail. Forge one at a counter we know is stale.
+	freshWindow()
 	const sessC = "sess-C"
 	chC, _ := g.ChallengePasskey("terminal_open", sessC)
 	stale := newStaleAssertion(t, auth, chC.Challenge)
-	if err := g.VerifyPasskey("terminal_open", sessC, string(stale), note.code); err != ErrBadAssertion {
+	if err := g.VerifyPasskey("terminal_open", sessC, string(stale), code()); err != ErrBadAssertion {
 		t.Fatalf("expected ErrBadAssertion for non-monotonic sign count, got %v", err)
 	}
 }

@@ -143,8 +143,6 @@ func TestHandleRemoteAccessControlPasskeyChallengeAndBadUnlock(t *testing.T) {
 		Origin:    "https://beaconinfra.dev",
 	}))
 	dispatcher := NewCommandDispatcher(nil, nil)
-	note := &recordingNotifierForControl{}
-	dispatcher.Grants().SetNotifier(note)
 
 	challenge := readRemoteAccessControlReply(t, dispatcher, HeartbeatCommand{
 		ID:      "cmd-passkey",
@@ -155,8 +153,9 @@ func TestHandleRemoteAccessControlPasskeyChallengeAndBadUnlock(t *testing.T) {
 	require.Equal(t, actionTunnelConnect, challenge.Data["action"])
 	require.Equal(t, "beaconinfra.dev", challenge.Data["rpId"])
 	require.NotEmpty(t, challenge.Data["allowCredentials"])
-	require.NotEmpty(t, note.code)
 
+	// With no out-of-band factor enrolled, the unlock proceeds to assertion
+	// verification, which rejects the malformed assertion.
 	unlock := readRemoteAccessControlReply(t, dispatcher, HeartbeatCommand{
 		ID:     "cmd-passkey-unlock",
 		Action: actionRemoteAccessPasskeyUnlock,
@@ -164,7 +163,6 @@ func TestHandleRemoteAccessControlPasskeyChallengeAndBadUnlock(t *testing.T) {
 			"session_id": "sess-1",
 			"action":     actionTunnelConnect,
 			"assertion":  "not-json",
-			"oob_code":   note.code,
 		},
 	})
 	require.False(t, unlock.OK)
@@ -206,15 +204,6 @@ func TestHandleRemoteAccessControlEnrollBeginAuthorization(t *testing.T) {
 	})
 	require.False(t, finish.OK)
 	require.Contains(t, finish.Error, "parse registration")
-}
-
-type recordingNotifierForControl struct {
-	code string
-}
-
-func (r *recordingNotifierForControl) SendOOBCode(action, code string) error {
-	r.code = code
-	return nil
 }
 
 func browserProofForControl(t *testing.T, passphrase string, ch *remoteaccess.ChallengeResult, action, sessionID string) string {

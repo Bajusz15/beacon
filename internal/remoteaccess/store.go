@@ -65,8 +65,8 @@ type Config struct {
 	Params   Argon2Params `json:"params,omitempty"`
 	// Passkeys (preferred). Empty when none are enrolled.
 	Credentials []PasskeyCredential `json:"credentials,omitempty"`
-	// OOB selects how the per-session out-of-band approval code is delivered.
-	// When nil, delivery falls back to the device's configured alert channel.
+	// OOB holds the out-of-band TOTP factor (a secret scanned into the user's
+	// authenticator app). When nil, no out-of-band code is required.
 	OOB       *OOBConfig `json:"oob,omitempty"`
 	UpdatedAt string     `json:"updated_at"`
 }
@@ -85,12 +85,11 @@ type PasskeyCredential struct {
 	AddedAt   string `json:"added_at"`
 }
 
-// OOBConfig selects the out-of-band delivery channel for approval codes. Channel
-// is one of "webhook" or "email"; Target is the channel-specific destination
-// (webhook URL or email address). When empty the device alert channel is used.
+// OOBConfig holds the out-of-band TOTP factor. Secret is the base32 TOTP secret
+// the user scanned into their authenticator app; the agent verifies codes against
+// it locally. The cloud never sees it.
 type OOBConfig struct {
-	Channel string `json:"channel,omitempty"`
-	Target  string `json:"target,omitempty"`
+	Secret string `json:"secret,omitempty"`
 }
 
 // HasPassphrase reports whether a passphrase fallback is configured.
@@ -98,6 +97,9 @@ func (c *Config) HasPassphrase() bool { return c.Argon2id != "" && c.Salt != "" 
 
 // HasCredentials reports whether at least one passkey is enrolled.
 func (c *Config) HasCredentials() bool { return len(c.Credentials) > 0 }
+
+// HasOOB reports whether an out-of-band TOTP secret is enrolled.
+func (c *Config) HasOOB() bool { return c.OOB != nil && c.OOB.Secret != "" }
 
 // derivedKey returns the raw Argon2id key bytes stored in the config.
 func (c *Config) derivedKey() ([]byte, error) {
@@ -275,6 +277,35 @@ func RemoveCredential(idOrLabel string) error {
 		return fmt.Errorf("no passkey matching %q", idOrLabel)
 	}
 	cfg.Credentials = kept
+	return save(cfg)
+}
+
+// SetOOB enrolls the out-of-band TOTP secret, preserving all other factors. OOB
+// is auxiliary hardening, so a primary factor (passphrase or passkey) must
+// already exist — otherwise there would be nothing for it to gate.
+func SetOOB(secret string) error {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return fmt.Errorf("totp secret is required")
+	}
+	cfg, err := loadOrNew()
+	if err != nil {
+		return err
+	}
+	if !cfg.HasPassphrase() && !cfg.HasCredentials() {
+		return fmt.Errorf("set a passphrase or enroll a passkey before adding out-of-band verification")
+	}
+	cfg.OOB = &OOBConfig{Secret: secret}
+	return save(cfg)
+}
+
+// ClearOOB removes the out-of-band TOTP factor, leaving primary factors intact.
+func ClearOOB() error {
+	cfg, err := loadOrNew()
+	if err != nil {
+		return err
+	}
+	cfg.OOB = nil
 	return save(cfg)
 }
 
