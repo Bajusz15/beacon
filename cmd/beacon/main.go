@@ -17,6 +17,7 @@ import (
 	"beacon/internal/secrets"
 	"beacon/internal/server"
 	"beacon/internal/state"
+	"beacon/internal/systemd"
 	"beacon/internal/version"
 	"beacon/internal/wizard"
 
@@ -63,32 +64,53 @@ var versionCmd = &cobra.Command{
 var restartCmd = &cobra.Command{
 	Use:   "restart [service]",
 	Short: "Restart beacon services",
-	Long: `Restart beacon services. If no service is specified, restarts the deploy service.
-Available services: deploy, monitor, start (cloud agent: systemctl --user restart beacon.service)`,
+	Long: `Restart beacon services. If no service is specified, restarts the master service.
+Available services: master/start, deploy, monitor`,
 	Example: `  beacon restart
+  beacon restart master
   beacon restart deploy
-  beacon restart monitor
-  beacon restart start`,
-	Run: func(cmd *cobra.Command, args []string) {
-		service := "deploy"
+  beacon restart monitor`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		service := "master"
 		if len(args) > 0 {
 			service = args[0]
 		}
 
 		switch service {
+		case "start", "master":
+			logger.Infof("Restarting master service...")
+			if err := restartBeaconService("master"); err != nil {
+				return err
+			}
+			logger.Infof("Master service restart requested")
 		case "deploy":
 			logger.Infof("Restarting deploy service...")
+			if err := restartBeaconService("deploy"); err != nil {
+				return err
+			}
 			logger.Infof("Deploy service restart requested")
 		case "monitor":
 			logger.Infof("Restarting monitor service...")
+			if err := restartBeaconService("monitor"); err != nil {
+				return err
+			}
 			logger.Infof("Monitor service restart requested")
-		case "start", "master":
-			logger.Infof("Restart master: systemctl --user restart beacon.service")
 		default:
-			logger.Infof("Unknown service: %s. Available services: deploy, monitor, start\n", service)
-			os.Exit(1)
+			return fmt.Errorf("unknown service %q. Available services: master, deploy, monitor", service)
 		}
+		return nil
 	},
+}
+
+var restartBeaconService = func(service string) error {
+	sm := systemd.NewServiceManager(systemd.UserService)
+	switch service {
+	case "master":
+		return sm.RestartMasterService()
+	default:
+		return sm.RestartService(service)
+	}
 }
 
 var wizardCmd = &cobra.Command{

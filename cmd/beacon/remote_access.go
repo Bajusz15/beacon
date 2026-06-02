@@ -46,6 +46,12 @@ Setting a passphrase turns the gate on. With none set, behavior is unchanged.`,
 		Run:   runRemoteAccessClear,
 	}
 
+	clearPassphraseCmd := &cobra.Command{
+		Use:   "clear-passphrase",
+		Short: "Remove only the passphrase factor, leaving passkeys and OOB intact",
+		Run:   runRemoteAccessClearPassphrase,
+	}
+
 	addPasskeyCmd := &cobra.Command{
 		Use:   "add-passkey",
 		Short: "Authorize enrolling a passkey: prints a one-time enrollment code",
@@ -85,17 +91,34 @@ A passphrase or passkey must already be configured first.`,
 		Run: runRemoteAccessSetupOOB,
 	}
 
+	setupOOBCmd.Flags().Bool("if-absent", false, "Do nothing if an authenticator factor is already enrolled (idempotent setup)")
+
 	removeOOBCmd := &cobra.Command{
 		Use:   "remove-oob",
 		Short: "Remove the out-of-band authenticator-app factor",
 		Run:   runRemoteAccessRemoveOOB,
 	}
 
-	root.AddCommand(setCmd, statusCmd, clearCmd, addPasskeyCmd, listPasskeysCmd, removePasskeyCmd, setupOOBCmd, removeOOBCmd)
+	root.AddCommand(setCmd, statusCmd, clearCmd, clearPassphraseCmd, addPasskeyCmd, listPasskeysCmd, removePasskeyCmd, setupOOBCmd, removeOOBCmd)
 	return root
 }
 
+func runRemoteAccessClearPassphrase(cmd *cobra.Command, args []string) {
+	if err := remoteaccess.ClearPassphrase(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		logger.Fatalf("clear passphrase: %v", err)
+	}
+}
+
 func runRemoteAccessSetupOOB(cmd *cobra.Command, args []string) {
+	// With --if-absent, leave an already-enrolled authenticator factor untouched
+	// (so an add-on that re-runs this on every start does not rotate the secret
+	// and lock the user out).
+	if ifAbsent, _ := cmd.Flags().GetBool("if-absent"); ifAbsent && remoteaccess.IsConfigured() {
+		if cfg, err := remoteaccess.Load(); err == nil && cfg.HasOOB() {
+			fmt.Println("  Out-of-band verification already enabled; leaving it unchanged.")
+			return
+		}
+	}
 	secret, err := remoteaccess.GenerateTOTPSecret()
 	if err != nil {
 		logger.Fatalf("generate TOTP secret: %v", err)

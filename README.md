@@ -53,7 +53,7 @@ This is the part that matters before any feature:
 
 - **Reach any service, no open ports** — securely reach Home Assistant, Grafana, Jellyfin, a NAS admin page, Pi-hole, or any local HTTP service from anywhere. No dynamic DNS, no Nabu Casa, no Cloudflare account or managed domain. Authenticated with short-lived tokens; only you can reach your services.
 - **Remote terminal** — open a shell on your device from the browser. No SSH port, no VPN. The cloud relays a PTY session between your browser and the agent.
-- **Device-verified gate (recommended)** — enroll a **passkey** (preferred) or set a passphrase (fallback) so a second factor is required before *any* remote terminal or tunnel session can open. It's verified **on the device** — BeaconInfra only relays. The passkey's private key never enters the page, and every unlock also needs an out-of-band code the device sends to your own alert channel, so the cloud can't silently open a session. See [Securing remote access](#-securing-remote-access).
+- **Device-verified gate (recommended)** — enroll a **passkey** (preferred) or set a passphrase (fallback) so a second factor is required before *any* remote terminal or tunnel session can open. It's verified **on the device** — BeaconInfra only relays. The passkey's private key never enters the page, and you can layer on an **authenticator-app (TOTP) code** so the cloud can't silently open a session. See [Securing remote access](#-securing-remote-access).
 
 ### 📊 Monitoring & alerts
 
@@ -129,8 +129,9 @@ second factor that the cloud **cannot** forge or replay, turn on the remote-acce
 gate. Once configured, no remote terminal or tunnel session can open until you
 unlock it, and the unlock is **verified on the device** — the cloud only relays.
 
-There are two factors. A **passkey (WebAuthn)** is the preferred one; a
-**passphrase** is the fallback. You can enroll either or both.
+A **passkey (WebAuthn)** is the preferred factor; a **passphrase** is the
+fallback. On top of either, you can add an **authenticator-app code (TOTP)** as an
+out-of-band confirmation. Enroll whichever you like.
 
 ```bash
 # Preferred: enroll a passkey (Touch ID / Windows Hello / security key / phone).
@@ -141,6 +142,11 @@ beacon remote-access remove-passkey <id-or-label>
 
 # Fallback: set (or change) a passphrase — prompted twice, no echo
 beacon remote-access set-passphrase
+
+# Optional out-of-band factor: scan the QR into an authenticator app.
+# Every unlock then also asks for the current 6-digit code.
+beacon remote-access setup-oob
+beacon remote-access remove-oob
 
 # Check what's configured
 beacon remote-access status
@@ -179,9 +185,15 @@ captured and replayed later, which is why passkeys are the preferred factor.
 Rooting enrollment in a device-local code (or a valid passphrase unlock) means a
 compromised cloud **cannot enroll its own passkey** — it never has the code.
 
+To add the optional authenticator-app factor, run `beacon remote-access setup-oob`.
+It generates a TOTP secret and prints an `otpauth://` **QR code** (and the plain
+secret) right in the terminal — or the Home Assistant add-on log. Scan it with any
+authenticator app (Google Authenticator, 1Password, Authy). The secret is created
+on the device and stored locally; it never reaches the cloud.
+
 ### How an unlock works
 
-Opening a terminal or tunnel requires **two** things, both checked on the device:
+Opening a terminal or tunnel is verified on the device:
 
 1. **A WebAuthn assertion.** The agent issues a single-use, short-lived **nonce**
    as the challenge. Your authenticator signs it (user verification — biometric or
@@ -191,14 +203,14 @@ Opening a terminal or tunnel requires **two** things, both checked on the device
    defense). With the passphrase fallback, the browser instead returns a proof =
    `HMAC-SHA256(Argon2id-key, nonce ‖ action ‖ session_id)`, compared in constant
    time. Either way the cloud sees no reusable secret.
-2. **An out-of-band (OOB) approval code.** When a challenge is issued, the agent
-   sends a 6-digit code **straight to your own alert channel** (e.g. webhook /
-   email) — a path the cloud does not mediate. You enter that code to complete the
-   unlock. If the gate is configured with an OOB notifier and delivery fails, the
-   unlock is **refused** (fail-closed).
+2. **The authenticator-app code, when enrolled.** If you ran `setup-oob`, the
+   unlock also asks for the current **6-digit TOTP code** from your app. The agent
+   verifies it against the locally-stored secret; the code is single-use within its
+   window. This is generated on your phone and checked on the device — the cloud is
+   never in the loop.
 
 A successful unlock is **in-memory, single-use, session-bound, and TTL-limited**,
-and is cleared on restart (fail-closed). Repeated wrong attempts (assertion or OOB
+and is cleared on restart (fail-closed). Repeated wrong attempts (assertion or
 code) trigger **rate-limiting / backoff**. **Tunnels do not auto-start** while the
 gate is configured — each comes up only on an unlocked connect, so a restart
 (which clears grants) requires unlocking again before any local service is
@@ -209,9 +221,10 @@ reachable.
 - **No reusable secret crosses the network.** Only a one-time computed proof (or a
   passkey signature) is sent, and the device verifies it — there's nothing to
   capture and replay later.
-- **The cloud cannot silently open a session.** Every unlock also needs the
-  out-of-band code, which the device sends only to your own channel — so an unlock
-  always takes a deliberate action from you, on your own hardware.
+- **The cloud cannot silently open a session.** Unlocking always takes a
+  deliberate action on your own hardware — a biometric touch on your authenticator,
+  and (when enrolled) the current code from your authenticator app, which the cloud
+  never sees.
 
 With no factor configured, behavior is unchanged (the gate is off, and tunnels
 auto-start as before).
@@ -436,7 +449,7 @@ Turn it on with `beacon cloud login --api-key usr_…`. Turn it off any time wit
 | **See all your project health in one list** | Every project, every check, across every device. Sorted so the problems come first. |
 | **Trigger a deploy from the browser** | Click "deploy" in the dashboard and Beacon runs your existing deploy script on the device. Your secrets never leave home — the cloud just sends the signal. |
 | **Know when a device goes offline** | If a device stops sending heartbeats, you get notified — even if its last check said everything was fine. |
-| **Open a remote terminal session** | Click "Open terminal" on a device in the dashboard. The cloud relays a shell session (PTY) between your browser and the Beacon agent — no SSH port, no VPN needed. Sessions auto-expire after 15 minutes. Set a [remote-access passphrase](#-securing-remote-access) to require a device-verified second factor before any session opens. |
+| **Open a remote terminal session** | Click "Open terminal" on a device in the dashboard. The cloud relays a shell session (PTY) between your browser and the Beacon agent — no SSH port, no VPN needed. Sessions auto-expire after 15 minutes. Enroll a [remote-access passkey or passphrase](#-securing-remote-access) to require a device-verified second factor before any session opens. |
 | **Route traffic through your home network** | `beacon vpn enable` on your home device + `beacon vpn use my-pi` on your laptop. WireGuard peer exchange happens via BeaconInfra; the actual traffic is peer-to-peer. For client-only machines, use the lightweight `beacon-vpn` binary. |
 
 ### 🔐 What we don't see
@@ -495,7 +508,8 @@ Projects are isolated: one crash doesn't affect others. The master auto-restarts
 | `beacon secrets set\|get\|list\|export\|remove` | Local encrypted deploy secrets |
 | `beacon tunnel add\|list\|enable\|disable` | Reverse tunnels for remote access |
 | `beacon remote-access add-passkey\|list-passkeys\|remove-passkey` | Enroll/manage passkeys (preferred) that gate remote terminal/tunnel sessions |
-| `beacon remote-access set-passphrase\|status\|clear` | Device-verified passphrase (fallback) and gate status/reset |
+| `beacon remote-access setup-oob\|remove-oob` | Enroll/remove an authenticator-app (TOTP) out-of-band factor |
+| `beacon remote-access set-passphrase\|clear-passphrase\|status\|clear` | Device-verified passphrase (fallback), gate status, and reset |
 | `beacon vpn enable\|use\|disable\|status` | WireGuard VPN |
 | `beacon projects list\|add\|remove\|status` | Project management |
 | `beacon alerts init\|test\|status` | Alert routing |
