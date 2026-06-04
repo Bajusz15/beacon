@@ -21,11 +21,16 @@ const (
 
 	maxFreeFailures = 5
 	maxBackoff      = 5 * time.Minute
+
+	// methodPassphrase / methodPasskey tag a challenge so an unlock is verified
+	// with the matching factor.
+	methodPassphrase = "passphrase"
+	methodPasskey    = "passkey"
 )
 
 var (
-	// ErrNotConfigured is returned when no passphrase is set on the device.
-	ErrNotConfigured = errors.New("remote-access passphrase not configured")
+	// ErrNotConfigured is returned when no remote-access factor is set.
+	ErrNotConfigured = errors.New("remote-access not configured")
 	// ErrLockedOut is returned while the device is backing off after repeated
 	// verification failures.
 	ErrLockedOut = errors.New("too many failed attempts; try again later")
@@ -34,11 +39,17 @@ var (
 	ErrNoChallenge = errors.New("no matching challenge (expired or unknown)")
 	// ErrBadProof is returned when the supplied proof does not match.
 	ErrBadProof = errors.New("invalid passphrase proof")
+	// ErrBadAssertion is returned when no enrolled passkey verifies the assertion.
+	ErrBadAssertion = errors.New("invalid passkey assertion")
+	// ErrBadOOBCode is returned when the out-of-band TOTP code is wrong, missing,
+	// or replayed.
+	ErrBadOOBCode = errors.New("invalid or missing out-of-band approval code")
 )
 
 type pending struct {
 	nonce  string
 	action string
+	method string
 	exp    time.Time
 }
 
@@ -47,9 +58,19 @@ type grant struct {
 	exp    time.Time
 }
 
-// ChallengeResult is the material the agent hands back to the browser (via the
-// cloud relay) so it can derive the key and compute the proof. None of it is
-// secret.
+// pendingEnroll holds an in-flight passkey registration ceremony, keyed by
+// session_id. rpID/origin are pinned here and re-checked against the browser's
+// actual ceremony at finish, so a malicious relay cannot bind a credential to a
+// different origin.
+type pendingEnroll struct {
+	challenge string // base64url
+	rpID      string
+	origin    string
+	exp       time.Time
+}
+
+// ChallengeResult is the passphrase derivation material the agent hands back to
+// the browser (via the cloud relay). None of it is secret.
 type ChallengeResult struct {
 	Nonce     string       `json:"nonce"`
 	Salt      string       `json:"salt"`
@@ -57,14 +78,36 @@ type ChallengeResult struct {
 	ExpiresAt time.Time    `json:"expires_at"`
 }
 
+// PasskeyAllowCredential is one entry in the WebAuthn allowCredentials list.
+type PasskeyAllowCredential struct {
+	ID   string `json:"id"`   // base64url credential id
+	Type string `json:"type"` // "public-key"
+}
+
+// PasskeyChallengeResult is the WebAuthn request material handed to the browser.
+// None of it is secret.
+type PasskeyChallengeResult struct {
+	Challenge        string                   `json:"challenge"` // base64url
+	RPID             string                   `json:"rpId"`
+	AllowCredentials []PasskeyAllowCredential `json:"allowCredentials"`
+	UserVerification string                   `json:"userVerification"`
+	ExpiresAt        time.Time                `json:"expires_at"`
+}
+
 // Grants is the in-memory, process-only source of truth for remote-access
 // unlocks. It is never persisted: a restart clears all pending challenges and
 // grants, so the device fails closed.
 type Grants struct {
 	mu       sync.Mutex
-	pending  map[string]pending // keyed by session_id
-	grants   map[string]grant   // keyed by session_id
+	pending  map[string]pending       // keyed by session_id
+	grants   map[string]grant         // keyed by session_id
+	enrolls  map[string]pendingEnroll // keyed by session_id
 	grantTTL time.Duration
+
+	// lastOOBCounter is the highest TOTP period index already accepted. A code is
+	// single-use: a later unlock must present a strictly newer counter, so a code
+	// cannot be replayed within its 30-second window.
+	lastOOBCounter uint64
 
 	failures    int
 	lockedUntil time.Time
@@ -75,6 +118,7 @@ func NewGrants() *Grants {
 	return &Grants{
 		pending:  make(map[string]pending),
 		grants:   make(map[string]grant),
+		enrolls:  make(map[string]pendingEnroll),
 		grantTTL: defaultGrantTTL,
 	}
 }
@@ -95,11 +139,11 @@ func (g *Grants) SetTTL(d time.Duration) {
 // IsConfigured reports whether a passphrase is set (delegates to on-disk state).
 func (g *Grants) IsConfigured() bool { return IsConfigured() }
 
-// Challenge issues a fresh single-use nonce bound to (action, sessionID) and
-// returns the public derivation material for the browser.
+// Challenge issues a fresh single-use passphrase nonce bound to (action,
+// sessionID) and returns the public derivation material for the browser.
 func (g *Grants) Challenge(action, sessionID string) (*ChallengeResult, error) {
 	cfg, err := Load()
-	if err != nil {
+	if err != nil || !cfg.HasPassphrase() {
 		return nil, ErrNotConfigured
 	}
 	nonceBytes := make([]byte, nonceSize)
@@ -111,7 +155,7 @@ func (g *Grants) Challenge(action, sessionID string) (*ChallengeResult, error) {
 
 	g.mu.Lock()
 	g.pruneLocked()
-	g.pending[sessionID] = pending{nonce: nonce, action: action, exp: exp}
+	g.pending[sessionID] = pending{nonce: nonce, action: action, method: methodPassphrase, exp: exp}
 	g.mu.Unlock()
 
 	return &ChallengeResult{
@@ -122,12 +166,68 @@ func (g *Grants) Challenge(action, sessionID string) (*ChallengeResult, error) {
 	}, nil
 }
 
-// Verify checks a browser-supplied proof against an outstanding challenge. On
-// success it consumes the challenge and records a session-bound unlock. It
-// applies exponential backoff after repeated failures.
-func (g *Grants) Verify(action, sessionID, nonce, proof string) error {
+// ChallengePasskey issues a fresh single-use WebAuthn challenge bound to (action,
+// sessionID) and returns the allowCredentials + rpId for the browser's
+// navigator.credentials.get().
+func (g *Grants) ChallengePasskey(action, sessionID string) (*PasskeyChallengeResult, error) {
 	cfg, err := Load()
-	if err != nil {
+	if err != nil || !cfg.HasCredentials() {
+		return nil, ErrNotConfigured
+	}
+	nonceBytes := make([]byte, nonceSize)
+	if _, err := io.ReadFull(rand.Reader, nonceBytes); err != nil {
+		return nil, err
+	}
+	// WebAuthn challenges are base64url (no padding); the browser echoes this
+	// exact string in clientDataJSON.challenge.
+	challenge := base64.RawURLEncoding.EncodeToString(nonceBytes)
+	allow := make([]PasskeyAllowCredential, 0, len(cfg.Credentials))
+	for _, c := range cfg.Credentials {
+		allow = append(allow, PasskeyAllowCredential{ID: c.ID, Type: "public-key"})
+	}
+	rpID := cfg.Credentials[0].RPID
+	exp := time.Now().Add(nonceTTL)
+
+	g.mu.Lock()
+	g.pruneLocked()
+	g.pending[sessionID] = pending{nonce: challenge, action: action, method: methodPasskey, exp: exp}
+	g.mu.Unlock()
+
+	return &PasskeyChallengeResult{
+		Challenge:        challenge,
+		RPID:             rpID,
+		AllowCredentials: allow,
+		UserVerification: "required",
+		ExpiresAt:        exp,
+	}, nil
+}
+
+// verifyOOBLocked checks the supplied out-of-band code against the enrolled TOTP
+// secret. When no OOB secret is enrolled it always passes (OOB is auxiliary). On
+// success it advances the single-use counter so the same code cannot be replayed
+// within its window. Caller must hold g.mu.
+func (g *Grants) verifyOOBLocked(cfg *Config, supplied string) bool {
+	if !cfg.HasOOB() {
+		return true
+	}
+	counter, ok := verifyTOTP(cfg.OOB.Secret, supplied, time.Now())
+	if !ok {
+		return false
+	}
+	if g.lastOOBCounter != 0 && counter <= g.lastOOBCounter {
+		return false // replayed code (already used this period or an older one)
+	}
+	g.lastOOBCounter = counter
+	return true
+}
+
+// Verify checks a browser-supplied passphrase proof and the out-of-band code
+// against an outstanding challenge. On success it consumes the challenge and
+// records a session-bound unlock. It applies exponential backoff after repeated
+// failures.
+func (g *Grants) Verify(action, sessionID, nonce, proof, oobCode string) error {
+	cfg, err := Load()
+	if err != nil || !cfg.HasPassphrase() {
 		return ErrNotConfigured
 	}
 	key, err := cfg.derivedKey()
@@ -143,9 +243,13 @@ func (g *Grants) Verify(action, sessionID, nonce, proof string) error {
 	}
 
 	p, ok := g.pending[sessionID]
-	if !ok || time.Now().After(p.exp) || p.nonce != nonce || p.action != action {
+	if !ok || p.method != methodPassphrase || time.Now().After(p.exp) || p.nonce != nonce || p.action != action {
 		g.recordFailureLocked()
 		return ErrNoChallenge
+	}
+	if !g.verifyOOBLocked(cfg, oobCode) {
+		g.recordFailureLocked()
+		return ErrBadOOBCode
 	}
 
 	expected := computeProof(key, nonce, action, sessionID)
@@ -155,12 +259,120 @@ func (g *Grants) Verify(action, sessionID, nonce, proof string) error {
 		return ErrBadProof
 	}
 
-	// Success: consume the challenge, record the unlock, reset backoff.
+	g.grantLocked(sessionID, action)
+	return nil
+}
+
+// VerifyPasskey checks a browser-supplied WebAuthn assertion and the out-of-band
+// code against an outstanding passkey challenge. The assertion is verified
+// against each enrolled credential's pinned public key, rpId, and origin; on
+// success the credential's signature counter is persisted and a session-bound
+// unlock is recorded.
+func (g *Grants) VerifyPasskey(action, sessionID, assertionJSON, oobCode string) error {
+	cfg, err := Load()
+	if err != nil || !cfg.HasCredentials() {
+		return ErrNotConfigured
+	}
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if !g.lockedUntil.IsZero() && time.Now().Before(g.lockedUntil) {
+		return ErrLockedOut
+	}
+
+	p, ok := g.pending[sessionID]
+	if !ok || p.method != methodPasskey || time.Now().After(p.exp) || p.action != action {
+		g.recordFailureLocked()
+		return ErrNoChallenge
+	}
+	if !g.verifyOOBLocked(cfg, oobCode) {
+		g.recordFailureLocked()
+		return ErrBadOOBCode
+	}
+
+	for _, c := range cfg.Credentials {
+		pub, decErr := base64.StdEncoding.DecodeString(c.PublicKey)
+		if decErr != nil {
+			continue
+		}
+		newCount, vErr := VerifyAssertion([]byte(assertionJSON), p.nonce, c.RPID, []string{c.Origin}, pub, c.SignCount)
+		if vErr != nil {
+			continue
+		}
+		// Persist the anti-clone counter best-effort; do not fail the unlock if
+		// the write fails (the in-memory grant still gates this session).
+		_ = UpdateSignCount(c.ID, newCount)
+		g.grantLocked(sessionID, action)
+		return nil
+	}
+
+	g.recordFailureLocked()
+	return ErrBadAssertion
+}
+
+// grantLocked consumes the pending challenge and records a session-bound unlock,
+// resetting backoff. Caller must hold g.mu.
+func (g *Grants) grantLocked(sessionID, action string) {
 	delete(g.pending, sessionID)
 	g.grants[sessionID] = grant{action: action, exp: time.Now().Add(g.grantTTL)}
 	g.failures = 0
 	g.lockedUntil = time.Time{}
-	return nil
+}
+
+// BeginEnroll starts a passkey registration ceremony: it returns a fresh
+// base64url challenge and records the pending enrollment bound to (rpID, origin).
+// The caller must have already authorized enrollment (device-local token or a
+// passphrase unlock).
+func (g *Grants) BeginEnroll(sessionID, rpID, origin string) (string, error) {
+	if sessionID == "" || rpID == "" || origin == "" {
+		return "", errors.New("session_id, rp_id and origin are required")
+	}
+	nonceBytes := make([]byte, nonceSize)
+	if _, err := io.ReadFull(rand.Reader, nonceBytes); err != nil {
+		return "", err
+	}
+	challenge := base64.RawURLEncoding.EncodeToString(nonceBytes)
+	g.mu.Lock()
+	g.pruneEnrollLocked()
+	g.enrolls[sessionID] = pendingEnroll{challenge: challenge, rpID: rpID, origin: origin, exp: time.Now().Add(nonceTTL)}
+	g.mu.Unlock()
+	return challenge, nil
+}
+
+// FinishEnroll verifies a registration response against the pending enrollment
+// and stores the new credential. It consumes the pending enrollment.
+func (g *Grants) FinishEnroll(sessionID, responseJSON, label string) error {
+	g.mu.Lock()
+	pe, ok := g.enrolls[sessionID]
+	if ok {
+		delete(g.enrolls, sessionID)
+	}
+	g.mu.Unlock()
+	if !ok || time.Now().After(pe.exp) {
+		return ErrNoChallenge
+	}
+	res, err := VerifyRegistration([]byte(responseJSON), pe.challenge, pe.rpID, []string{pe.origin})
+	if err != nil {
+		return err
+	}
+	return AddCredential(PasskeyCredential{
+		ID:        base64.RawURLEncoding.EncodeToString(res.CredentialID),
+		PublicKey: base64.StdEncoding.EncodeToString(res.PublicKey),
+		RPID:      pe.rpID,
+		Origin:    pe.origin,
+		SignCount: res.SignCount,
+		Label:     label,
+	})
+}
+
+func (g *Grants) pruneEnrollLocked() {
+	now := time.Now()
+	for k, e := range g.enrolls {
+		if now.After(e.exp) {
+			delete(g.enrolls, k)
+		}
+	}
 }
 
 // Consume reports whether a valid, unexpired, session-bound unlock exists for

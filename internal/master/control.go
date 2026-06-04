@@ -12,14 +12,31 @@ import (
 
 	"beacon/internal/audit"
 	"beacon/internal/identity"
+	"beacon/internal/remoteaccess"
 
 	"github.com/gorilla/websocket"
 )
 
 const (
-	actionRemoteAccessChallenge = "remote_access_challenge"
-	actionRemoteAccessUnlock    = "remote_access_unlock"
+	actionRemoteAccessChallenge        = "remote_access_challenge"
+	actionRemoteAccessUnlock           = "remote_access_unlock"
+	actionRemoteAccessPasskeyChallenge = "remote_access_passkey_challenge"
+	actionRemoteAccessPasskeyUnlock    = "remote_access_passkey_unlock"
+	actionRemoteAccessEnrollBegin      = "remote_access_enroll_begin"
+	actionRemoteAccessEnrollFinish     = "remote_access_enroll_finish"
 )
+
+// isRemoteAccessControlAction reports whether an action is handled inline on the
+// control socket (challenge/unlock/enroll) rather than dispatched as a command.
+func isRemoteAccessControlAction(action string) bool {
+	switch action {
+	case actionRemoteAccessChallenge, actionRemoteAccessUnlock,
+		actionRemoteAccessPasskeyChallenge, actionRemoteAccessPasskeyUnlock,
+		actionRemoteAccessEnrollBegin, actionRemoteAccessEnrollFinish:
+		return true
+	}
+	return false
+}
 
 // controlReply is an agent→cloud reply frame sent on the control socket,
 // correlated to a request via ReplyTo. The cloud relays Data to the browser.
@@ -155,7 +172,7 @@ func runAgentControl(ctx context.Context, base, apiKey, deviceName, deviceID str
 		}
 		// Remote-access challenge/unlock are handled inline and answered on this
 		// same socket — they are NOT remote commands and must not be dispatched.
-		if action == actionRemoteAccessChallenge || action == actionRemoteAccessUnlock {
+		if isRemoteAccessControlAction(action) {
 			handleRemoteAccessControl(conn, &writeMu, dispatcher, cmd)
 			continue
 		}
@@ -212,7 +229,8 @@ func handleRemoteAccessControl(conn *websocket.Conn, writeMu *sync.Mutex, dispat
 		}
 		nonce, _ := cmd.Payload["nonce"].(string)
 		proof, _ := cmd.Payload["proof"].(string)
-		err := grants.Verify(boundAction, sid, strings.TrimSpace(nonce), strings.TrimSpace(proof))
+		oob, _ := cmd.Payload["oob_code"].(string)
+		err := grants.Verify(boundAction, sid, strings.TrimSpace(nonce), strings.TrimSpace(proof), strings.TrimSpace(oob))
 		if err != nil {
 			reply.Error = err.Error()
 			dispatcher.auditCmd(audit.Event{
@@ -224,7 +242,106 @@ func handleRemoteAccessControl(conn *websocket.Conn, writeMu *sync.Mutex, dispat
 		reply.OK = true
 		dispatcher.auditCmd(audit.Event{
 			Action: actionRemoteAccessUnlock, Source: "control_ws", Status: "executed",
-			CommandID: cmd.ID, Detail: "remote-access unlocked for session",
+			CommandID: cmd.ID, Detail: "remote-access unlocked for session (passphrase)",
+		})
+
+	case actionRemoteAccessPasskeyChallenge:
+		if sid == "" {
+			reply.Error = "session_id required"
+			break
+		}
+		boundAction, _ := cmd.Payload["bind_action"].(string)
+		boundAction = strings.TrimSpace(boundAction)
+		if boundAction == "" {
+			boundAction = actionTerminalOpen
+		}
+		ch, err := grants.ChallengePasskey(boundAction, sid)
+		if err != nil {
+			reply.Error = err.Error()
+			break
+		}
+		reply.OK = true
+		reply.Data = map[string]any{
+			"challenge":        ch.Challenge,
+			"rpId":             ch.RPID,
+			"allowCredentials": ch.AllowCredentials,
+			"userVerification": ch.UserVerification,
+			"action":           boundAction,
+			"expires_at":       ch.ExpiresAt,
+		}
+		dispatcher.auditCmd(audit.Event{
+			Action: actionRemoteAccessPasskeyChallenge, Source: "control_ws", Status: "received",
+			CommandID: cmd.ID, Detail: "passkey challenge issued",
+		})
+
+	case actionRemoteAccessPasskeyUnlock:
+		boundAction, _ := cmd.Payload["action"].(string)
+		boundAction = strings.TrimSpace(boundAction)
+		if boundAction == "" {
+			boundAction = actionTerminalOpen
+		}
+		assertion, _ := cmd.Payload["assertion"].(string)
+		oob, _ := cmd.Payload["oob_code"].(string)
+		err := grants.VerifyPasskey(boundAction, sid, assertion, strings.TrimSpace(oob))
+		if err != nil {
+			reply.Error = err.Error()
+			dispatcher.auditCmd(audit.Event{
+				Action: actionRemoteAccessPasskeyUnlock, Source: "control_ws", Status: "failed",
+				CommandID: cmd.ID, Detail: err.Error(),
+			})
+			break
+		}
+		reply.OK = true
+		dispatcher.auditCmd(audit.Event{
+			Action: actionRemoteAccessPasskeyUnlock, Source: "control_ws", Status: "executed",
+			CommandID: cmd.ID, Detail: "remote-access unlocked for session (passkey)",
+		})
+
+	case actionRemoteAccessEnrollBegin:
+		if sid == "" {
+			reply.Error = "session_id required"
+			break
+		}
+		// Authorize enrollment: a device-local one-time code, or a passphrase
+		// that is already configured and verified out of band by the operator.
+		enrollCode, _ := cmd.Payload["enroll_code"].(string)
+		if !remoteaccess.ConsumeEnrollToken(strings.TrimSpace(enrollCode)) {
+			reply.Error = "enrollment not authorized (run: beacon remote-access add-passkey)"
+			dispatcher.auditCmd(audit.Event{
+				Action: actionRemoteAccessEnrollBegin, Source: "control_ws", Status: "denied",
+				CommandID: cmd.ID, Detail: "invalid or missing enrollment code",
+			})
+			break
+		}
+		rpID, _ := cmd.Payload["rp_id"].(string)
+		origin, _ := cmd.Payload["origin"].(string)
+		challenge, err := grants.BeginEnroll(sid, strings.TrimSpace(rpID), strings.TrimSpace(origin))
+		if err != nil {
+			reply.Error = err.Error()
+			break
+		}
+		reply.OK = true
+		reply.Data = map[string]any{"challenge": challenge, "rpId": strings.TrimSpace(rpID)}
+		dispatcher.auditCmd(audit.Event{
+			Action: actionRemoteAccessEnrollBegin, Source: "control_ws", Status: "received",
+			CommandID: cmd.ID, Detail: "passkey enrollment authorized",
+		})
+
+	case actionRemoteAccessEnrollFinish:
+		response, _ := cmd.Payload["response"].(string)
+		label, _ := cmd.Payload["label"].(string)
+		if err := grants.FinishEnroll(sid, response, strings.TrimSpace(label)); err != nil {
+			reply.Error = err.Error()
+			dispatcher.auditCmd(audit.Event{
+				Action: actionRemoteAccessEnrollFinish, Source: "control_ws", Status: "failed",
+				CommandID: cmd.ID, Detail: err.Error(),
+			})
+			break
+		}
+		reply.OK = true
+		dispatcher.auditCmd(audit.Event{
+			Action: actionRemoteAccessEnrollFinish, Source: "control_ws", Status: "executed",
+			CommandID: cmd.ID, Detail: "passkey enrolled",
 		})
 	}
 

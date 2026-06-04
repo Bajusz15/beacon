@@ -362,6 +362,11 @@ func (sm *ServiceManager) StartMasterService() error {
 	return sm.systemctlStartStop(masterServiceFile, true)
 }
 
+// RestartMasterService restarts beacon-master.service.
+func (sm *ServiceManager) RestartMasterService() error {
+	return sm.systemctlRestart(masterServiceFile)
+}
+
 // RemoveMasterService removes the master unit file.
 func (sm *ServiceManager) RemoveMasterService() error {
 	path := sm.masterServiceUnitPath()
@@ -401,6 +406,19 @@ func (sm *ServiceManager) systemctlStartStop(unit string, start bool) error {
 	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("systemctl %s %s: %w", action, unit, err)
+	}
+	return nil
+}
+
+func (sm *ServiceManager) systemctlRestart(unit string) error {
+	var cmd *exec.Cmd
+	if sm.serviceType == UserService {
+		cmd = exec.Command("systemctl", "--user", "restart", unit)
+	} else {
+		cmd = exec.Command("systemctl", "restart", unit)
+	}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("systemctl restart %s: %w", unit, err)
 	}
 	return nil
 }

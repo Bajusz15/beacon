@@ -20,6 +20,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"beacon/internal/config"
@@ -52,14 +53,53 @@ func DefaultParams() Argon2Params {
 	return Argon2Params{Time: 3, Memory: 64 * 1024, Threads: 4, KeyLen: keyLen}
 }
 
-// Config is the on-disk passphrase material. The passphrase itself is never
-// stored — only the derived Argon2id key, the salt, and the cost parameters.
+// Config is the on-disk remote-access material. It can hold a passphrase factor
+// (the derived Argon2id key + salt + params — the passphrase itself is never
+// stored) and/or one or more passkey credentials (only the PUBLIC key is stored,
+// which is strictly safer than a brute-forceable hash). Either factor satisfies
+// the gate; passkeys are preferred and passphrase is the fallback/recovery path.
 type Config struct {
-	Argon2id  string       `json:"argon2id"` // base64 of the derived key
-	Salt      string       `json:"salt"`     // base64 of the salt
-	Params    Argon2Params `json:"params"`
-	UpdatedAt string       `json:"updated_at"`
+	// Passphrase fallback (optional). Empty when no passphrase is set.
+	Argon2id string       `json:"argon2id,omitempty"` // base64 of the derived key
+	Salt     string       `json:"salt,omitempty"`     // base64 of the salt
+	Params   Argon2Params `json:"params,omitempty"`
+	// Passkeys (preferred). Empty when none are enrolled.
+	Credentials []PasskeyCredential `json:"credentials,omitempty"`
+	// OOB holds the out-of-band TOTP factor (a secret scanned into the user's
+	// authenticator app). When nil, no out-of-band code is required.
+	OOB       *OOBConfig `json:"oob,omitempty"`
+	UpdatedAt string     `json:"updated_at"`
 }
+
+// PasskeyCredential is a stored WebAuthn credential. Only public material is
+// kept: the agent verifies assertions against PublicKey and pins RPID/Origin to
+// the values captured at enrollment so a malicious relay cannot present an
+// assertion from a different origin.
+type PasskeyCredential struct {
+	ID        string `json:"id"`         // credential ID, base64url (no padding)
+	PublicKey string `json:"public_key"` // COSE public key, base64 std
+	RPID      string `json:"rp_id"`      // e.g. "beaconinfra.dev"
+	Origin    string `json:"origin"`     // e.g. "https://beaconinfra.dev"
+	SignCount uint32 `json:"sign_count"` // anti-clone counter, monotonic
+	Label     string `json:"label,omitempty"`
+	AddedAt   string `json:"added_at"`
+}
+
+// OOBConfig holds the out-of-band TOTP factor. Secret is the base32 TOTP secret
+// the user scanned into their authenticator app; the agent verifies codes against
+// it locally. The cloud never sees it.
+type OOBConfig struct {
+	Secret string `json:"secret,omitempty"`
+}
+
+// HasPassphrase reports whether a passphrase fallback is configured.
+func (c *Config) HasPassphrase() bool { return c.Argon2id != "" && c.Salt != "" }
+
+// HasCredentials reports whether at least one passkey is enrolled.
+func (c *Config) HasCredentials() bool { return len(c.Credentials) > 0 }
+
+// HasOOB reports whether an out-of-band TOTP secret is enrolled.
+func (c *Config) HasOOB() bool { return c.OOB != nil && c.OOB.Secret != "" }
 
 // derivedKey returns the raw Argon2id key bytes stored in the config.
 func (c *Config) derivedKey() ([]byte, error) {
@@ -100,15 +140,55 @@ func Load() (*Config, error) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, fmt.Errorf("parse remote-access config: %w", err)
 	}
-	if c.Argon2id == "" || c.Salt == "" {
-		return nil, fmt.Errorf("remote-access config is incomplete")
+	if !c.HasPassphrase() && !c.HasCredentials() {
+		return nil, fmt.Errorf("remote-access config has no passphrase or passkey")
 	}
 	return &c, nil
 }
 
+// loadOrNew returns the existing config, or an empty one when none is configured.
+func loadOrNew() (*Config, error) {
+	c, err := Load()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &Config{}, nil
+		}
+		// A config that exists but has neither factor is treated as empty so
+		// callers can repopulate it rather than failing.
+		if strings.Contains(err.Error(), "no passphrase or passkey") {
+			return &Config{}, nil
+		}
+		return nil, err
+	}
+	return c, nil
+}
+
+// save writes the config atomically, or removes the file when neither factor
+// remains so the gate is fully disabled (IsConfigured -> false).
+func save(c *Config) error {
+	path, err := storePath()
+	if err != nil {
+		return err
+	}
+	if !c.HasPassphrase() && !c.HasCredentials() {
+		if rmErr := os.Remove(path); rmErr != nil && !os.IsNotExist(rmErr) {
+			return rmErr
+		}
+		return nil
+	}
+	c.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), storeDirMode); err != nil {
+		return err
+	}
+	return writeFileAtomic(path, data, storeFileMode)
+}
+
 // SetPassphrase derives an Argon2id key from the passphrase with a fresh salt
-// and writes it to ~/.beacon/remote-access.json (mode 0600), replacing any
-// existing passphrase.
+// and stores it, preserving any enrolled passkeys.
 func SetPassphrase(passphrase string) error {
 	if len(passphrase) < 8 {
 		return fmt.Errorf("passphrase must be at least 8 characters")
@@ -120,28 +200,133 @@ func SetPassphrase(passphrase string) error {
 	params := DefaultParams()
 	key := deriveKey(passphrase, salt, params)
 
-	cfg := Config{
-		Argon2id:  base64.StdEncoding.EncodeToString(key),
-		Salt:      base64.StdEncoding.EncodeToString(salt),
-		Params:    params,
-		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
-	}
-	data, err := json.MarshalIndent(&cfg, "", "  ")
+	cfg, err := loadOrNew()
 	if err != nil {
 		return err
 	}
-	path, err := storePath()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), storeDirMode); err != nil {
-		return err
-	}
-	return writeFileAtomic(path, data, storeFileMode)
+	cfg.Argon2id = base64.StdEncoding.EncodeToString(key)
+	cfg.Salt = base64.StdEncoding.EncodeToString(salt)
+	cfg.Params = params
+	return save(cfg)
 }
 
-// Clear removes the passphrase, disabling remote-access gating. This is the
-// local recovery path for a forgotten passphrase (requires local shell access).
+// ClearPassphrase removes only the passphrase factor, leaving passkeys intact.
+// When no passkey remains, the gate is fully disabled (the file is removed).
+func ClearPassphrase() error {
+	cfg, err := loadOrNew()
+	if err != nil {
+		return err
+	}
+	cfg.Argon2id = ""
+	cfg.Salt = ""
+	cfg.Params = Argon2Params{}
+	return save(cfg)
+}
+
+// AddCredential enrolls a passkey, preserving the passphrase and other passkeys.
+// A credential with the same ID replaces the existing one.
+func AddCredential(cred PasskeyCredential) error {
+	if cred.ID == "" || cred.PublicKey == "" {
+		return fmt.Errorf("credential id and public key are required")
+	}
+	cfg, err := loadOrNew()
+	if err != nil {
+		return err
+	}
+	cred.AddedAt = time.Now().UTC().Format(time.RFC3339)
+	replaced := false
+	for i := range cfg.Credentials {
+		if cfg.Credentials[i].ID == cred.ID {
+			cfg.Credentials[i] = cred
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		cfg.Credentials = append(cfg.Credentials, cred)
+	}
+	return save(cfg)
+}
+
+// ListCredentials returns the enrolled passkeys (empty when none).
+func ListCredentials() ([]PasskeyCredential, error) {
+	cfg, err := loadOrNew()
+	if err != nil {
+		return nil, err
+	}
+	return cfg.Credentials, nil
+}
+
+// RemoveCredential deletes a passkey by credential ID or label. When the last
+// factor is removed the gate is disabled.
+func RemoveCredential(idOrLabel string) error {
+	cfg, err := loadOrNew()
+	if err != nil {
+		return err
+	}
+	kept := cfg.Credentials[:0]
+	removed := false
+	for _, c := range cfg.Credentials {
+		if c.ID == idOrLabel || (c.Label != "" && c.Label == idOrLabel) {
+			removed = true
+			continue
+		}
+		kept = append(kept, c)
+	}
+	if !removed {
+		return fmt.Errorf("no passkey matching %q", idOrLabel)
+	}
+	cfg.Credentials = kept
+	return save(cfg)
+}
+
+// SetOOB enrolls the out-of-band TOTP secret, preserving all other factors. OOB
+// is auxiliary hardening, so a primary factor (passphrase or passkey) must
+// already exist — otherwise there would be nothing for it to gate.
+func SetOOB(secret string) error {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return fmt.Errorf("totp secret is required")
+	}
+	cfg, err := loadOrNew()
+	if err != nil {
+		return err
+	}
+	if !cfg.HasPassphrase() && !cfg.HasCredentials() {
+		return fmt.Errorf("set a passphrase or enroll a passkey before adding out-of-band verification")
+	}
+	cfg.OOB = &OOBConfig{Secret: secret}
+	return save(cfg)
+}
+
+// ClearOOB removes the out-of-band TOTP factor, leaving primary factors intact.
+func ClearOOB() error {
+	cfg, err := loadOrNew()
+	if err != nil {
+		return err
+	}
+	cfg.OOB = nil
+	return save(cfg)
+}
+
+// UpdateSignCount persists the post-verification signature counter for a
+// credential (anti-clone). It is best-effort and preserves all other state.
+func UpdateSignCount(credID string, signCount uint32) error {
+	cfg, err := loadOrNew()
+	if err != nil {
+		return err
+	}
+	for i := range cfg.Credentials {
+		if cfg.Credentials[i].ID == credID {
+			cfg.Credentials[i].SignCount = signCount
+			return save(cfg)
+		}
+	}
+	return nil
+}
+
+// Clear removes ALL remote-access material (passphrase and passkeys), disabling
+// the gate. Local recovery path; requires local shell access.
 func Clear() error {
 	path, err := storePath()
 	if err != nil {
