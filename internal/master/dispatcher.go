@@ -1,6 +1,7 @@
 package master
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"beacon/internal/identity"
 	"beacon/internal/ipc"
 	"beacon/internal/keys"
+	"beacon/internal/overseer"
 	"beacon/internal/remoteaccess"
 	"beacon/internal/terminal"
 	"beacon/internal/tunnel"
@@ -25,9 +27,16 @@ const (
 	actionVPNDisable       = "vpn_disable"
 	actionTerminalOpen     = "terminal_open"
 	actionUpdateCredential = "update_credential"
+	actionOverseerPower    = "overseer_power"
 
 	commandTTL = 1 * time.Hour
 )
+
+// overseerPowerActor performs guest power actions; satisfied by *overseer.Overseer and
+// swappable in tests.
+type overseerPowerActor interface {
+	PowerAction(ctx context.Context, vmid int, action string) error
+}
 
 // HeartbeatCommand represents a command received from the heartbeat response.
 type HeartbeatCommand struct {
@@ -63,6 +72,9 @@ type CommandDispatcher struct {
 	// commands so recordResult can enrich the audit trail with the outcome.
 	metaMu  sync.Mutex
 	cmdMeta map[string]cmdMeta
+
+	// overseerActor executes guest power actions on a Proxmox host (nil-safe).
+	overseerActor overseerPowerActor
 }
 
 // cmdMeta carries enough context about a dispatched command to audit its
@@ -82,6 +94,7 @@ func NewCommandDispatcher(pm *ProcessManager, tm *tunnel.TunnelManager) *Command
 		pendingResults: make([]CommandResultReport, 0),
 		seenCommands:   make(map[string]time.Time),
 		cmdMeta:        make(map[string]cmdMeta),
+		overseerActor:  overseer.New(),
 	}
 }
 
@@ -207,6 +220,10 @@ func (d *CommandDispatcher) DispatchCommandsWithSource(source string, commands [
 			d.dispatchUpdateCredential(cmd)
 			continue
 		}
+		if cmd.Action == actionOverseerPower {
+			d.dispatchOverseerPower(cmd)
+			continue
+		}
 		if isVPNAction(cmd.Action) {
 			d.dispatchVPNCommand(cmd)
 			continue
@@ -246,6 +263,30 @@ func (d *CommandDispatcher) DispatchCommandsWithSource(source string, commands [
 
 func isVPNAction(action string) bool {
 	return action == actionVPNEnable || action == actionVPNUse || action == actionVPNDisable
+}
+
+// dispatchOverseerPower runs a guest power action (start/stop/reboot/shutdown) on this
+// Proxmox host. The cloud authorizes the request (host owner) and carries {vmid, action}.
+func (d *CommandDispatcher) dispatchOverseerPower(cmd HeartbeatCommand) {
+	vmidF, _ := cmd.Payload["vmid"].(float64) // JSON numbers decode to float64
+	action, _ := cmd.Payload["action"].(string)
+	vmid := int(vmidF)
+	if vmid <= 0 || action == "" {
+		d.recordResult(cmd.ID, ipc.ResultFailed, "vmid and action are required")
+		return
+	}
+	if d.overseerActor == nil {
+		d.recordResult(cmd.ID, ipc.ResultFailed, "overseer not available on this host")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := d.overseerActor.PowerAction(ctx, vmid, action); err != nil {
+		d.recordResult(cmd.ID, ipc.ResultFailed, err.Error())
+		return
+	}
+	d.recordResult(cmd.ID, ipc.ResultSuccess, fmt.Sprintf("overseer %s vmid %d", action, vmid))
 }
 
 func (d *CommandDispatcher) dispatchVPNCommand(cmd HeartbeatCommand) {

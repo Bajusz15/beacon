@@ -197,6 +197,15 @@ in the foreground (useful for systemd, Docker, or debugging).`,
 		foreground, _ := cmd.Flags().GetBool("foreground")
 
 		if !foreground {
+			// Don't spawn a duplicate: if a master is already running, say so and stop.
+			if pid := master.RunningInstancePID(); pid > 0 {
+				fmt.Println()
+				fmt.Printf("  Beacon is already running (pid %d).\n", pid)
+				fmt.Println("  Use 'beacon restart' to restart it, or stop it first.")
+				fmt.Println()
+				return
+			}
+
 			// Re-exec ourselves with --foreground in a detached process
 			execPath, err := os.Executable()
 			if err != nil {
@@ -342,6 +351,7 @@ func main() {
 	rootCmd.AddCommand(createAuditCommand())
 	rootCmd.AddCommand(createRemoteAccessCommand())
 	rootCmd.AddCommand(createUpdateCommand())
+	rootCmd.AddCommand(createProxmoxCommand())
 
 	// If no subcommand is provided, show help (matches common CLI expectations).
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {
