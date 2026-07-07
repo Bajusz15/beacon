@@ -121,6 +121,39 @@ Then restart Home Assistant Core. Without this, the tunnel connects but HA can r
 
 ---
 
+## 🖥️ Proxmox — oversee the whole host
+
+Run Beacon **on a Proxmox VE host** and it becomes an *overseer*: it monitors the host and
+sees every VM and container the host runs — including the up/down state a crashed guest
+can't report for itself — through the host's own `pvesh`. In the dashboard you get one card
+per host with its guests nested underneath, live status, and **Start / Reboot / Shutdown**
+controls. It's the one vantage point that survives a guest falling over.
+
+**One-step install** — run on the Proxmox host, as root:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Bajusz15/beacon/main/scripts/proxmox-install.sh)"
+```
+
+The installer verifies it's a Proxmox host, installs the Beacon binary, asks for your
+BeaconInfra API key, registers the host, and starts a `beacon` systemd service. For an
+unattended install, prefix the command with `BEACON_API_KEY=usr_xxxxxxxx`.
+
+Then, on the host:
+
+```bash
+beacon proxmox list      # every VM/CT: VMID, name, type, status
+beacon proxmox status    # e.g. "3/4 guests running on this host."
+```
+
+The host now shows up in the BeaconInfra dashboard under **Devices** with its guests. Install
+Beacon inside a guest too (e.g. the Home Assistant add-on) and the dashboard offers to link
+that device under its host — so your whole box appears as one tree, with power controls on
+each guest. See
+[docs/proxmox-overseer-getting-started.md](./docs/proxmox-overseer-getting-started.md).
+
+---
+
 ## 🔑 Securing remote access
 
 Remote terminal and tunnel sessions are reached through the BeaconInfra relay. By
@@ -512,6 +545,7 @@ Projects are isolated: one crash doesn't affect others. The master auto-restarts
 | `beacon remote-access set-passphrase\|clear-passphrase\|status\|clear` | Device-verified passphrase (fallback), gate status, and reset |
 | `beacon vpn enable\|use\|disable\|status` | WireGuard VPN |
 | `beacon projects list\|add\|remove\|status` | Project management |
+| `beacon proxmox list\|status` | On a Proxmox host: list/oversee its VMs & containers (alias: `overseer`) |
 | `beacon alerts init\|test\|status` | Alert routing |
 | `beacon keys list\|add\|rotate\|delete` | Encrypted token store |
 | `beacon mcp serve` | MCP server for Cursor / Claude Desktop |
@@ -554,6 +588,7 @@ systemctl --user enable --now beacon.service
 - [docs/LOG_FORWARDING.md](./docs/LOG_FORWARDING.md) — log forwarding
 - [docs/KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md) — encrypted key store
 - [docs/MCP.md](./docs/MCP.md) — MCP server for editors
+- [docs/proxmox-overseer-getting-started.md](./docs/proxmox-overseer-getting-started.md) — Proxmox overseer: install & use
 - [examples/](./examples/) — bootstrap, monitor, alert configs
 
 ---
