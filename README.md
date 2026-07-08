@@ -149,8 +149,7 @@ beacon proxmox status    # e.g. "3/4 guests running on this host."
 The host now shows up in the BeaconInfra dashboard under **Devices** with its guests. Install
 Beacon inside a guest too (e.g. the Home Assistant add-on) and the dashboard offers to link
 that device under its host — so your whole box appears as one tree, with power controls on
-each guest. See
-[docs/proxmox-overseer-getting-started.md](./docs/proxmox-overseer-getting-started.md).
+each guest.
 
 ---
 
@@ -588,7 +587,6 @@ systemctl --user enable --now beacon.service
 - [docs/LOG_FORWARDING.md](./docs/LOG_FORWARDING.md) — log forwarding
 - [docs/KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md) — encrypted key store
 - [docs/MCP.md](./docs/MCP.md) — MCP server for editors
-- [docs/proxmox-overseer-getting-started.md](./docs/proxmox-overseer-getting-started.md) — Proxmox overseer: install & use
 - [examples/](./examples/) — bootstrap, monitor, alert configs
 
 ---
