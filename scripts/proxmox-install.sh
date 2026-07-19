@@ -28,7 +28,7 @@ trap 'on_error $LINENO' ERR
 
 GITHUB_REPO="Bajusz15/beacon"
 BIN_PATH="/usr/local/bin/beacon"
-SERVICE_PATH="/etc/systemd/system/beacon.service"
+SERVICE_PATH="/etc/systemd/system/beacon-master.service"
 
 header() {
   clear 2>/dev/null || true
@@ -120,9 +120,15 @@ cloud_login() {
 
 install_service() {
   msg_info "Installing systemd service"
+  # Clean up a service from an older installer (named beacon.service) so we don't end up
+  # running two masters.
+  if [[ -f /etc/systemd/system/beacon.service ]]; then
+    systemctl disable --now beacon.service >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/beacon.service
+  fi
   cat >"$SERVICE_PATH" <<EOF
 [Unit]
-Description=Beacon agent (Proxmox overseer)
+Description=Beacon master agent (Proxmox overseer)
 Documentation=https://beaconinfra.dev
 After=network-online.target pve-cluster.service
 Wants=network-online.target
@@ -140,8 +146,8 @@ NoNewPrivileges=false
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable --now beacon.service >/dev/null 2>&1
-  msg_ok "beacon.service enabled and started"
+  systemctl enable --now beacon-master.service >/dev/null 2>&1
+  msg_ok "beacon-master.service enabled and started"
 }
 
 verify_overseer() {
@@ -169,8 +175,9 @@ msg_ok "Beacon is installed and overseeing this Proxmox host."
 echo
 echo -e " ${BL}Next steps:${CL}"
 echo "   • This host now appears in your dashboard at https://beaconinfra.dev"
-echo "   • List its guests:        beacon overseer list"
-echo "   • Service status / logs:  systemctl status beacon  •  journalctl -u beacon -f"
+echo "   • List its guests:        beacon proxmox list"
+echo "   • Service status / logs:  systemctl status beacon-master  •  journalctl -u beacon-master -f"
+echo "   • Restart:                beacon restart master  •  systemctl restart beacon-master"
 echo "   • Install Beacon inside the VMs you want to reach into (terminal/tunnel):"
 echo "       curl -fsSL https://get.beaconinfra.dev | bash"
 echo "     then assign each VM under this host in the dashboard's Devices view."

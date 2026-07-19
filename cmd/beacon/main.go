@@ -104,13 +104,18 @@ Available services: master/start, deploy, monitor`,
 }
 
 var restartBeaconService = func(service string) error {
-	sm := systemd.NewServiceManager(systemd.UserService)
-	switch service {
-	case "master":
-		return sm.RestartMasterService()
-	default:
-		return sm.RestartService(service)
+	if service == "master" {
+		// Auto-detect how the master is installed (user vs system scope; canonical
+		// beacon-master.service or the legacy host-installer beacon.service) so restart
+		// works regardless of install method.
+		scope, unit, found := systemd.DetectMasterUnit()
+		if !found {
+			return fmt.Errorf("no Beacon master service is installed (looked for beacon-master.service and beacon.service). If you started it with `beacon start`, restart with `beacon start` instead")
+		}
+		return systemd.NewServiceManager(scope).RestartUnit(unit)
 	}
+	sm := systemd.NewServiceManager(systemd.UserService)
+	return sm.RestartService(service)
 }
 
 var wizardCmd = &cobra.Command{
@@ -352,6 +357,7 @@ func main() {
 	rootCmd.AddCommand(createRemoteAccessCommand())
 	rootCmd.AddCommand(createUpdateCommand())
 	rootCmd.AddCommand(createProxmoxCommand())
+	rootCmd.AddCommand(createLogsCommand())
 
 	// If no subcommand is provided, show help (matches common CLI expectations).
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {

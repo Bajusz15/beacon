@@ -305,6 +305,36 @@ func (sm *ServiceManager) masterServiceUnitPath() string {
 	return filepath.Join("/etc/systemd/system", masterServiceFile)
 }
 
+// legacyMasterServiceFile is the unit name older/host installers used before the canonical
+// beacon-master.service. DetectMasterUnit still finds it so `beacon restart` keeps working.
+const legacyMasterServiceFile = "beacon.service"
+
+// DetectMasterUnit locates an installed master unit and returns its scope and unit name.
+// It checks, in order: the per-user unit (`beacon bootstrap`), the system unit, and the
+// legacy system "beacon.service" name. found is false when none exist.
+func DetectMasterUnit() (ServiceType, string, bool) {
+	homeDir, _ := os.UserHomeDir()
+	for _, c := range []struct {
+		scope ServiceType
+		path  string
+		unit  string
+	}{
+		{UserService, filepath.Join(homeDir, ".config", "systemd", "user", masterServiceFile), masterServiceFile},
+		{SystemService, filepath.Join("/etc/systemd/system", masterServiceFile), masterServiceFile},
+		{SystemService, filepath.Join("/etc/systemd/system", legacyMasterServiceFile), legacyMasterServiceFile},
+	} {
+		if _, err := os.Stat(c.path); err == nil {
+			return c.scope, c.unit, true
+		}
+	}
+	return UserService, masterServiceFile, false
+}
+
+// RestartUnit restarts an arbitrary systemd unit in this manager's scope.
+func (sm *ServiceManager) RestartUnit(unit string) error {
+	return sm.systemctlRestart(unit)
+}
+
 // CreateMasterService installs a project-independent unit that runs `beacon start` (cloud reporting).
 func (sm *ServiceManager) CreateMasterService(execStart, workingDir string) error {
 	if strings.TrimSpace(execStart) == "" {
