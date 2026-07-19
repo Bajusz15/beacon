@@ -335,6 +335,25 @@ func (sm *ServiceManager) RestartUnit(unit string) error {
 	return sm.systemctlRestart(unit)
 }
 
+// StopUnit stops an arbitrary unit in this manager's scope.
+func (sm *ServiceManager) StopUnit(unit string) error {
+	return sm.systemctlStartStop(unit, false)
+}
+
+// DisableUnit disables an arbitrary unit in this manager's scope.
+func (sm *ServiceManager) DisableUnit(unit string) error {
+	return sm.systemctlEnableDisable(unit, false)
+}
+
+// UnitFilePath returns the on-disk path of a unit in this manager's scope.
+func (sm *ServiceManager) UnitFilePath(unit string) string {
+	if sm.serviceType == UserService {
+		homeDir, _ := os.UserHomeDir()
+		return filepath.Join(homeDir, ".config", "systemd", "user", unit)
+	}
+	return filepath.Join("/etc/systemd/system", unit)
+}
+
 // CreateMasterService installs a project-independent unit that runs `beacon start` (cloud reporting).
 func (sm *ServiceManager) CreateMasterService(execStart, workingDir string) error {
 	if strings.TrimSpace(execStart) == "" {
@@ -361,7 +380,8 @@ func (sm *ServiceManager) generateMasterServiceContent(execStart, workingDir str
 		wantedBy = "multi-user.target"
 	}
 	// systemd requires absolute paths; WorkingDirectory must exist for the user running the service.
-	// --foreground is required because beacon start daemonizes by default, but systemd manages the lifecycle.
+	// The caller provides the full ExecStart (e.g. "<beacon> start --foreground"); --foreground is
+	// required because beacon start daemonizes by default and systemd manages the lifecycle.
 	return fmt.Sprintf(`[Unit]
 Description=Beacon master agent (cloud health reporting, project-independent)
 After=network-online.target
@@ -369,7 +389,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%s --foreground
+ExecStart=%s
 WorkingDirectory=%s
 Environment=HOME=%s
 Restart=always

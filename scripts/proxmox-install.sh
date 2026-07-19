@@ -28,7 +28,6 @@ trap 'on_error $LINENO' ERR
 
 GITHUB_REPO="Bajusz15/beacon"
 BIN_PATH="/usr/local/bin/beacon"
-SERVICE_PATH="/etc/systemd/system/beacon-master.service"
 
 header() {
   clear 2>/dev/null || true
@@ -126,27 +125,8 @@ install_service() {
     systemctl disable --now beacon.service >/dev/null 2>&1 || true
     rm -f /etc/systemd/system/beacon.service
   fi
-  cat >"$SERVICE_PATH" <<EOF
-[Unit]
-Description=Beacon master agent (Proxmox overseer)
-Documentation=https://beaconinfra.dev
-After=network-online.target pve-cluster.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=root
-Environment=HOME=/root
-ExecStart=${BIN_PATH} master --foreground
-Restart=always
-RestartSec=5
-NoNewPrivileges=false
-
-[Install]
-WantedBy=multi-user.target
-EOF
-  systemctl daemon-reload
-  systemctl enable --now beacon-master.service >/dev/null 2>&1
+  # Beacon installs its own canonical unit (beacon-master.service, running as root here).
+  "$BIN_PATH" service install >/dev/null
   msg_ok "beacon-master.service enabled and started"
 }
 

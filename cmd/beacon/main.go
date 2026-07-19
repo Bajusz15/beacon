@@ -143,8 +143,9 @@ func init() {
 }
 
 var initAgentCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Write local machine config to ~/.beacon/config.yaml (no network)",
+	Use:    "init",
+	Hidden: true, // plumbing — the installer / `beacon service install` handles setup
+	Short:  "Write local machine config to ~/.beacon/config.yaml (no network)",
 	Long: `Creates or updates ~/.beacon/config.yaml with local settings only. No HTTP requests are made.
 
 Sets device_name (default: system hostname) and optional metrics port. New configs get cloud_reporting_enabled: false; existing configs keep their current value.
@@ -192,6 +193,7 @@ Environment: BEACON_DEVICE_NAME for default device name when --name is omitted.`
 var masterCmd = &cobra.Command{
 	Use:     "start",
 	Aliases: []string{"master"},
+	Hidden:  true, // plumbing — run via the service (`beacon service install`); use logs/restart/status to operate
 	Short:   "Start the master agent (detaches to background by default)",
 	Long: `Reads ~/.beacon/config.yaml, manages project agents and tunnel connections,
 serves a local dashboard, and sends heartbeats to BeaconInfra cloud.
@@ -260,8 +262,9 @@ in the foreground (useful for systemd, Docker, or debugging).`,
 }
 
 var monitorCmd = &cobra.Command{
-	Use:   "monitor [config-file]",
-	Short: "Run health checks and report results",
+	Use:    "monitor [config-file]",
+	Hidden: true, // plumbing — health checks run inside the master
+	Short:  "Run health checks and report results",
 	Long: `Monitor runs health checks based on configuration and reports results.
 
 You can specify a configuration file as an argument or using --config flag:
@@ -323,8 +326,9 @@ var childAgentCmd = &cobra.Command{
 }
 
 var deployCmd = &cobra.Command{
-	Use:   "deploy",
-	Short: "Run beacon in deployment mode (poll Git for new tags and deploy)",
+	Use:    "deploy",
+	Hidden: true, // advanced/plumbing — Git-tag deployment mode
+	Short:  "Run beacon in deployment mode (poll Git for new tags and deploy)",
 	Long: `Run beacon in deployment mode: polls Git repositories for new tags
 and automatically deploys them. Must be run explicitly: beacon deploy`,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -358,6 +362,7 @@ func main() {
 	rootCmd.AddCommand(createUpdateCommand())
 	rootCmd.AddCommand(createProxmoxCommand())
 	rootCmd.AddCommand(createLogsCommand())
+	rootCmd.AddCommand(createServiceCommand())
 
 	// If no subcommand is provided, show help (matches common CLI expectations).
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {

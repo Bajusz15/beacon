@@ -273,27 +273,21 @@ curl -fsSL https://raw.githubusercontent.com/Bajusz15/beacon/main/scripts/instal
 
 One static binary, no runtime dependencies. Builds for Linux (AMD64, ARM64, ARMv7) and macOS.
 
-### 2. Initialize
+### 2. Run it
 
 ```bash
-beacon init --name my-pi
+beacon service install
 ```
 
-Writes `~/.beacon/config.yaml` with your device name. No network calls, no account needed.
+Installs Beacon as a background service (systemd) that starts on boot and auto-restarts. The dashboard is at `http://localhost:9100`; system metrics and project health run locally, no account needed. Operate it with `beacon logs`, `beacon status`, and `beacon restart`.
 
-### 3. Start
+> Not on Linux/systemd (e.g. macOS)? Run `beacon start` to run it directly instead.
 
-```bash
-beacon start
-```
-
-Dashboard at `http://localhost:9100`. System metrics, project health, Prometheus endpoint — all running locally.
-
-### 4. (Optional) Connect to BeaconInfra
+### 3. (Optional) Connect to BeaconInfra
 
 ```bash
-beacon cloud login --api-key usr_xxxxxxxx
-beacon start   # restart to enable heartbeats + tunnels
+beacon cloud login --api-key bci_live_xxxxxxxx
+beacon restart
 ```
 
 The first heartbeat registers your device automatically. To disconnect: `beacon cloud logout`. Beacon makes zero outbound calls without an API key.
@@ -531,12 +525,12 @@ Projects are isolated: one crash doesn't affect others. The master auto-restarts
 
 | Command | Purpose |
 |---------|---------|
-| `beacon start` | Start Beacon (dashboard, projects, tunnels, heartbeats) |
-| `beacon status` | Terminal health view (`--json`, `--watch`, `--no-color`) |
-| `beacon init` | Write local config (`--name`, `--metrics-port`; no network) |
+| `beacon service install\|uninstall\|status` | Run Beacon as a background service (systemd) |
+| `beacon logs` | Show the agent logs (`-f` to follow) |
+| `beacon status` | Health view (`--json`, `--watch`, `--no-color`) |
+| `beacon restart` | Restart the agent |
 | `beacon cloud login` / `logout` | Enable/disable cloud |
 | `beacon bootstrap <name>` | Set up a project (interactive or `-f config.yml`) |
-| `beacon deploy` | Git/Docker tag polling loop |
 | `beacon secrets set\|get\|list\|export\|remove` | Local encrypted deploy secrets |
 | `beacon tunnel add\|list\|enable\|disable` | Reverse tunnels for remote access |
 | `beacon remote-access add-passkey\|list-passkeys\|remove-passkey` | Enroll/manage passkeys (preferred) that gate remote terminal/tunnel sessions |
@@ -555,28 +549,28 @@ Projects are isolated: one crash doesn't affect others. The master auto-restarts
 
 ## 🔧 Run as a service
 
-`beacon bootstrap` installs systemd services automatically. For manual setup:
+```bash
+beacon service install
+```
+
+Installs and starts a systemd service that runs the agent, starts on boot, and auto-restarts — a **system** service when run as root, otherwise a **per-user** service. Remove it with `beacon service uninstall`, check it with `beacon service status`.
+
+> On macOS or a host without systemd, run `beacon start` directly (macOS uses launchd).
+
+---
+
+## 🩺 Troubleshooting
 
 ```bash
-cat > ~/.config/systemd/user/beacon.service << 'EOF'
-[Unit]
-Description=Beacon Agent
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/beacon start
-Restart=on-failure
-RestartSec=30
-
-[Install]
-WantedBy=default.target
-EOF
-
-systemctl --user daemon-reload
-systemctl --user enable --now beacon.service
+beacon logs -f        # follow the agent logs (systemd journal, or ~/.beacon/master.log)
+beacon status         # master + project health
+beacon restart        # restart the agent
+beacon config show    # resolved paths, device identity, cloud_api_base, reporting on/off
 ```
+
+**Not sending to the cloud?** Run `beacon config show`: `cloud_reporting_enabled` must be `true` and `cloud_api_base` must point at your cloud. Then watch `beacon logs -f` for the heartbeat result (a `401` means a bad API key; a connection error usually means the wrong `cloud_api_base` or a firewall).
+
+The low-level `beacon start` / `init` / `monitor` commands still work for debugging; they're just hidden from `beacon --help` to keep the everyday surface small.
 
 ---
 
