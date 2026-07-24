@@ -110,13 +110,7 @@ func (o *Overseer) ListGuests(ctx context.Context) ([]Guest, error) {
 
 	guests := make([]Guest, 0, len(resources))
 	for _, r := range resources {
-		guests = append(guests, Guest{
-			VMID:   r.VMID,
-			Name:   r.Name,
-			Status: r.Status,
-			Node:   r.Node,
-			Type:   r.Type,
-		})
+		guests = append(guests, Guest(r))
 	}
 	sort.Slice(guests, func(i, j int) bool { return guests[i].VMID < guests[j].VMID })
 	return guests, nil

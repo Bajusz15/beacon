@@ -247,19 +247,7 @@ func Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Infof("Stopping")
-			if bm != nil {
-				bm.Stop()
-			}
-			if vm != nil {
-				vm.Stop()
-			}
-			if tm != nil {
-				tm.Shutdown()
-			}
-			if pm != nil {
-				pm.Shutdown()
-			}
+			beat.shutdown()
 			return
 		case <-ticker.C:
 			beat.tryBeat()
@@ -412,6 +400,24 @@ type heartbeatLoop struct {
 	statusCache             *StatusCache
 	eventLog                *EventLog
 	lastSystemMetricsSentAt time.Time
+}
+
+// shutdown stops the managed subsystems in reverse dependency order. Safe to call with
+// nil managers (any subsystem that failed to initialize is simply skipped).
+func (h *heartbeatLoop) shutdown() {
+	logger.Infof("Stopping")
+	if h.bm != nil {
+		h.bm.Stop()
+	}
+	if h.vm != nil {
+		h.vm.Stop()
+	}
+	if h.tm != nil {
+		h.tm.Shutdown()
+	}
+	if h.pm != nil {
+		h.pm.Shutdown()
+	}
 }
 
 func (h *heartbeatLoop) tryBeat() {

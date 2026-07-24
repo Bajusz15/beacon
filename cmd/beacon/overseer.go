@@ -78,9 +78,11 @@ func runOverseerList(cmd *cobra.Command, _ []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "VMID\tNAME\tTYPE\tSTATUS")
+	_, err = fmt.Fprintln(w, "VMID\tNAME\tTYPE\tSTATUS")
+	util.LogError(err, "write overseer table header")
 	for _, g := range guests {
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", g.VMID, g.Name, g.Type, g.Status)
+		_, err = fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", g.VMID, g.Name, g.Type, g.Status)
+		util.LogError(err, "write overseer table row")
 	}
 	util.LogError(w.Flush(), "flush overseer table")
 	return nil
