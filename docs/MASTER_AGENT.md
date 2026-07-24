@@ -33,7 +33,7 @@ beacon init --name my-homelab-server
 ```bash
 beacon cloud login
 # or non-interactive:
-beacon cloud login --api-key "usr_your_api_key" --name my-homelab-server
+beacon cloud login --api-key "bci_live_your_api_key" --name my-homelab-server
 ```
 
 The API base URL is **compiled into the binary** and cannot be overridden at runtime (security: prevents attackers from redirecting heartbeats). Use **`beacon config show`** to see the baked-in URL. Self-hosted users must build from source with `-ldflags "-X beacon/internal/cloud.DefaultBeaconInfraAPIURL=..."`.

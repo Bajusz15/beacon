@@ -91,7 +91,7 @@ the CLI tunnel flow. Three commands, no port-forwarding, no Nabu Casa.
 
 ```bash
 # 1. Log in to BeaconInfra (free account)
-beacon cloud login --api-key usr_xxxxxxxx
+beacon cloud login --api-key bci_live_xxxxxxxx
 
 # 2. Expose Home Assistant
 beacon tunnel add homeassistant --port 8123
@@ -135,9 +135,10 @@ controls. It's the one vantage point that survives a guest falling over.
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Bajusz15/beacon/main/scripts/proxmox-install.sh)"
 ```
 
-The installer verifies it's a Proxmox host, installs the Beacon binary, asks for your
-BeaconInfra API key, registers the host, and starts a `beacon` systemd service. For an
-unattended install, prefix the command with `BEACON_API_KEY=usr_xxxxxxxx`.
+The installer verifies it's a Proxmox host, downloads the latest Beacon binary, asks for your
+BeaconInfra API key, registers the host, and starts the `beacon-master` systemd service. For an
+unattended install, prefix the command with `BEACON_API_KEY=bci_...` (optionally
+`BEACON_DEVICE_NAME="rack-pve-1"`).
 
 Then, on the host:
 
@@ -463,7 +464,7 @@ Everything here works without an internet connection and without signing up for 
 
 A free BeaconInfra account adds a hosted dashboard and remote access on top of everything above. Your device keeps running locally — the cloud just gives you somewhere to see it all from a browser, including from your phone.
 
-Turn it on with `beacon cloud login --api-key usr_…`. Turn it off any time with `beacon cloud logout`.
+Turn it on with `beacon cloud login --api-key bci_live_…`. Turn it off any time with `beacon cloud logout`.
 
 | You want to… | What you get |
 |---|---|
