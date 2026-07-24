@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -58,6 +59,11 @@ type heartbeatRequest struct {
 	CommandResults []CommandResultReport   `json:"command_results,omitempty"`
 	SystemMetrics  *heartbeatSystemMetrics `json:"system_metrics,omitempty"`
 	RemoteAccess   *remoteAccessReport     `json:"remote_access,omitempty"`
+	// Role is the device's fleet role. A Proxmox host that can oversee its guests
+	// self-declares "host"; ordinary devices omit it (the cloud treats absent as
+	// standalone/dashboard-managed).
+	Role     string          `json:"role,omitempty"`
+	Overseer *overseerReport `json:"overseer,omitempty"`
 }
 
 // remoteAccessReport advertises whether a remote-access passphrase is configured
@@ -139,6 +145,18 @@ func getOutboundIP() string {
 // Run blocks until ctx is canceled. Reads ~/.beacon/config.yaml (v2 identity).
 // Spawns child agents for configured projects and sends heartbeats to the cloud.
 func Run(ctx context.Context) {
+	// Single-instance guard: refuse to start a second master against the same BEACON_HOME.
+	// The flock is held for this process's lifetime and released automatically on exit.
+	if lock, err := AcquireInstanceLock(); err != nil {
+		var running ErrAlreadyRunning
+		if errors.As(err, &running) {
+			logger.Fatalf("Another beacon instance is already running (pid %d). Stop it or run 'beacon restart'.", running.PID)
+		}
+		logger.Infof("Instance lock unavailable: %v (continuing without it)", err)
+	} else {
+		defer lock.Release()
+	}
+
 	uc, err := identity.LoadUserConfig()
 	if err != nil {
 		logger.Infof("Failed to load config: %v", err)
@@ -229,19 +247,7 @@ func Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Infof("Stopping")
-			if bm != nil {
-				bm.Stop()
-			}
-			if vm != nil {
-				vm.Stop()
-			}
-			if tm != nil {
-				tm.Shutdown()
-			}
-			if pm != nil {
-				pm.Shutdown()
-			}
+			beat.shutdown()
 			return
 		case <-ticker.C:
 			beat.tryBeat()
@@ -396,6 +402,24 @@ type heartbeatLoop struct {
 	lastSystemMetricsSentAt time.Time
 }
 
+// shutdown stops the managed subsystems in reverse dependency order. Safe to call with
+// nil managers (any subsystem that failed to initialize is simply skipped).
+func (h *heartbeatLoop) shutdown() {
+	logger.Infof("Stopping")
+	if h.bm != nil {
+		h.bm.Stop()
+	}
+	if h.vm != nil {
+		h.vm.Stop()
+	}
+	if h.tm != nil {
+		h.tm.Shutdown()
+	}
+	if h.pm != nil {
+		h.pm.Shutdown()
+	}
+}
+
 func (h *heartbeatLoop) tryBeat() {
 	uc, err := identity.LoadUserConfig()
 	if err != nil {
@@ -495,6 +519,15 @@ func sendCloudHeartbeat(ctx context.Context, h *heartbeatLoop, cfg *identity.Use
 	if h != nil {
 		if sm, ok := buildSystemMetricsForCloud(cfg, h.lastSystemMetricsSentAt); ok {
 			payload.SystemMetrics = sm
+		}
+	}
+
+	// On a Proxmox host, advertise the overseer role and the guest inventory so the
+	// dashboard can render the host→guests tree and propose links.
+	if lister, ok := detectOverseer(); ok {
+		if rep, ok := buildOverseerReport(ctx, lister); ok {
+			payload.Role = "host"
+			payload.Overseer = rep
 		}
 	}
 

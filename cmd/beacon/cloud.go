@@ -23,8 +23,8 @@ The API base URL is baked into this binary at compile time (see "beacon config s
 
 Get an API key at https://beaconinfra.dev (Settings → API Keys).
 
-Non-interactive: beacon cloud login --api-key usr_...
-Or: BEACON_API_KEY=usr_... beacon cloud login`,
+Non-interactive: beacon cloud login --api-key bci_live_...
+Or: BEACON_API_KEY=bci_live_... beacon cloud login`,
 		Run: runCloudLogin,
 	}
 	loginCmd.Flags().String("api-key", "", "User API key (non-interactive); else BEACON_API_KEY")
@@ -77,8 +77,11 @@ func runCloudLogin(cmd *cobra.Command, args []string) {
 	if apiKey == "" {
 		logger.Fatalf("beacon cloud login: API key cannot be empty. Get one at https://beaconinfra.dev → API Keys")
 	}
-	if !strings.HasPrefix(apiKey, "usr_") {
-		logger.Fatalf("beacon cloud login: invalid API key format (expected usr_...). Get one at https://beaconinfra.dev → API Keys")
+	// BeaconInfra issues keys as bci_live_… (or bci_test_…); older keys use the usr_ prefix.
+	// Accept those; for anything else, warn but continue — the server validates the key, so
+	// the CLI must never hard-fail a good key just because it hasn't seen the prefix before.
+	if !strings.HasPrefix(apiKey, "bci_") && !strings.HasPrefix(apiKey, "usr_") {
+		logger.Warnf("beacon cloud login: this doesn't look like a BeaconInfra API key (expected bci_live_...); trying anyway")
 	}
 
 	name, _ := cmd.Flags().GetString("name")

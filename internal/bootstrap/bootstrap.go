@@ -509,7 +509,7 @@ func (bm *BootstrapManager) tryInstallMasterSystemd(skipSystemd bool) {
 		return
 	}
 	exe := resolveBeaconExecutable()
-	execLine := fmt.Sprintf("%s master --foreground", exe)
+	execLine := fmt.Sprintf("%s start --foreground", exe)
 	if err := bm.serviceManager.CreateMasterService(execLine, home); err != nil {
 		fmt.Printf("Warning: beacon-master.service: %v\n", err)
 		return

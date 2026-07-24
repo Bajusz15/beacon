@@ -19,7 +19,3 @@ Beacon can open a **browser-based shell** on the device, relayed through BeaconI
 ## Support
 
 - Implemented on **Unix** (`internal/terminal/run_unix.go`). Other OS builds return a clear error at runtime when the command runs.
-
-## Standard SSH over VPN
-
-If the machine is reachable on the VPN, normal `ssh` from a client is still a separate, optional path; the browser terminal does not depend on VPN.
