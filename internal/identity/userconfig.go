@@ -28,6 +28,7 @@ type UserConfig struct {
 	Tunnels               []TunnelConfig  `yaml:"tunnels,omitempty"`
 	VPN                   *VPNConfig      `yaml:"vpn,omitempty"`
 	Backup                *BackupConfig   `yaml:"backup,omitempty"`
+	Storage               *StorageConfig  `yaml:"storage,omitempty"`
 	AllowedRemoteCommands []string        `yaml:"allowed_remote_commands,omitempty"`
 	// SystemMetrics configures host metrics sent with cloud heartbeats (~/.beacon/config.yaml only).
 	// Per-project monitor.yml should not duplicate this; omit system_metrics there.
@@ -78,6 +79,21 @@ type BackupConfig struct {
 	PasswordFile string            `yaml:"password_file,omitempty"`
 	Retention    *RetentionPolicy  `yaml:"retention,omitempty"`
 	Env          map[string]string `yaml:"env,omitempty"`
+}
+
+// StorageConfig is the ~/.beacon/config.yaml block for read-only file shares.
+type StorageConfig struct {
+	Enabled bool                 `yaml:"enabled"`
+	Shares  []StorageShareConfig `yaml:"shares,omitempty"`
+}
+
+// StorageShareConfig defines one local filesystem root exposed by the storage gateway.
+type StorageShareConfig struct {
+	ID       string `yaml:"id"`
+	Name     string `yaml:"name,omitempty"`
+	Root     string `yaml:"root"`
+	ReadOnly *bool  `yaml:"read_only,omitempty"`
+	Enabled  *bool  `yaml:"enabled,omitempty"`
 }
 
 // RetentionPolicy controls restic forget --keep-* flags.

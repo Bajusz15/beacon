@@ -1,7 +1,12 @@
 .PHONY: release clean build version ci test lint vet vuln e2e e2e-mcp
 
-# Version information
-VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "$(shell date +%Y%m%d)-$(shell git rev-parse --short HEAD)")
+# Version information.
+# Note: `sed` masks git's exit status, so pipe describe's *output* into the fallback rather
+# than relying on `||`. This yields a real version when HEAD is on/after a tag, and an
+# obvious dev string (0.0.0-<sha>[-dirty]) otherwise — never a silently-empty version.
+# Run `git fetch --tags` before a release so describe can see the newest tag.
+_RAWVER := $(shell git describe --tags --dirty 2>/dev/null || echo "0.0.0-$(shell git rev-parse --short HEAD)")
+VERSION ?= $(patsubst v%,%,$(_RAWVER))
 COMMIT ?= $(shell git rev-parse --short HEAD)
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 BUILD_USER ?= $(shell git config user.email | sed 's/@.*//' | sed 's/[0-9]*+//' || echo "Unknown")

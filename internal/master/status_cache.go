@@ -208,6 +208,15 @@ func (sc *StatusCache) getBackupManager() *backup.Manager {
 	return sc.bm
 }
 
+func (sc *StatusCache) getStorageConfig() *identity.StorageConfig {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	if sc.cfg == nil {
+		return nil
+	}
+	return sc.cfg.Storage
+}
+
 // UpdateConfig updates the config reference on hot-reload.
 func (sc *StatusCache) UpdateConfig(cfg *identity.UserConfig) {
 	sc.mu.Lock()
