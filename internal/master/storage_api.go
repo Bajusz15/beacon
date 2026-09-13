@@ -102,6 +102,8 @@ func writeStorageError(w http.ResponseWriter, err error) {
 		util.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "storage path forbidden"})
 	case errors.Is(err, storage.ErrIsDirectory):
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "storage path is a directory"})
+	case errors.Is(err, storage.ErrNotDirectory):
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "storage path is not a directory"})
 	case errors.Is(err, os.ErrNotExist):
 		util.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "storage path not found"})
 	default:

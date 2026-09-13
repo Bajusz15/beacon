@@ -36,6 +36,8 @@ e2e:
 	docker compose -f tests/e2e/docker-compose.yml down -v --remove-orphans
 	docker compose -f tests/e2e/docker-compose.yml up --build --exit-code-from beacon-e2e-docker beacon-e2e-docker
 	docker compose -f tests/e2e/docker-compose.yml down -v --remove-orphans
+	docker compose -f tests/e2e/docker-compose.yml up --build --exit-code-from beacon-e2e-storage beacon-e2e-storage
+	docker compose -f tests/e2e/docker-compose.yml down -v --remove-orphans
 
 e2e-mcp:
 	bash tests/mcp/test.sh

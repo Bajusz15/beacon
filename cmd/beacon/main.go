@@ -357,6 +357,7 @@ func main() {
 	rootCmd.AddCommand(createTunnelCommand())
 	rootCmd.AddCommand(createVPNCommand())
 	rootCmd.AddCommand(createBackupCommand())
+	rootCmd.AddCommand(createStorageCommand())
 	rootCmd.AddCommand(createAuditCommand())
 	rootCmd.AddCommand(createRemoteAccessCommand())
 	rootCmd.AddCommand(createUpdateCommand())

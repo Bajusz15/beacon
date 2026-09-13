@@ -33,6 +33,56 @@ services:
       - ../../test-results:/app/test-results
     command: /app/test-docker.sh
 
+  beacon-e2e-storage:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile
+    container_name: beacon-e2e-storage-test
+    depends_on:
+      - nas-seed
+      - webdav-nas
+    environment:
+      - CI=true
+      - BEACON_E2E_TEST=1
+      - BEACON_E2E_NAS_ROOT=/mnt/nas/media
+      - BEACON_E2E_NAS_WEBDAV_URL=http://webdav-nas:8080
+    volumes:
+      - ../../test-results:/app/test-results
+      - nas-storage-data:/mnt/nas:ro
+    command: /app/test-storage.sh
+
+  nas-seed:
+    image: alpine:3.20
+    container_name: beacon-e2e-nas-seed
+    volumes:
+      - nas-storage-data:/nas
+    command:
+      - sh
+      - -c
+      - |
+        rm -rf /nas/*
+        mkdir -p /nas/media/docs /nas/media/videos
+        printf '0123456789' > /nas/media/clip.txt
+        printf 'hello from docker nas fixture\n' > /nas/media/docs/readme.txt
+        printf 'movie bytes\n' > /nas/media/videos/movie.txt
+        ln -sf /etc/passwd /nas/media/escape-host
+        touch /nas/.ready
+
+  webdav-nas:
+    image: rclone/rclone:latest
+    container_name: beacon-e2e-webdav-nas
+    depends_on:
+      - nas-seed
+    volumes:
+      - nas-storage-data:/nas:ro
+    command:
+      - serve
+      - webdav
+      - /nas/media
+      - --addr
+      - :8080
+      - --read-only
+
   docker-dind:
     image: docker:24-dind
     privileged: true
@@ -53,3 +103,4 @@ services:
 
 volumes:
   docker-dind-storage:
+  nas-storage-data:

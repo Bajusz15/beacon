@@ -20,6 +20,7 @@ var (
 	ErrShareNotFound = errors.New("storage share not found")
 	ErrForbidden     = errors.New("storage path forbidden")
 	ErrIsDirectory   = errors.New("storage path is a directory")
+	ErrNotDirectory  = errors.New("storage path is not a directory")
 )
 
 // Service exposes configured storage shares through path-safe filesystem operations.
@@ -103,7 +104,7 @@ func (s *Service) List(shareID, requestedPath string) (*ListResponse, error) {
 		return nil, err
 	}
 	if !rp.info.IsDir() {
-		return nil, ErrIsDirectory
+		return nil, ErrNotDirectory
 	}
 	entries, err := os.ReadDir(rp.real)
 	if err != nil {
