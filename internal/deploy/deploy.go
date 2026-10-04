@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"beacon/internal/state"
 	"beacon/internal/util"
 )
+
+var gitRefRe = regexp.MustCompile(`^[a-zA-Z0-9/_.\-]+$`)
 
 func CheckForNewTag(cfg *config.Config, status *state.Status) {
 	// Determine deployment type (default to "git" for backward compatibility)
@@ -177,13 +180,22 @@ func Deploy(cfg *config.Config, tag string, status *state.Status) error {
 // DeployBranch does a shallow clone of the given branch and runs the deploy command.
 // The stored status marker is the commit SHA so callers can tell exactly what was deployed.
 func DeployBranch(cfg *config.Config, branch string, status *state.Status) error {
+	return DeployRef(cfg, branch, status)
+}
+
+// DeployRef clones the configured repository, checks out a tag, branch, or commit SHA,
+// runs the deploy command, and stores the resolved commit SHA in status.
+func DeployRef(cfg *config.Config, ref string, status *state.Status) error {
+	if err := validateGitRef(ref); err != nil {
+		return err
+	}
 	gitToken, err := getGitToken(cfg)
 	if err != nil {
 		logger.Infof("Failed to get Git token: %v", err)
 	}
 	setupGitAuth(cfg, gitToken)
 
-	logger.Infof("Deploying branch %s...\n", branch)
+	logger.Infof("Deploying ref %s...\n", ref)
 
 	if err := os.RemoveAll(cfg.LocalPath); err != nil {
 		return fmt.Errorf("remove local path: %w", err)
@@ -196,7 +208,7 @@ func DeployBranch(cfg *config.Config, branch string, status *state.Status) error
 	repoURL := authenticatedRepoURL(cfg.RepoURL, gitToken)
 
 	var stderr strings.Builder
-	cloneCmd := exec.Command("git", "clone", "--branch", branch, "--depth", "1", repoURL, cfg.LocalPath)
+	cloneCmd := exec.Command("git", "clone", repoURL, cfg.LocalPath)
 	cloneCmd.Dir = parentDir
 	cloneCmd.Stderr = &stderr
 	if err := cloneCmd.Run(); err != nil {
@@ -207,14 +219,21 @@ func DeployBranch(cfg *config.Config, branch string, status *state.Status) error
 			_ = RecordCredentialError(stateBaseDir(), filepath.Base(cfg.LocalPath), authErr)
 			return authErr
 		}
-		return fmt.Errorf("git clone branch %s: %w", branch, err)
+		return fmt.Errorf("git clone for ref %s: %w", ref, err)
 	}
 	ClearCredentialErrors(stateBaseDir(), filepath.Base(cfg.LocalPath))
+
+	checkoutCmd := exec.Command("git", "-C", cfg.LocalPath, "checkout", "--detach", ref)
+	stderr.Reset()
+	checkoutCmd.Stderr = &stderr
+	if err := checkoutCmd.Run(); err != nil {
+		return fmt.Errorf("git checkout ref %s: %w: %s", ref, err, strings.TrimSpace(stderr.String()))
+	}
 
 	shaOut, _ := exec.Command("git", "-C", cfg.LocalPath, "rev-parse", "HEAD").Output()
 	commitSHA := strings.TrimSpace(string(shaOut))
 	if commitSHA == "" {
-		commitSHA = branch
+		commitSHA = ref
 	}
 
 	if cfg.DeployCommand != "" {
@@ -241,7 +260,24 @@ func DeployBranch(cfg *config.Config, branch string, status *state.Status) error
 		short = short[:7]
 	}
 	status.Set(commitSHA, time.Now())
-	logger.Infof("Branch %s deployed at %s\n", branch, short)
+	logger.Infof("Ref %s deployed at %s\n", ref, short)
+	return nil
+}
+
+func validateGitRef(ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return fmt.Errorf("git ref cannot be empty")
+	}
+	if len(ref) > 256 {
+		return fmt.Errorf("git ref too long")
+	}
+	if strings.HasPrefix(ref, "-") || strings.Contains(ref, "..") || strings.Contains(ref, "@{") {
+		return fmt.Errorf("git ref contains invalid syntax: %q", ref)
+	}
+	if !gitRefRe.MatchString(ref) {
+		return fmt.Errorf("git ref contains invalid characters: %q", ref)
+	}
 	return nil
 }
 

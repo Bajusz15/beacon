@@ -579,6 +579,7 @@ The low-level `beacon start` / `init` / `monitor` commands still work for debugg
 
 - [docs/MASTER_AGENT.md](./docs/MASTER_AGENT.md) — agent architecture and heartbeats
 - [docs/VPN.md](./docs/VPN.md) — WireGuard VPN setup and security model
+- [docs/NAS.md](./docs/NAS.md) — planned NAS file gateway architecture
 - [docs/LOG_FORWARDING.md](./docs/LOG_FORWARDING.md) — log forwarding
 - [docs/KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md) — encrypted key store
 - [docs/MCP.md](./docs/MCP.md) — MCP server for editors

@@ -28,6 +28,7 @@ type UserConfig struct {
 	Tunnels               []TunnelConfig  `yaml:"tunnels,omitempty"`
 	VPN                   *VPNConfig      `yaml:"vpn,omitempty"`
 	Backup                *BackupConfig   `yaml:"backup,omitempty"`
+	Storage               *StorageConfig  `yaml:"storage,omitempty"`
 	AllowedRemoteCommands []string        `yaml:"allowed_remote_commands,omitempty"`
 	// SystemMetrics configures host metrics sent with cloud heartbeats (~/.beacon/config.yaml only).
 	// Per-project monitor.yml should not duplicate this; omit system_metrics there.
@@ -78,6 +79,21 @@ type BackupConfig struct {
 	PasswordFile string            `yaml:"password_file,omitempty"`
 	Retention    *RetentionPolicy  `yaml:"retention,omitempty"`
 	Env          map[string]string `yaml:"env,omitempty"`
+}
+
+// StorageConfig is the ~/.beacon/config.yaml block for read-only file shares.
+type StorageConfig struct {
+	Enabled bool                 `yaml:"enabled"`
+	Shares  []StorageShareConfig `yaml:"shares,omitempty"`
+}
+
+// StorageShareConfig defines one local filesystem root exposed by the storage gateway.
+type StorageShareConfig struct {
+	ID       string `yaml:"id"`
+	Name     string `yaml:"name,omitempty"`
+	Root     string `yaml:"root"`
+	ReadOnly *bool  `yaml:"read_only,omitempty"`
+	Enabled  *bool  `yaml:"enabled,omitempty"`
 }
 
 // RetentionPolicy controls restic forget --keep-* flags.
@@ -351,6 +367,115 @@ func SetTunnelEnabled(tunnelID string, enabled bool) error {
 		}
 	}
 	return fmt.Errorf("tunnel %q not found", tunnelID)
+}
+
+// UpsertStorageShare adds or updates a read-only local filesystem share.
+func UpsertStorageShare(id, name, root string) error {
+	id = strings.TrimSpace(id)
+	name = strings.TrimSpace(name)
+	root = strings.TrimSpace(root)
+	if id == "" {
+		return errors.New("storage share id is required")
+	}
+	if root == "" {
+		return errors.New("storage share root is required")
+	}
+	abs, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		return fmt.Errorf("storage share root: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return fmt.Errorf("storage share root: %w", err)
+	}
+	if !info.IsDir() {
+		return errors.New("storage share root must be a directory")
+	}
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		f = &UserConfig{}
+	}
+	if f.Storage == nil {
+		f.Storage = &StorageConfig{}
+	}
+	f.Storage.Enabled = true
+	readOnly := true
+	enabled := true
+	share := StorageShareConfig{ID: id, Name: name, Root: abs, ReadOnly: &readOnly, Enabled: &enabled}
+	for i := range f.Storage.Shares {
+		if strings.TrimSpace(f.Storage.Shares[i].ID) == id {
+			f.Storage.Shares[i] = share
+			return saveUserConfig(p, f)
+		}
+	}
+	f.Storage.Shares = append(f.Storage.Shares, share)
+	return saveUserConfig(p, f)
+}
+
+// RemoveStorageShare removes a storage share from ~/.beacon/config.yaml.
+func RemoveStorageShare(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("storage share id is required")
+	}
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil || f.Storage == nil {
+		return nil
+	}
+	filtered := f.Storage.Shares[:0]
+	for _, share := range f.Storage.Shares {
+		if strings.TrimSpace(share.ID) != id {
+			filtered = append(filtered, share)
+		}
+	}
+	f.Storage.Shares = filtered
+	if len(f.Storage.Shares) == 0 {
+		f.Storage.Enabled = false
+	}
+	return saveUserConfig(p, f)
+}
+
+// SetStorageShareEnabled enables or disables a configured storage share.
+func SetStorageShareEnabled(id string, enabled bool) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("storage share id is required")
+	}
+	p, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	f, err := readExistingUserConfig(p)
+	if err != nil {
+		return err
+	}
+	if f == nil || f.Storage == nil {
+		return fmt.Errorf("storage share %q not found", id)
+	}
+	for i := range f.Storage.Shares {
+		if strings.TrimSpace(f.Storage.Shares[i].ID) == id {
+			f.Storage.Shares[i].Enabled = &enabled
+			if enabled {
+				f.Storage.Enabled = true
+			}
+			return saveUserConfig(p, f)
+		}
+	}
+	return fmt.Errorf("storage share %q not found", id)
 }
 
 // SetVPNExitNode marks this device as an exit node in ~/.beacon/config.yaml.

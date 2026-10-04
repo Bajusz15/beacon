@@ -358,6 +358,9 @@ func configLoadEnv(envPath string) error {
 }
 
 func deployProject(cfg *config.Config, tag string, st *state.Status) error {
+	if tag != "" {
+		return deploy.DeployRef(cfg, tag, st)
+	}
 	return deploy.Deploy(cfg, tag, st)
 }
 
