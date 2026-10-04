@@ -13,6 +13,7 @@ BUILD_USER ?= $(shell git config user.email | sed 's/@.*//' | sed 's/[0-9]*+//' 
 
 # Default BeaconInfra API base (include /api). Override for forks/self-hosted release builds.
 CLOUD_API_URL ?= https://beaconinfra.dev/api
+BUILD_OUTPUT ?= beacon
 
 # Build flags
 LDFLAGS = -ldflags "-s -w -X beacon/internal/version.Version=$(VERSION) -X beacon/internal/version.Commit=$(COMMIT) -X beacon/internal/version.BuildDate=$(BUILD_DATE) -X beacon/internal/version.BuildUser=$(BUILD_USER) -X beacon/internal/cloud.DefaultBeaconInfraAPIURL=$(CLOUD_API_URL)"
@@ -43,7 +44,7 @@ e2e-mcp:
 	bash tests/mcp/test.sh
 
 build:
-	go build $(LDFLAGS) -o beacon ./cmd/beacon
+	go build $(LDFLAGS) -o "$(BUILD_OUTPUT)" ./cmd/beacon
 
 version:
 	@echo "Version: $(VERSION)"

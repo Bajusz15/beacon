@@ -201,6 +201,28 @@ The script will:
 
 The shell suite (`tests/e2e/test-cli.sh`) starts a small Go mock HTTP server (`tests/e2e/mock-webhook`), runs `beacon alerts init` and `beacon alerts test` with `WEBHOOK_URL` set, and asserts `/tmp/beacon-e2e-webhook.log` contains the JSON fields `schema_version` and `project_id`. It also smoke-tests `beacon start`, `beacon status`, `beacon projects list`, `beacon keys list`, and `beacon alerts init --help`.
 
+## Proxmox Storage/NAS Self-Test
+
+The Docker storage E2E models a NAS with a WebDAV container and a read-only
+mount. To test the real Proxmox host path, run the on-host self-test against an
+already mounted NAS share:
+
+```bash
+# on your dev machine
+GOOS=linux GOARCH=amd64 go build -o beacon ./cmd/beacon
+scp beacon root@<pve-host>:/usr/local/bin/beacon
+scp scripts/proxmox-storage-selftest.sh root@<pve-host>:/root/
+
+# on the Proxmox host
+BEACON_NAS_ROOT=/mnt/pve/<mounted-share> bash /root/proxmox-storage-selftest.sh
+```
+
+The script verifies that it is running on a Proxmox host, creates one temporary
+fixture directory inside the mounted share, runs Beacon with a temporary
+`BEACON_HOME`, and checks share listing, metadata, Range downloads, traversal
+rejection, and symlink escape rejection. It removes only the temporary fixture it
+created.
+
 ## Future Improvements
 
 - [ ] Test systemd service creation and management
@@ -209,4 +231,3 @@ The shell suite (`tests/e2e/test-cli.sh`) starts a small Go mock HTTP server (`t
 - [ ] Test multiple projects
 - [ ] Performance/load testing
 - [ ] Test error recovery scenarios
-

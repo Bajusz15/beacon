@@ -69,11 +69,11 @@ type FileResponse struct {
 }
 
 type resolvedPath struct {
-	share identity.StorageShareConfig
-	root  string
-	rel   string
-	real  string
-	info  os.FileInfo
+	share   identity.StorageShareConfig
+	root    string
+	rel     string
+	rootRel string
+	info    os.FileInfo
 }
 
 // NewService constructs a storage service for the current config snapshot.
@@ -106,7 +106,17 @@ func (s *Service) List(shareID, requestedPath string) (*ListResponse, error) {
 	if !rp.info.IsDir() {
 		return nil, ErrNotDirectory
 	}
-	entries, err := os.ReadDir(rp.real)
+	root, err := os.OpenRoot(rp.root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	dir, err := root.Open(rp.rootRel)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }()
+	entries, err := dir.ReadDir(-1)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +159,12 @@ func (s *Service) Open(shareID, requestedPath string) (*FileResponse, error) {
 	if rp.info.IsDir() {
 		return nil, ErrIsDirectory
 	}
-	f, err := os.Open(rp.real)
+	root, err := os.OpenRoot(rp.root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	f, err := root.Open(rp.rootRel)
 	if err != nil {
 		return nil, err
 	}
@@ -191,14 +206,23 @@ func (s *Service) resolve(shareID, requestedPath string) (*resolvedPath, error) 
 	if !insideRoot(root, real) {
 		return nil, ErrForbidden
 	}
-	info, err := os.Stat(real)
+	rootRel, err := filepath.Rel(root, real)
+	if err != nil {
+		return nil, ErrForbidden
+	}
+	rootFS, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rootFS.Close() }()
+	info, err := rootFS.Stat(rootRel)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, os.ErrNotExist
 		}
 		return nil, err
 	}
-	return &resolvedPath{share: share, root: root, rel: rel, real: real, info: info}, nil
+	return &resolvedPath{share: share, root: root, rel: rel, rootRel: rootRel, info: info}, nil
 }
 
 func (s *Service) findShare(id string) (identity.StorageShareConfig, error) {

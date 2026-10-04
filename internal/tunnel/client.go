@@ -70,7 +70,6 @@ func (c *Client) Run(ctx context.Context) error {
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	// Start health writer
 	var healthWG sync.WaitGroup
@@ -79,7 +78,10 @@ func (c *Client) Run(ctx context.Context) error {
 		defer healthWG.Done()
 		c.healthLoop(runCtx)
 	}()
-	defer healthWG.Wait()
+	defer func() {
+		cancel()
+		healthWG.Wait()
+	}()
 
 	attempt := 0
 	for {

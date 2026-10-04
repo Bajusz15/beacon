@@ -464,6 +464,13 @@ func (h *heartbeatLoop) tryBeat() {
 		logger.Infof("Reload config: %v", err)
 		return
 	}
+	if h.statusCache != nil {
+		h.statusCache.UpdateConfig(uc)
+	}
+	if h.dispatcher != nil && uc != nil {
+		h.dispatcher.SetAllowedActions(uc.AllowedRemoteCommands)
+		h.dispatcher.CollectResults()
+	}
 	if uc == nil || !uc.CloudReportingEnabled {
 		return
 	}
@@ -474,10 +481,6 @@ func (h *heartbeatLoop) tryBeat() {
 	if name == "" {
 		name = getHostname()
 	}
-
-	h.statusCache.UpdateConfig(uc)
-	h.dispatcher.SetAllowedActions(uc.AllowedRemoteCommands)
-	h.dispatcher.CollectResults()
 
 	// Reconcile VPN state with the (possibly hot-reloaded) config. Reconcile is
 	// idempotent — a no-op if nothing changed — so it's cheap to call every tick.

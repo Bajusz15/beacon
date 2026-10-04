@@ -2,6 +2,7 @@ package master
 
 import (
 	"errors"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -86,6 +87,8 @@ func (s *StatusServer) handleAPIStorageShare(w http.ResponseWriter, r *http.Requ
 			w.Header().Set("Content-Type", resp.ContentType)
 		}
 		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": resp.Name}))
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		http.ServeContent(w, r, resp.Name, resp.ModTime, resp.File)
 	default:
 		http.NotFound(w, r)
