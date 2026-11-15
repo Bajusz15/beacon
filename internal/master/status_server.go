@@ -43,6 +43,8 @@ func (s *StatusServer) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/audit", s.handleAPIAudit)
 	mux.HandleFunc("/api/audit/verify", s.handleAPIAuditVerify)
 	mux.HandleFunc("/api/backup/run", s.handleBackupRun(ctx))
+	mux.HandleFunc("/api/storage/shares", s.handleAPIStorageShares)
+	mux.HandleFunc("/api/storage/shares/", s.handleAPIStorageShare)
 	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/", s.handleDashboard)

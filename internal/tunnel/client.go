@@ -69,22 +69,33 @@ func (c *Client) Run(ctx context.Context) error {
 		return fmt.Errorf("create IPC dir: %w", err)
 	}
 
+	runCtx, cancel := context.WithCancel(ctx)
+
 	// Start health writer
-	go c.healthLoop(ctx)
+	var healthWG sync.WaitGroup
+	healthWG.Add(1)
+	go func() {
+		defer healthWG.Done()
+		c.healthLoop(runCtx)
+	}()
+	defer func() {
+		cancel()
+		healthWG.Wait()
+	}()
 
 	attempt := 0
 	for {
 		select {
-		case <-ctx.Done():
+		case <-runCtx.Done():
 			c.closeConn()
-			return ctx.Err()
+			return runCtx.Err()
 		default:
 		}
 
 		connStart := time.Now()
-		err := c.connectAndServe(ctx)
-		if ctx.Err() != nil {
-			return ctx.Err()
+		err := c.connectAndServe(runCtx)
+		if runCtx.Err() != nil {
+			return runCtx.Err()
 		}
 
 		// If the connection was stable for a while, reset backoff so transient blips don't accumulate.
@@ -110,8 +121,8 @@ func (c *Client) Run(ctx context.Context) error {
 		c.writeHealthOnce()
 
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-runCtx.Done():
+			return runCtx.Err()
 		case <-time.After(backoff):
 		}
 	}

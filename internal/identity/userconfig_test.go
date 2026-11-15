@@ -65,6 +65,30 @@ func TestLoadUserConfig(t *testing.T) {
 		var uc *UserConfig
 		require.ErrorContains(t, uc.Save(), "nil")
 	})
+
+	t.Run("storage config", func(t *testing.T) {
+		isolateHome(t)
+		readOnly := true
+		uc := &UserConfig{
+			Storage: &StorageConfig{
+				Enabled: true,
+				Shares: []StorageShareConfig{
+					{ID: "media", Name: "Media", Root: "/mnt/nas/media", ReadOnly: &readOnly},
+				},
+			},
+		}
+		require.NoError(t, uc.Save())
+
+		loaded, err := LoadUserConfig()
+		require.NoError(t, err)
+		require.NotNil(t, loaded.Storage)
+		require.True(t, loaded.Storage.Enabled)
+		require.Len(t, loaded.Storage.Shares, 1)
+		require.Equal(t, "media", loaded.Storage.Shares[0].ID)
+		require.Equal(t, "/mnt/nas/media", loaded.Storage.Shares[0].Root)
+		require.NotNil(t, loaded.Storage.Shares[0].ReadOnly)
+		require.True(t, *loaded.Storage.Shares[0].ReadOnly)
+	})
 }
 
 func TestUserConfigPath(t *testing.T) {
@@ -376,6 +400,48 @@ func TestTunnelConfig(t *testing.T) {
 		require.ErrorContains(t, SetTunnelEnabled("nonexistent", true), "not found")
 		require.Error(t, SetTunnelEnabled("", true))
 	})
+}
+
+func TestStorageShareConfigHelpers(t *testing.T) {
+	isolateHome(t)
+	root := t.TempDir()
+
+	require.NoError(t, UpsertStorageShare("media", "Media", root))
+	loaded, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.NotNil(t, loaded.Storage)
+	require.True(t, loaded.Storage.Enabled)
+	require.Len(t, loaded.Storage.Shares, 1)
+	require.Equal(t, "media", loaded.Storage.Shares[0].ID)
+	require.Equal(t, "Media", loaded.Storage.Shares[0].Name)
+	require.Equal(t, root, loaded.Storage.Shares[0].Root)
+	require.NotNil(t, loaded.Storage.Shares[0].ReadOnly)
+	require.True(t, *loaded.Storage.Shares[0].ReadOnly)
+	require.NotNil(t, loaded.Storage.Shares[0].Enabled)
+	require.True(t, *loaded.Storage.Shares[0].Enabled)
+
+	require.NoError(t, SetStorageShareEnabled("media", false))
+	loaded, err = LoadUserConfig()
+	require.NoError(t, err)
+	require.NotNil(t, loaded.Storage.Shares[0].Enabled)
+	require.False(t, *loaded.Storage.Shares[0].Enabled)
+
+	require.NoError(t, SetStorageShareEnabled("media", true))
+	loaded, err = LoadUserConfig()
+	require.NoError(t, err)
+	require.True(t, loaded.Storage.Enabled)
+	require.True(t, *loaded.Storage.Shares[0].Enabled)
+
+	require.NoError(t, RemoveStorageShare("media"))
+	loaded, err = LoadUserConfig()
+	require.NoError(t, err)
+	require.NotNil(t, loaded.Storage)
+	require.False(t, loaded.Storage.Enabled)
+	require.Empty(t, loaded.Storage.Shares)
+
+	require.ErrorContains(t, UpsertStorageShare("", "Media", root), "id")
+	require.ErrorContains(t, UpsertStorageShare("media", "Media", ""), "root")
+	require.ErrorContains(t, SetStorageShareEnabled("missing", true), "not found")
 }
 
 func TestVPNConfig(t *testing.T) {

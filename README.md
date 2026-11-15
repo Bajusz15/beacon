@@ -2,7 +2,7 @@
 
 <img src="./docs/logo.png" alt="Beacon Logo" width="120" height="120">
 
-**Securely reach and monitor every machine you run — from one binary. No open ports, and nothing sensitive ever leaves your box.**
+**Self-hosted infrastructure — secure remote access, monitoring, and tunneling platform.**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
@@ -156,111 +156,167 @@ each guest.
 
 ## 🔑 Securing remote access
 
-Remote terminal and tunnel sessions are reached through the BeaconInfra relay. By
-default the relay is gated by short-lived, authenticated tokens. If you want a
-second factor that the cloud **cannot** forge or replay, turn on the remote-access
-gate. Once configured, no remote terminal or tunnel session can open until you
-unlock it, and the unlock is **verified on the device** — the cloud only relays.
+BeaconInfra relays remote terminal and tunnel sessions to your device. Configure
+a device-side remote-access factor to require your approval before a session can
+open. Enrollment and unlocking are verified by the Beacon agent on that device.
 
-A **passkey (WebAuthn)** is the preferred factor; a **passphrase** is the
-fallback. On top of either, you can add an **authenticator-app code (TOTP)** as an
-out-of-band confirmation. Enroll whichever you like.
+| Factor | What you use | Setup |
+| --- | --- | --- |
+| **Passkey (recommended)** | Touch ID, Face ID, Windows Hello, a security key, or your phone | Generate an enrollment code on the device, then register in BeaconInfra. |
+| **Passphrase (fallback)** | A separate remote-access passphrase | Set it on the device; enter it when unlocking in the browser. |
+| **Authenticator app (optional extra factor)** | A six-digit, time-based code | Scan a QR code from the device into your authenticator app. Required alongside either primary factor once enrolled. |
+
+The fingerprint reader or face recognition belongs to the **laptop or phone you
+browse from**. The machine running Beacon does not need biometric hardware. Your
+operating system controls verification and may offer its device PIN or password
+instead. This setup protects device access; it is separate from signing in to
+your BeaconInfra account.
+
+Run the commands below **on the machine running Beacon, as the same user that
+runs its service**. If you use a custom `BEACON_HOME`, use that same setting.
+Start by checking which factors are configured:
 
 ```bash
-# Preferred: enroll a passkey (Touch ID / Windows Hello / security key / phone).
-# Prints a one-time enrollment code to paste into the dashboard.
-beacon remote-access add-passkey
-beacon remote-access list-passkeys
-beacon remote-access remove-passkey <id-or-label>
-
-# Fallback: set (or change) a passphrase — prompted twice, no echo
-beacon remote-access set-passphrase
-
-# Optional out-of-band factor: scan the QR into an authenticator app.
-# Every unlock then also asks for the current 6-digit code.
-beacon remote-access setup-oob
-beacon remote-access remove-oob
-
-# Check what's configured
 beacon remote-access status
-
-# Remove everything (local recovery; disables the gate)
-beacon remote-access clear
 ```
 
-Restart `beacon` after changing factors so a running agent picks up the gate.
+### Set up a passkey for biometric verification
 
-### Why a passkey, not just a passphrase
+1. On the machine running Beacon, generate a one-time enrollment code:
 
-**In both factors, your passphrase never travels over the network.** The browser
-keeps it local, derives a key from it, and sends only a one-time computed proof —
-the agent verifies that proof on the device. The cloud never sees the passphrase
-or anything reusable.
+   ```bash
+   beacon remote-access add-passkey
+   ```
 
-A passkey is simply **safer still**: there's no typed secret at all. Its private
-key lives in your authenticator hardware (Touch ID, Windows Hello, a security key,
-your phone) and is used to sign a one-time challenge; the agent stores only the
-**public key** and verifies the signature. Nothing the browser handles could be
-captured and replayed later, which is why passkeys are the preferred factor.
+2. On your laptop or phone, open **BeaconInfra → Remote Access → Secure unlock →
+   Add a passkey**. Select the device running Beacon, enter its enrollment code,
+   and optionally give the passkey a label such as “My laptop”. The code expires
+   after a few minutes and can only be used once. The agent must be running and
+   connected to BeaconInfra during enrollment.
+3. Complete your browser's passkey creation prompt using your preferred
+   authenticator. This enrolls a new passkey; clicking **Use passkey** in an
+   unlock dialog does not enroll one.
+4. After enrollment, verify it and restart the running agent:
 
-### How enrollment works
+   ```bash
+   beacon remote-access list-passkeys
+   beacon restart
+   ```
 
-1. Run `beacon remote-access add-passkey` on the device. It prints a **one-time
-   enrollment code** (also visible in the Home Assistant add-on log), valid for a
-   few minutes and usable once.
-2. In the dashboard, choose **Add passkey**, enter the code, and complete your
-   browser's passkey prompt (biometric / PIN).
-3. The browser creates the passkey bound to the dashboard's domain (`rpId`) and
-   sends the **public key** to the device. The agent verifies the registration and
-   stores only the public key, credential id, `rpId`/origin, and a signature
-   counter in `~/.beacon/remote-access.json` (mode `0600`).
+5. When opening a remote terminal or requesting a tunnel connection in
+   BeaconInfra, choose **Use passkey** and complete the biometric or PIN prompt.
 
-Rooting enrollment in a device-local code (or a valid passphrase unlock) means a
-compromised cloud **cannot enroll its own passkey** — it never has the code.
+Beacon stores the passkey's public key and registration metadata locally. The
+private key stays with your authenticator or passkey provider; your biometric
+data is not sent to Beacon or BeaconInfra. Enrollment is authorized by the
+one-time code generated on your device.
 
-To add the optional authenticator-app factor, run `beacon remote-access setup-oob`.
-It generates a TOTP secret and prints an `otpauth://` **QR code** (and the plain
-secret) right in the terminal — or the Home Assistant add-on log. Scan it with any
-authenticator app (Google Authenticator, 1Password, Authy). The secret is created
-on the device and stored locally; it never reaches the cloud.
+### Set up a passphrase fallback
 
-### How an unlock works
+You can keep a passphrase alongside your passkey, or use a passphrase on its own:
 
-Opening a terminal or tunnel is verified on the device:
+```bash
+beacon remote-access set-passphrase
+beacon restart
+```
 
-1. **A WebAuthn assertion.** The agent issues a single-use, short-lived **nonce**
-   as the challenge. Your authenticator signs it (user verification — biometric or
-   PIN — is **required**). The agent verifies the signature against the stored
-   public key, checks the `rpId`/origin it pinned at enrollment, the nonce, the
-   user-present/user-verified flags, and a **monotonic signature counter** (replay
-   defense). With the passphrase fallback, the browser instead returns a proof =
-   `HMAC-SHA256(Argon2id-key, nonce ‖ action ‖ session_id)`, compared in constant
-   time. Either way the cloud sees no reusable secret.
-2. **The authenticator-app code, when enrolled.** If you ran `setup-oob`, the
-   unlock also asks for the current **6-digit TOTP code** from your app. The agent
-   verifies it against the locally-stored secret; the code is single-use within its
-   window. This is generated on your phone and checked on the device — the cloud is
-   never in the loop.
+The command prompts twice without echoing the passphrase. In the browser,
+select **Use passphrase instead**. The browser derives a one-time proof from
+the passphrase, and the agent verifies it; the passphrase is not sent to the
+relay.
 
-A successful unlock is **in-memory, single-use, session-bound, and TTL-limited**,
-and is cleared on restart (fail-closed). Repeated wrong attempts (assertion or
-code) trigger **rate-limiting / backoff**. **Tunnels do not auto-start** while the
-gate is configured — each comes up only on an unlocked connect, so a restart
-(which clears grants) requires unlocking again before any local service is
-reachable.
+### Add an authenticator-app code
 
-### Why it's strong
+This is an **additional factor**, separate from biometric passkey verification.
+A passphrase or passkey must already be configured.
 
-- **No reusable secret crosses the network.** Only a one-time computed proof (or a
-  passkey signature) is sent, and the device verifies it — there's nothing to
-  capture and replay later.
-- **The cloud cannot silently open a session.** Unlocking always takes a
-  deliberate action on your own hardware — a biometric touch on your authenticator,
-  and (when enrolled) the current code from your authenticator app, which the cloud
-  never sees.
+```bash
+beacon remote-access setup-oob
+```
 
-With no factor configured, behavior is unchanged (the gate is off, and tunnels
-auto-start as before).
+The command prints a **QR code in your terminal**, plus a manual setup secret.
+Scan the QR code using your authenticator app, or add the secret manually. Save
+the entry before restarting Beacon:
+
+```bash
+beacon restart
+beacon remote-access status
+```
+
+Now enter the current six-digit code in **Authenticator code** whenever you
+unlock with either your passkey or passphrase. This code is generated by your
+authenticator app and verified on the Beacon device.
+
+Authenticator-app enrollment is currently **CLI-only**; the dashboard does not
+provide a QR-code setup wizard. The unlock dialog shows the code field even
+when no app is enrolled: **leave it blank if `remote-access status` says
+“Out-of-band: not set”**. If you only configured a passphrase, choose
+**Use passphrase instead** and leave the code blank.
+
+Running `setup-oob` again **replaces the existing authenticator secret**. It
+enables the new factor immediately in the saved configuration, without asking
+you to confirm a code first. Do not rerun it just to inspect the setup. Treat
+the QR code and manual secret as credentials; do not post them in logs or
+support requests.
+
+### Open protected tunnels and storage
+
+When a remote-access factor is configured, enabled tunnels **do not auto-start**.
+`beacon tunnel enable` enables their configuration; it does not unlock them.
+
+In BeaconInfra, open the device's **Tunnels** section and choose **Request
+reconnect** for the tunnel you want. Complete the passkey or passphrase prompt,
+including an authenticator-app code if enrolled. Allow the next agent heartbeat
+to deliver the request; use the interval shown in the agent logs.
+
+For browser file access, configure a tunnel named exactly `storage` pointing at
+Beacon's dashboard port (the default is `9100`):
+
+```bash
+beacon storage add files --root /srv/shared-files --name "My files"
+beacon tunnel add storage --port 9100
+beacon restart
+```
+
+Replace `/srv/shared-files` with an existing directory readable by Beacon. If
+the `storage` tunnel is already configured correctly, skip adding it again.
+Request and unlock the **storage** tunnel in the dashboard, wait for it to
+connect, then open **Storage Shares → Browse**. The current storage browser does
+not initiate the unlock/connect flow itself. Seeing a share in the dashboard
+confirms its configuration was reported, not that its tunnel is connected.
+
+Restarting Beacon stops tunnels and clears in-memory unlock grants. After a
+restart, request and unlock each protected tunnel again before browsing its
+service or files.
+
+### Manage factors and recover local access
+
+Inspect the configuration without printing secrets:
+
+```bash
+beacon remote-access status
+beacon remote-access list-passkeys
+```
+
+To remove a factor, run the relevant command locally on the Beacon device, then
+restart the agent:
+
+```bash
+beacon remote-access remove-passkey <id-or-label>
+beacon remote-access clear-passphrase
+beacon remote-access remove-oob
+beacon restart
+```
+
+Each removal preserves the other factors. For example, if you lost access to
+your authenticator app, `remove-oob` removes that extra requirement while
+keeping your passphrase and passkeys. Do not run every removal command unless
+you intend to remove every factor.
+
+`beacon remote-access clear` is a local recovery command that removes **all**
+remote-access factors. After restarting, device-side verification is disabled
+and enabled tunnels can auto-start. Use it only when you intend to disable the
+gate, then enroll your replacement factors.
 
 ---
 
@@ -556,6 +612,8 @@ beacon service install
 
 Installs and starts a systemd service that runs the agent, starts on boot, and auto-restarts — a **system** service when run as root, otherwise a **per-user** service. Remove it with `beacon service uninstall`, check it with `beacon service status`.
 
+For per-user services, installation also enables systemd **lingering** so Beacon starts before login and keeps running after you disconnect. This applies to services created by `beacon bootstrap` too. If permissions prevent enabling lingering, the installer prints a `sudo loginctl enable-linger` command to run before retrying. To repair an existing user service, run `beacon service install` again. Uninstalling Beacon leaves lingering enabled because other user services may depend on it.
+
 > On macOS or a host without systemd, run `beacon start` directly (macOS uses launchd).
 
 ---
@@ -579,6 +637,7 @@ The low-level `beacon start` / `init` / `monitor` commands still work for debugg
 
 - [docs/MASTER_AGENT.md](./docs/MASTER_AGENT.md) — agent architecture and heartbeats
 - [docs/VPN.md](./docs/VPN.md) — WireGuard VPN setup and security model
+- [docs/NAS.md](./docs/NAS.md) — planned NAS file gateway architecture
 - [docs/LOG_FORWARDING.md](./docs/LOG_FORWARDING.md) — log forwarding
 - [docs/KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md) — encrypted key store
 - [docs/MCP.md](./docs/MCP.md) — MCP server for editors

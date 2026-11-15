@@ -44,6 +44,18 @@ type vpnHeartbeatReport struct {
 	BytesTx    uint64 `json:"bytes_tx,omitempty"`
 }
 
+type storageShareHeartbeatReport struct {
+	ID       string `json:"id"`
+	Name     string `json:"name,omitempty"`
+	Enabled  bool   `json:"enabled"`
+	ReadOnly bool   `json:"read_only"`
+}
+
+type storageHeartbeatReport struct {
+	Enabled bool                          `json:"enabled"`
+	Shares  []storageShareHeartbeatReport `json:"shares,omitempty"`
+}
+
 type heartbeatRequest struct {
 	Hostname       string                  `json:"hostname"`
 	IPAddress      string                  `json:"ip_address"`
@@ -56,6 +68,7 @@ type heartbeatRequest struct {
 	Projects       []ProjectHealth         `json:"projects,omitempty"`
 	Tunnels        []tunnelHeartbeatReport `json:"tunnels,omitempty"`
 	VPN            *vpnHeartbeatReport     `json:"vpn,omitempty"`
+	Storage        *storageHeartbeatReport `json:"storage,omitempty"`
 	CommandResults []CommandResultReport   `json:"command_results,omitempty"`
 	SystemMetrics  *heartbeatSystemMetrics `json:"system_metrics,omitempty"`
 	RemoteAccess   *remoteAccessReport     `json:"remote_access,omitempty"`
@@ -127,6 +140,31 @@ func buildTunnelHeartbeatReports(cfg *identity.UserConfig, tm *tunnel.TunnelMana
 		return nil
 	}
 	return out
+}
+
+func buildStorageHeartbeatReport(cfg *identity.UserConfig) *storageHeartbeatReport {
+	if cfg == nil || cfg.Storage == nil {
+		return nil
+	}
+	report := &storageHeartbeatReport{Enabled: cfg.Storage.Enabled}
+	if !cfg.Storage.Enabled {
+		return report
+	}
+	for _, share := range cfg.Storage.Shares {
+		id := strings.TrimSpace(share.ID)
+		if id == "" {
+			continue
+		}
+		enabled := share.Enabled == nil || *share.Enabled
+		readOnly := share.ReadOnly == nil || *share.ReadOnly
+		report.Shares = append(report.Shares, storageShareHeartbeatReport{
+			ID:       id,
+			Name:     strings.TrimSpace(share.Name),
+			Enabled:  enabled,
+			ReadOnly: readOnly,
+		})
+	}
+	return report
 }
 
 func getOutboundIP() string {
@@ -426,6 +464,13 @@ func (h *heartbeatLoop) tryBeat() {
 		logger.Infof("Reload config: %v", err)
 		return
 	}
+	if h.statusCache != nil {
+		h.statusCache.UpdateConfig(uc)
+	}
+	if h.dispatcher != nil && uc != nil {
+		h.dispatcher.SetAllowedActions(uc.AllowedRemoteCommands)
+		h.dispatcher.CollectResults()
+	}
 	if uc == nil || !uc.CloudReportingEnabled {
 		return
 	}
@@ -436,10 +481,6 @@ func (h *heartbeatLoop) tryBeat() {
 	if name == "" {
 		name = getHostname()
 	}
-
-	h.statusCache.UpdateConfig(uc)
-	h.dispatcher.SetAllowedActions(uc.AllowedRemoteCommands)
-	h.dispatcher.CollectResults()
 
 	// Reconcile VPN state with the (possibly hot-reloaded) config. Reconcile is
 	// idempotent — a no-op if nothing changed — so it's cheap to call every tick.
@@ -509,6 +550,7 @@ func sendCloudHeartbeat(ctx context.Context, h *heartbeatLoop, cfg *identity.Use
 		},
 		Projects:       AggregateProjectHealth(pm),
 		Tunnels:        buildTunnelHeartbeatReports(cfg, tm),
+		Storage:        buildStorageHeartbeatReport(cfg),
 		CommandResults: commandResults,
 		RemoteAccess:   &remoteAccessReport{Configured: remoteaccess.IsConfigured()},
 	}

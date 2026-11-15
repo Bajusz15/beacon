@@ -13,8 +13,17 @@ import (
 func CommandEnv(cfg *config.Config, extra ...string) ([]string, error) {
 	envMap := util.EnvSliceToMap(os.Environ())
 
-	if cfg.SecureEnvPath != "" {
-		path := os.ExpandEnv(cfg.SecureEnvPath)
+	secureEnvPath := os.ExpandEnv(cfg.SecureEnvPath)
+	// Older project env files commonly keep the secure env path inline in the
+	// deploy command. Use that path when the configured/default path is absent.
+	if commandPath := secureEnvPathFromDeployCommand(cfg.DeployCommand); commandPath != "" {
+		if secureEnvPath == "" || !pathExists(secureEnvPath) {
+			secureEnvPath = commandPath
+		}
+	}
+
+	if secureEnvPath != "" {
+		path := os.ExpandEnv(secureEnvPath)
 		values, err := util.ReadEnvFileMap(path, envMap)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -46,6 +55,21 @@ func CommandEnv(cfg *config.Config, extra ...string) ([]string, error) {
 		env = append(env, key+"="+value)
 	}
 	return env, nil
+}
+
+func secureEnvPathFromDeployCommand(command string) string {
+	for _, token := range strings.Fields(command) {
+		token = strings.Trim(token, "\"'")
+		if strings.HasPrefix(token, "BEACON_SECURE_ENV_PATH=") {
+			return strings.Trim(strings.TrimPrefix(token, "BEACON_SECURE_ENV_PATH="), "\"'")
+		}
+	}
+	return ""
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(os.ExpandEnv(path))
+	return err == nil
 }
 
 func mergeBeaconSecrets(cfg *config.Config, envMap map[string]string) error {

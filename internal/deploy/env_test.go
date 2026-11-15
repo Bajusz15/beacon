@@ -37,6 +37,29 @@ func TestCommandEnv(t *testing.T) {
 		}
 	})
 
+	t.Run("loads secure env path embedded in deploy command", func(t *testing.T) {
+		t.Setenv("BEACON_HOME", t.TempDir())
+		envFile := filepath.Join(t.TempDir(), "secure.env")
+		if err := os.WriteFile(envFile, []byte("FROM_INLINE_ENV=1\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cfg := &config.Config{
+			ProjectName:   "myapp",
+			ProjectEnv:    "prod",
+			SecureEnvPath: filepath.Join(t.TempDir(), "default.env"),
+			DeployCommand: "cd /srv/app && BEACON_SECURE_ENV_PATH=" + envFile + " ./deploy-production.sh",
+		}
+		env, err := CommandEnv(cfg)
+		if err != nil {
+			t.Fatalf("CommandEnv() error = %v", err)
+		}
+		if got := envValue(env, "FROM_INLINE_ENV"); got != "1" {
+			t.Fatalf("FROM_INLINE_ENV = %q, want 1", got)
+		}
+	})
+}
+
+func TestCommandEnvSecretsAndOverrides(t *testing.T) {
 	t.Run("secrets override secure env", func(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("BEACON_HOME", home)

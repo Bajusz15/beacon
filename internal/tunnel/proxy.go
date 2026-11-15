@@ -157,7 +157,7 @@ func ProxyHTTPRequest(dt DialTarget, msg *Message) (*Message, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	const maxBody = 10 << 20
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	body, tooLarge, err := readLimitedBody(resp.Body, maxBody)
 	if err != nil {
 		log.Printf("[Beacon tunnel proxy] HTTP upstream response read failed method=%s path=%s status=%d err=%v",
 			method, safeTunnelLogPath(msg.Path), resp.StatusCode, err)
@@ -166,6 +166,16 @@ func ProxyHTTPRequest(dt DialTarget, msg *Message) (*Message, error) {
 			RequestID: msg.RequestID,
 			Status:    502,
 			Error:     fmt.Sprintf("read response: %v", err),
+		}, nil
+	}
+	if tooLarge {
+		log.Printf("[Beacon tunnel proxy] HTTP upstream response rejected method=%s path=%s status=%d limit_bytes=%d",
+			method, safeTunnelLogPath(msg.Path), resp.StatusCode, maxBody)
+		return &Message{
+			Type:      MsgHTTPResponse,
+			RequestID: msg.RequestID,
+			Status:    http.StatusBadGateway,
+			Error:     fmt.Sprintf("upstream response exceeds %d bytes", maxBody),
 		}, nil
 	}
 	log.Printf("[Beacon tunnel proxy] HTTP upstream response method=%s path=%s status=%d body_bytes=%d",
@@ -191,6 +201,17 @@ func ProxyHTTPRequest(dt DialTarget, msg *Message) (*Message, error) {
 		Headers:   headers,
 		Body:      base64.StdEncoding.EncodeToString(body),
 	}, nil
+}
+
+func readLimitedBody(r io.Reader, limit int64) ([]byte, bool, error) {
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(body)) > limit {
+		return nil, true, nil
+	}
+	return body, false, nil
 }
 
 // ProxyWSOpen dials the upstream WebSocket and returns the connection.
