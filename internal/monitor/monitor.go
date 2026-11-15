@@ -944,6 +944,7 @@ func (m *Monitor) commandCheckEnv() ([]string, string) {
 	}
 	cfg := &config.Config{
 		SecureEnvPath:  vals["BEACON_SECURE_ENV_PATH"],
+		DeployCommand:  vals["BEACON_DEPLOY_CMD"],
 		ProjectName:    projectName,
 		ProjectEnv:     vals["BEACON_PROJECT_ENV"],
 		LocalPath:      os.ExpandEnv(vals["BEACON_LOCAL_PATH"]),

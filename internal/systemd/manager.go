@@ -44,6 +44,9 @@ func NewServiceManager(serviceType ServiceType) *ServiceManager {
 
 // CreateService creates a systemd service file for a Beacon project
 func (sm *ServiceManager) CreateService(config *ServiceConfig) error {
+	if err := sm.EnsureLingering(); err != nil {
+		return err
+	}
 	servicePath := sm.getServicePath(config.ProjectName)
 
 	// Ensure the directory exists
@@ -358,6 +361,9 @@ func (sm *ServiceManager) UnitFilePath(unit string) string {
 func (sm *ServiceManager) CreateMasterService(execStart, workingDir string) error {
 	if strings.TrimSpace(execStart) == "" {
 		return fmt.Errorf("execStart is empty")
+	}
+	if err := sm.EnsureLingering(); err != nil {
+		return err
 	}
 	if workingDir == "" {
 		homeDir, _ := os.UserHomeDir()

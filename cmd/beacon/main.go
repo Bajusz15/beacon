@@ -33,8 +33,8 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "beacon",
-	Short: "Beacon - IoT deployment and monitoring agent",
-	Long: `Beacon is a lightweight agent for self-hosted devices — deploy, monitor, and report health.
+	Short: "Beacon - Secure remote access, monitoring, and tunneling",
+	Long: `Beacon is an open-source agent for self-hosted infrastructure — secure remote access, monitoring, and tunneling.
 
   With no subcommand, this help is shown. Use beacon start for the master agent (dashboard, tunnels, heartbeats), or beacon deploy to poll Git/Docker for releases.
 

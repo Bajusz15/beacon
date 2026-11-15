@@ -27,7 +27,7 @@ func TestCommandCheckEnv_InjectsSecureEnv(t *testing.T) {
 
 	envFile := filepath.Join(projectDir, "env")
 	require.NoError(t, os.WriteFile(envFile,
-		[]byte("BEACON_SECURE_ENV_PATH="+secureEnv+"\nBEACON_LOCAL_PATH="+localPath+"\n"), 0o600))
+		[]byte("BEACON_LOCAL_PATH="+localPath+"\nBEACON_DEPLOY_CMD=BEACON_SECURE_ENV_PATH="+secureEnv+" ./deploy-production.sh\n"), 0o600))
 
 	m := &Monitor{config: &Config{}, configPath: filepath.Join(projectDir, "monitor.yml")}
 

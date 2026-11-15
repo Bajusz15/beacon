@@ -2,7 +2,7 @@
 
 <img src="./docs/logo.png" alt="Beacon Logo" width="120" height="120">
 
-**Securely reach and monitor every machine you run — from one binary. No open ports, and nothing sensitive ever leaves your box.**
+**Self-hosted infrastructure — secure remote access, monitoring, and tunneling platform.**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
@@ -555,6 +555,8 @@ beacon service install
 ```
 
 Installs and starts a systemd service that runs the agent, starts on boot, and auto-restarts — a **system** service when run as root, otherwise a **per-user** service. Remove it with `beacon service uninstall`, check it with `beacon service status`.
+
+For per-user services, installation also enables systemd **lingering** so Beacon starts before login and keeps running after you disconnect. This applies to services created by `beacon bootstrap` too. If permissions prevent enabling lingering, the installer prints a `sudo loginctl enable-linger` command to run before retrying. To repair an existing user service, run `beacon service install` again. Uninstalling Beacon leaves lingering enabled because other user services may depend on it.
 
 > On macOS or a host without systemd, run `beacon start` directly (macOS uses launchd).
 
