@@ -1,7 +1,6 @@
 package systemd
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -96,7 +95,7 @@ fi
 					t.Fatal("project installation accepted disabled lingering")
 				}
 				if _, err := os.Stat(filepath.Join(dir, ".config", "systemd", "user")); !os.IsNotExist(err) {
-					t.Fatal(fmt.Sprintf("failed installation created service directory: %v", err))
+					t.Fatalf("failed installation created service directory: %v", err)
 				}
 			}
 		})

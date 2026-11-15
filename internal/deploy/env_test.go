@@ -57,7 +57,9 @@ func TestCommandEnv(t *testing.T) {
 			t.Fatalf("FROM_INLINE_ENV = %q, want 1", got)
 		}
 	})
+}
 
+func TestCommandEnvSecretsAndOverrides(t *testing.T) {
 	t.Run("secrets override secure env", func(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("BEACON_HOME", home)
