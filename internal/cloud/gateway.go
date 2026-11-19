@@ -21,7 +21,7 @@ func NormalizeGatewayURL(raw string) (string, error) {
 	}
 	ip := net.ParseIP(u.Hostname())
 	loopback := strings.EqualFold(u.Hostname(), "localhost") || (ip != nil && ip.IsLoopback())
-	if u.Scheme != "https" && !(u.Scheme == "http" && loopback) {
+	if u.Scheme != "https" && (u.Scheme != "http" || !loopback) {
 		return "", fmt.Errorf("gateway requires HTTPS (HTTP is allowed only on loopback)")
 	}
 	path := strings.TrimRight(u.Path, "/")
