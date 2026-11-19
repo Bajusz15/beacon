@@ -44,7 +44,7 @@ func createConfigCommand() *cobra.Command {
 				deviceName, _ = os.Hostname()
 			}
 			fmt.Printf("device_name: %s\n", deviceName)
-			fmt.Printf("cloud_api_base: %s\n", cloud.BeaconInfraAPIBase())
+			fmt.Printf("cloud_api_base: %s\n", uc.EffectiveCloudAPIBase())
 			fmt.Printf("cloud_reporting_enabled: %v\n", uc.CloudReportingEnabled)
 			if uc.APIKey != "" {
 				fmt.Println("api_key: (set)")

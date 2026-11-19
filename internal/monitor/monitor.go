@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"beacon/internal/audit"
-	"beacon/internal/cloud"
 	"beacon/internal/config"
 	"beacon/internal/deploy"
 	"beacon/internal/errors"
@@ -393,7 +392,7 @@ func applyUserConfigToMonitorConfig(cfg *Config, uc *identity.UserConfig) {
 		cfg.SystemMetrics = systemMetricsFromUserConfig(uc.SystemMetrics)
 	}
 	if uc.CloudReportingEnabled && cfg.Report.SendTo == "" {
-		cfg.Report.SendTo = cloud.BeaconInfraAPIBase()
+		cfg.Report.SendTo = uc.EffectiveCloudAPIBase()
 	}
 	if uc.CloudReportingEnabled && strings.TrimSpace(uc.APIKey) != "" && !reportSendToFromFile {
 		cfg.Report.Heartbeat.Enabled = true

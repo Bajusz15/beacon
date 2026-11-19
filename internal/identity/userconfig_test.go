@@ -445,3 +445,28 @@ func TestVPNConfig(t *testing.T) {
 		require.Empty(t, loaded.VPN.PeerDevice)
 	})
 }
+
+func TestGatewayLoginPersistsAndSwitchesIdentity(t *testing.T) {
+	isolateHome(t)
+	require.NoError(t, WriteGatewayLogin("usr_first", "home", "https://first.example.com"))
+	cfg, err := LoadUserConfig()
+	require.NoError(t, err)
+	require.Equal(t, "https://first.example.com/api", cfg.EffectiveCloudAPIBase())
+	cfg.DeviceID = "first-server-id"
+	require.NoError(t, cfg.Save())
+	require.NoError(t, WriteCloudLogin("usr_rotated", ""))
+	cfg, err = LoadUserConfig()
+	require.NoError(t, err)
+	require.Equal(t, "first-server-id", cfg.DeviceID)
+	require.Equal(t, "https://first.example.com/api", cfg.EffectiveCloudAPIBase())
+	require.Error(t, WriteGatewayLogin("usr_bad", "", "http://untrusted.example.com"))
+	cfg, err = LoadUserConfig()
+	require.NoError(t, err)
+	require.Equal(t, "usr_rotated", cfg.APIKey)
+	require.NoError(t, WriteGatewayLogin("usr_second", "", "https://second.example.com"))
+	cfg, err = LoadUserConfig()
+	require.NoError(t, err)
+	require.Empty(t, cfg.DeviceID)
+	require.Equal(t, "home", cfg.DeviceName)
+	require.Equal(t, "https://second.example.com/api", cfg.EffectiveCloudAPIBase())
+}

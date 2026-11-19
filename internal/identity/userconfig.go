@@ -17,6 +17,7 @@ import (
 // UserConfig is ~/.beacon/config.yaml (v2 identity).
 type UserConfig struct {
 	APIKey                string          `yaml:"api_key,omitempty"`
+	CloudURL              string          `yaml:"cloud_url,omitempty"`
 	DeviceName            string          `yaml:"device_name,omitempty"`
 	HeartbeatInterval     int             `yaml:"heartbeat_interval,omitempty"`
 	CloudReportingEnabled bool            `yaml:"cloud_reporting_enabled"`
@@ -141,6 +142,12 @@ func LoadUserConfig() (*UserConfig, error) {
 	if err := yaml.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", p, err)
 	}
+	if f.CloudURL != "" {
+		f.CloudURL, err = cloud.NormalizeGatewayURL(f.CloudURL)
+		if err != nil {
+			return nil, fmt.Errorf("cloud_url: %w", err)
+		}
+	}
 	return &f, nil
 }
 
@@ -155,11 +162,13 @@ func (f *UserConfig) Save() error {
 	return saveUserConfig(p, f)
 }
 
-// EffectiveCloudAPIBase returns the compile-time API base URL for heartbeats.
-// The URL is baked into the binary and cannot be overridden at runtime (security).
+// EffectiveCloudAPIBase returns the explicitly configured gateway or the hosted default.
 func (uc *UserConfig) EffectiveCloudAPIBase() string {
 	if uc == nil {
 		return ""
+	}
+	if uc.CloudURL != "" {
+		return uc.CloudURL
 	}
 	return cloud.BeaconInfraAPIBase()
 }
@@ -424,9 +433,22 @@ func ClearVPN() error {
 }
 
 // WriteCloudLogin writes BeaconInfra API credentials and enables cloud reporting.
-// The cloud URL is baked into the binary at compile time and cannot be overridden.
+// Existing callers retain their selected gateway.
 // If deviceName is empty and config already has a device_name, the existing name is preserved.
 func WriteCloudLogin(apiKey, deviceName string) error {
+	return WriteGatewayLogin(apiKey, deviceName, "")
+}
+
+// WriteGatewayLogin atomically saves credentials and an explicitly selected API URL.
+// Empty gateway retains the saved selection. Switching gateway clears its device cache.
+func WriteGatewayLogin(apiKey, deviceName, gateway string) error {
+	if gateway != "" {
+		var err error
+		gateway, err = cloud.NormalizeGatewayURL(gateway)
+		if err != nil {
+			return err
+		}
+	}
 	key := strings.TrimSpace(apiKey)
 	if key == "" {
 		return errors.New("api_key is required")
@@ -442,6 +464,10 @@ func WriteCloudLogin(apiKey, deviceName string) error {
 	}
 	if f == nil {
 		f = &UserConfig{}
+	}
+	if gateway != "" && gateway != f.EffectiveCloudAPIBase() {
+		f.CloudURL = gateway
+		f.DeviceID = ""
 	}
 	f.APIKey = key
 
@@ -517,6 +543,12 @@ func readExistingUserConfig(p string) (*UserConfig, error) {
 	var f UserConfig
 	if err := yaml.Unmarshal(data, &f); err != nil {
 		return nil, err
+	}
+	if f.CloudURL != "" {
+		f.CloudURL, err = cloud.NormalizeGatewayURL(f.CloudURL)
+		if err != nil {
+			return nil, fmt.Errorf("cloud_url: %w", err)
+		}
 	}
 	return &f, nil
 }

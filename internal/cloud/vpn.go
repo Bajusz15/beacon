@@ -41,7 +41,7 @@ func NewVPNClient(baseURL, apiKey, deviceName string) *VPNClient {
 		baseURL:    strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		apiKey:     strings.TrimSpace(apiKey),
 		deviceName: strings.TrimSpace(deviceName),
-		http:       &http.Client{Timeout: 15 * time.Second},
+		http:       &http.Client{Timeout: 15 * time.Second, CheckRedirect: RejectGatewayRedirect},
 	}
 }
 
