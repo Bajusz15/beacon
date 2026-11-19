@@ -36,7 +36,17 @@ beacon cloud login
 beacon cloud login --api-key "bci_live_your_api_key" --name my-homelab-server
 ```
 
-The API base URL is **compiled into the binary** and cannot be overridden at runtime (security: prevents attackers from redirecting heartbeats). Use **`beacon config show`** to see the baked-in URL. Self-hosted users must build from source with `-ldflags "-X beacon/internal/cloud.DefaultBeaconInfraAPIURL=..."`.
+To use your own server, select it explicitly when saving credentials:
+
+```sh
+beacon cloud login --server https://beacon.example.com --api-key YOUR_KEY
+```
+
+The server URL is saved locally; no custom build is needed. Without `--server`,
+Beacon retains the saved selection or uses the hosted trial. HTTPS is required,
+except for loopback development. Use `beacon config show` to inspect the selection.
+Restart the running agent after changing servers. Obtain a new API key from the
+selected server; hosted-trial credentials do not transfer automatically.
 
 Use **`beacon config show`** to print paths, device name, API base, and whether an API key is set.
 
@@ -85,7 +95,7 @@ device_id: ""                 # populated after first successful heartbeat
 | `cloud_reporting_enabled` | Set to `false` to disable heartbeats |
 | `device_id` | Auto-populated UUID after first heartbeat |
 
-> **Note:** The cloud API URL is compiled into the binary (`beacon config show` prints it). It cannot be changed at runtime — this is a security measure to prevent attackers from redirecting traffic.
+> **Note:** `cloud_url` stores an explicitly selected self-hosted server. Environment variables do not silently replace it.
 
 ### Environment Variables
 
@@ -217,7 +227,7 @@ Check if cloud reporting is enabled:
 cat ~/.beacon/config.yaml | grep cloud_reporting_enabled
 ```
 
-Verify API key is set and check compiled cloud URL:
+Verify API key is set and check the selected server URL:
 
 ```bash
 cat ~/.beacon/config.yaml | grep api_key

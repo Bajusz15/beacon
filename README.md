@@ -154,6 +154,25 @@ each guest.
 
 ---
 
+## Use your own server
+
+The same released agent connects to a licensed, self-hosted Beacon server:
+
+```sh
+beacon cloud login --server https://beacon.example.com --api-key YOUR_LOCAL_KEY
+beacon start
+```
+
+Get the key from your own dashboard. The HTTPS server address is saved locally
+and used for heartbeats, service tunnels, and remote terminals. The hosted trial
+remains the default until you explicitly select another server. Inspect the
+selection with `beacon config show` and restart Beacon after changing it.
+
+When moving from the trial to your own domain, enroll a new remote-access passkey:
+passkeys are bound to the dashboard domain. Your existing project and service
+configurations remain local. The server's cached device identity is cleared when
+you select a different server.
+
 ## 🔑 Securing remote access
 
 BeaconInfra relays remote terminal and tunnel sessions to your device. Configure

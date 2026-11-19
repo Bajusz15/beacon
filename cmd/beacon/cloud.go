@@ -19,7 +19,8 @@ func createCloudCommand() *cobra.Command {
 		Use:   "login",
 		Short: "Save BeaconInfra API credentials (interactive or --api-key)",
 		Long: `Writes your API key to ~/.beacon/config.yaml and enables cloud heartbeats.
-The API base URL is baked into this binary at compile time (see "beacon config show").
+Select your own gateway with --server https://access.example.com.
+Without --server, the saved gateway or hosted trial is used.
 
 Get an API key at https://beaconinfra.dev (Settings → API Keys).
 
@@ -27,6 +28,7 @@ Non-interactive: beacon cloud login --api-key bci_live_...
 Or: BEACON_API_KEY=bci_live_... beacon cloud login`,
 		Run: runCloudLogin,
 	}
+	loginCmd.Flags().String("server", "", "Your gateway HTTPS origin or API URL")
 	loginCmd.Flags().String("api-key", "", "User API key (non-interactive); else BEACON_API_KEY")
 	loginCmd.Flags().String("name", "", "Device name (default: hostname)")
 	loginCmd.Flags().String("device-name", "", "Alias for --name")
@@ -92,7 +94,8 @@ func runCloudLogin(cmd *cobra.Command, args []string) {
 		name = strings.TrimSpace(os.Getenv("BEACON_DEVICE_NAME"))
 	}
 
-	if err := identity.WriteCloudLogin(apiKey, name); err != nil {
+	server, _ := cmd.Flags().GetString("server")
+	if err := identity.WriteGatewayLogin(apiKey, name, server); err != nil {
 		logger.Fatalf("beacon cloud login: %v", err)
 	}
 
@@ -103,7 +106,10 @@ func runCloudLogin(cmd *cobra.Command, args []string) {
 	}
 
 	fmt.Println()
-	fmt.Println("  ✓ Authenticated successfully")
+	fmt.Println("  ✓ Credentials saved; the gateway verifies them on connection.")
+	if cfg != nil {
+		fmt.Printf("  ✓ Gateway: %s\n", cfg.EffectiveCloudAPIBase())
+	}
 	if deviceName != "" {
 		fmt.Printf("  ✓ Device name: %s\n", deviceName)
 	}

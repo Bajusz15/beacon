@@ -593,7 +593,7 @@ func sendCloudHeartbeat(ctx context.Context, h *heartbeatLoop, cfg *identity.Use
 	req.Header.Set("Content-Type", "application/json")
 	setAuthHeaders(req, token)
 
-	client := &http.Client{Timeout: 45 * time.Second}
+	client := &http.Client{Timeout: 45 * time.Second, CheckRedirect: cloud.RejectGatewayRedirect}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

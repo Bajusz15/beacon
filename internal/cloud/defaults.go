@@ -7,7 +7,8 @@ import "strings"
 //
 //	go build -ldflags "-X beacon/internal/cloud.DefaultBeaconInfraAPIURL=https://example.com/api" ./cmd/beacon
 //
-// Runtime environment variables must not override this for the default cloud login path.
+// This is the hosted-trial default. A locally saved server can override it;
+// environment variables never silently redirect credentials.
 var DefaultBeaconInfraAPIURL = "https://beaconinfra.dev/api"
 
 // BeaconInfraAPIBase returns the canonical API base URL for this binary (no trailing slash).

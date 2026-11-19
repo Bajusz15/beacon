@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"beacon/internal/backup"
-	"beacon/internal/cloud"
 	"beacon/internal/identity"
 	"beacon/internal/ipc"
 	"beacon/internal/tunnel"
@@ -160,7 +159,7 @@ func (sc *StatusCache) Refresh() {
 	sc.mu.Lock()
 	snap.Cloud = sc.snapshot.Cloud
 	if sc.cfg != nil && sc.cfg.CloudReportingEnabled {
-		snap.Cloud.Endpoint = cloud.BeaconInfraAPIBase()
+		snap.Cloud.Endpoint = sc.cfg.EffectiveCloudAPIBase()
 	}
 	sc.snapshot = snap
 	sc.mu.Unlock()
@@ -223,7 +222,7 @@ func (sc *StatusCache) UpdateConfig(cfg *identity.UserConfig) {
 	defer sc.mu.Unlock()
 	sc.cfg = cfg
 	if cfg != nil && cfg.CloudReportingEnabled {
-		sc.snapshot.Cloud.Endpoint = cloud.BeaconInfraAPIBase()
+		sc.snapshot.Cloud.Endpoint = sc.cfg.EffectiveCloudAPIBase()
 	}
 }
 
